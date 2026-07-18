@@ -29,8 +29,8 @@
       <n-gi>
         <n-card title="数据采集">
           <n-space vertical>
-            <n-button @click="startCollection('full')" :loading="collecting" :disabled="!!activeTaskId">全量采集基础指标</n-button>
-            <n-button @click="startCollection('incremental')" :loading="collecting" :disabled="!!activeTaskId">增量更新</n-button>
+            <n-button @click="startCollection('full')" :loading="collecting" :disabled="!!taskStore.activeTaskId">全量采集基础指标</n-button>
+            <n-button @click="startCollection('incremental')" :loading="collecting" :disabled="!!taskStore.activeTaskId">增量更新</n-button>
           </n-space>
         </n-card>
       </n-gi>
@@ -38,8 +38,8 @@
 
     <!-- Task Progress -->
     <TaskProgress
-      v-if="activeTaskId"
-      :task-id="activeTaskId"
+      v-if="taskStore.activeTaskId"
+      :task-id="taskStore.activeTaskId"
       :show-controls="true"
       @completed="onTaskCompleted"
       @failed="onTaskFailed"
@@ -60,14 +60,15 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
-import { stocksApi, portfoliosApi, filtersApi, agentsApi, dataApi, notificationsApi } from '../api'
+import { stocksApi, portfoliosApi, filtersApi, agentsApi, dataApi, notificationsApi, tasksApi } from '../api'
+import { useTaskStore } from '../stores/taskStore'
 import TaskProgress from '../components/common/TaskProgress.vue'
 
 const message = useMessage()
+const taskStore = useTaskStore()
 const stats = ref({ stockCount: 0, portfolioCount: 0, filterCount: 0, agentCount: 0 })
 const notifications = ref<any[]>([])
 const collecting = ref(false)
-const activeTaskId = ref<string | null>(null)
 
 onMounted(async () => {
   try {
@@ -88,6 +89,22 @@ onMounted(async () => {
   } catch (e) {
     console.error('Failed to load dashboard data:', e)
   }
+
+  // Restore running tasks from backend
+  if (!taskStore.activeTaskId) {
+    try {
+      const res = await tasksApi.list()
+      const runningTask = res.data.find((t: any) =>
+        t.status === 'running' || t.status === 'paused' || t.status === 'pending'
+      )
+      if (runningTask) {
+        taskStore.setActiveTask(runningTask.task_id)
+        message.info(`恢复任务: ${runningTask.task_type}`)
+      }
+    } catch (e) {
+      console.error('Failed to check running tasks:', e)
+    }
+  }
 })
 
 async function startCollection(type: string) {
@@ -101,7 +118,7 @@ async function startCollection(type: string) {
     }
     const taskId = res.data.task_id
     if (taskId) {
-      activeTaskId.value = taskId
+      taskStore.setActiveTask(taskId)
       message.success('数据采集任务已启动')
     } else {
       message.warning('任务已启动但未返回任务ID')
@@ -115,19 +132,18 @@ async function startCollection(type: string) {
 
 function onTaskCompleted() {
   message.success('数据采集完成')
-  activeTaskId.value = null
-  // Refresh stats
+  taskStore.clearActiveTask()
   refreshStats()
 }
 
 function onTaskFailed() {
   message.error('数据采集失败')
-  activeTaskId.value = null
+  taskStore.clearActiveTask()
 }
 
 function onTaskStopped() {
   message.warning('数据采集已停止')
-  activeTaskId.value = null
+  taskStore.clearActiveTask()
 }
 
 async function refreshStats() {

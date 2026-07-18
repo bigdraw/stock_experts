@@ -90,6 +90,10 @@ class TaskManager:
             
             task = self._tasks[task_id]
             
+            # Auto-transition from PENDING to RUNNING on first update
+            if task.status == TaskStatus.PENDING:
+                task.status = TaskStatus.RUNNING
+            
             if current is not None:
                 task.current = current
                 if task.total > 0:
