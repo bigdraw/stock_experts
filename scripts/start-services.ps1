@@ -17,6 +17,17 @@ if (Test-Path $pidFile) {
     }
 }
 
+function Get-ChildPids {
+    param([int]$ParentPid)
+    $children = @()
+    Get-CimInstance Win32_Process -Filter "ParentProcessId=$ParentPid" -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $children += $_.ProcessId
+            $children += Get-ChildPids -ParentPid $_.ProcessId
+        }
+    return $children
+}
+
 # Start backend
 Write-Host "`nStarting backend (FastAPI) on port 8000..." -ForegroundColor Green
 $backendDir = Join-Path $rootDir "backend"
@@ -26,10 +37,10 @@ $backendProcess = Start-Process -FilePath "uv" `
     -PassThru `
     -WindowStyle Normal
 
-Write-Host "Backend PID: $($backendProcess.Id)" -ForegroundColor Gray
+Write-Host "Backend parent PID: $($backendProcess.Id)" -ForegroundColor Gray
 
-# Wait a moment for backend to initialize
-Start-Sleep -Seconds 3
+# Wait for backend to initialize and spawn child processes
+Start-Sleep -Seconds 5
 
 # Start frontend
 Write-Host "`nStarting frontend (Vite) on port 5173..." -ForegroundColor Green
@@ -40,17 +51,31 @@ $frontendProcess = Start-Process -FilePath "cmd.exe" `
     -PassThru `
     -WindowStyle Normal
 
-Write-Host "Frontend PID: $($frontendProcess.Id)" -ForegroundColor Gray
+Write-Host "Frontend parent PID: $($frontendProcess.Id)" -ForegroundColor Gray
 
-# Save PIDs
+# Wait for frontend to spawn child processes
+Start-Sleep -Seconds 3
+
+# Collect full process trees
+$backendPids = @($backendProcess.Id) + @(Get-ChildPids -ParentPid $backendProcess.Id)
+$frontendPids = @($frontendProcess.Id) + @(Get-ChildPids -ParentPid $frontendProcess.Id)
+
+# Filter out dead PIDs (process may have exited already)
+$backendPids = $backendPids | Where-Object { $_ -and (Get-Process -Id $_ -ErrorAction SilentlyContinue) }
+$frontendPids = $frontendPids | Where-Object { $_ -and (Get-Process -Id $_ -ErrorAction SilentlyContinue) }
+
+Write-Host "Backend process tree: $($backendPids -join ', ')" -ForegroundColor Gray
+Write-Host "Frontend process tree: $($frontendPids -join ', ')" -ForegroundColor Gray
+
+# Save all PIDs
 $pids = @{
-    backend = $backendProcess.Id
-    frontend = $frontendProcess.Id
+    backend = $backendPids
+    frontend = $frontendPids
     startedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
 }
 $pids | ConvertTo-Json | Set-Content $pidFile
 
-Write-Host "`n✓ Services started successfully!" -ForegroundColor Green
+Write-Host "`n[OK] Services started successfully!" -ForegroundColor Green
 Write-Host "  Backend:  http://127.0.0.1:8000" -ForegroundColor Cyan
 Write-Host "  Frontend: http://127.0.0.1:5173" -ForegroundColor Cyan
 Write-Host "  API Docs: http://127.0.0.1:8000/docs" -ForegroundColor Cyan
