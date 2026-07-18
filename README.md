@@ -501,7 +501,6 @@ npm run type-check
 - [Naive UI](https://www.naiveui.com/) - Vue 3 组件库
 - [ECharts](https://echarts.apache.org/) - 开源可视化图表库
 - [akshare](https://akshare.akfamily.xyz/) - 开源财经数据接口
-- long-dev - 本项目自研的长任务开发框架（详见 `.opencode/skills/long-dev/`）
 
 ## 📞 联系方式
 
