@@ -27,6 +27,11 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized.")
 
+    # Initialize proxy cache
+    from app.services.data.akshare_provider import get_proxy_enabled
+    proxy_enabled = await get_proxy_enabled()
+    logger.info(f"Proxy cache initialized: proxy_enabled={proxy_enabled}")
+
     # Initialize LLM providers
     logger.info("Initializing LLM providers...")
     await llm_manager.init_from_config()

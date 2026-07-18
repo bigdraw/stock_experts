@@ -12,6 +12,7 @@ from app.api.v1.backtest import router as backtest_router
 from app.api.v1.debate import router as debate_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.tasks import router as tasks_router
+from app.api.v1.settings import router as settings_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth_router)
@@ -24,3 +25,4 @@ api_router.include_router(backtest_router)
 api_router.include_router(debate_router)
 api_router.include_router(notifications_router)
 api_router.include_router(tasks_router)
+api_router.include_router(settings_router)

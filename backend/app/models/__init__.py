@@ -7,7 +7,7 @@ from app.models.agent import Agent
 from app.models.filter import FilterScript
 from app.models.strategy import BacktestStrategy, BacktestResult
 from app.models.notification import Alert, Notification
-from app.models.system import LLMConfig, DataAcquisitionLog
+from app.models.system import LLMConfig, DataAcquisitionLog, SystemSettings
 
 __all__ = [
     "User",
@@ -17,5 +17,5 @@ __all__ = [
     "FilterScript",
     "BacktestStrategy", "BacktestResult",
     "Alert", "Notification",
-    "LLMConfig", "DataAcquisitionLog",
+    "LLMConfig", "DataAcquisitionLog", "SystemSettings",
 ]

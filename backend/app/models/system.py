@@ -34,3 +34,12 @@ class DataAcquisitionLog(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     recovery_attempts: Mapped[int] = mapped_column(Integer, default=0)
     details: Mapped[str | None] = mapped_column(Text)  # JSON
+
+
+class SystemSettings(Base):
+    __tablename__ = "system_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    value: Mapped[str] = mapped_column(String(500), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

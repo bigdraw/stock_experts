@@ -4,9 +4,11 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from typing import Optional
 
 import akshare as ak
 import pandas as pd
+from sqlalchemy import select
 
 from app.services.data.provider import (
     DailyQuote,
@@ -18,25 +20,82 @@ from app.services.data.provider import (
 
 logger = logging.getLogger(__name__)
 
+# Proxy enabled cache (None means not loaded yet)
+_proxy_enabled_cache: Optional[bool] = None
+
+
+async def get_proxy_enabled() -> bool:
+    """Get proxy enabled setting from database."""
+    global _proxy_enabled_cache
+    if _proxy_enabled_cache is not None:
+        return _proxy_enabled_cache
+    
+    from app.database import async_session_factory
+    from app.models.system import SystemSettings
+    
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(SystemSettings).where(SystemSettings.key == "proxy_enabled")
+        )
+        setting = result.scalar_one_or_none()
+        if setting:
+            _proxy_enabled_cache = setting.value.lower() == "true"
+        else:
+            # Default to False (bypass proxy)
+            _proxy_enabled_cache = False
+    return _proxy_enabled_cache
+
+
+async def set_proxy_enabled(enabled: bool):
+    """Set proxy enabled setting in database."""
+    global _proxy_enabled_cache
+    
+    from app.database import async_session_factory
+    from app.models.system import SystemSettings
+    
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(SystemSettings).where(SystemSettings.key == "proxy_enabled")
+        )
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = str(enabled).lower()
+        else:
+            db.add(SystemSettings(key="proxy_enabled", value=str(enabled).lower()))
+        await db.commit()
+    _proxy_enabled_cache = enabled
+
 
 def _bypass_proxy():
     """Temporarily bypass proxy settings for akshare requests."""
+    # Check if proxy is enabled (use cache, sync version)
+    if _proxy_enabled_cache is True:
+        return {}  # Don't bypass, use proxy
+    
     # Save original proxy settings
     original_http = os.environ.get('HTTP_PROXY')
     original_https = os.environ.get('HTTPS_PROXY')
     original_http_lower = os.environ.get('http_proxy')
     original_https_lower = os.environ.get('https_proxy')
+    original_no_proxy = os.environ.get('NO_PROXY')
+    original_no_proxy_lower = os.environ.get('no_proxy')
     
     # Remove proxy settings
     for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
         if key in os.environ:
             del os.environ[key]
     
+    # Also set NO_PROXY to bypass all proxies
+    os.environ['NO_PROXY'] = '*'
+    os.environ['no_proxy'] = '*'
+    
     return {
         'HTTP_PROXY': original_http,
         'HTTPS_PROXY': original_https,
         'http_proxy': original_http_lower,
         'https_proxy': original_https_lower,
+        'NO_PROXY': original_no_proxy,
+        'no_proxy': original_no_proxy_lower,
     }
 
 
@@ -45,6 +104,8 @@ def _restore_proxy(original_settings: dict):
     for key, value in original_settings.items():
         if value is not None:
             os.environ[key] = value
+        elif key in os.environ:
+            del os.environ[key]
 
 
 class AkShareProvider(DataProvider):

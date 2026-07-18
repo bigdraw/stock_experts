@@ -112,3 +112,10 @@ export const tasksApi = {
   stop: (taskId: string) => apiClient.post(`/tasks/${taskId}/stop`),
   delete: (taskId: string) => apiClient.delete(`/tasks/${taskId}`),
 }
+
+// Settings
+export const settingsApi = {
+  getProxy: () => apiClient.get<{ enabled: boolean }>('/settings/proxy'),
+  setProxy: (enabled: boolean) => apiClient.put('/settings/proxy', { enabled }),
+  testConnection: () => apiClient.post<{ success: boolean; message: string }>('/settings/test-connection'),
+}
