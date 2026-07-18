@@ -34,8 +34,8 @@ Start-Sleep -Seconds 3
 # Start frontend
 Write-Host "`nStarting frontend (Vite) on port 5173..." -ForegroundColor Green
 $frontendDir = Join-Path $rootDir "frontend"
-$frontendProcess = Start-Process -FilePath "npm" `
-    -ArgumentList "run", "dev" `
+$frontendProcess = Start-Process -FilePath "cmd.exe" `
+    -ArgumentList "/c", "npm", "run", "dev" `
     -WorkingDirectory $frontendDir `
     -PassThru `
     -WindowStyle Normal
