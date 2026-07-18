@@ -1,5 +1,7 @@
 """Data acquisition API routes."""
 
+import asyncio
+import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,28 +14,28 @@ from app.services.data.engine import DataAcquisitionEngine
 router = APIRouter(prefix="/data", tags=["data"])
 
 
-async def _run_full_collection():
+async def _run_full_collection(task_id: str):
     """Background task: full basic collection."""
     async with async_session_factory() as db:
         provider = AkShareProvider()
         engine = DataAcquisitionEngine(provider, db)
-        await engine.full_basic_collection()
+        await engine.full_basic_collection(task_id=task_id)
 
 
-async def _run_incremental_update():
+async def _run_incremental_update(task_id: str):
     """Background task: incremental update."""
     async with async_session_factory() as db:
         provider = AkShareProvider()
         engine = DataAcquisitionEngine(provider, db)
-        await engine.incremental_update()
+        await engine.incremental_update(task_id=task_id)
 
 
-async def _run_deep_fetch(stock_codes: list[str]):
+async def _run_deep_fetch(stock_codes: list[str], task_id: str):
     """Background task: deep data fetch."""
     async with async_session_factory() as db:
         provider = AkShareProvider()
         engine = DataAcquisitionEngine(provider, db)
-        await engine.deep_data_on_demand(stock_codes)
+        await engine.deep_data_on_demand(stock_codes, task_id=task_id)
 
 
 @router.post("/collect/full")
@@ -42,8 +44,9 @@ async def start_full_collection(
     current_user: User = Depends(get_current_user),
 ):
     """Start full basic indicator collection (background task)."""
-    background_tasks.add_task(_run_full_collection)
-    return {"status": "started", "message": "Full collection started in background"}
+    task_id = f"full_{uuid.uuid4().hex[:8]}"
+    background_tasks.add_task(_run_full_collection, task_id)
+    return {"status": "started", "message": "Full collection started", "task_id": task_id}
 
 
 @router.post("/collect/incremental")
@@ -52,8 +55,9 @@ async def start_incremental_update(
     current_user: User = Depends(get_current_user),
 ):
     """Start incremental update (background task)."""
-    background_tasks.add_task(_run_incremental_update)
-    return {"status": "started", "message": "Incremental update started in background"}
+    task_id = f"incr_{uuid.uuid4().hex[:8]}"
+    background_tasks.add_task(_run_incremental_update, task_id)
+    return {"status": "started", "message": "Incremental update started", "task_id": task_id}
 
 
 @router.post("/collect/deep")
@@ -63,8 +67,9 @@ async def start_deep_fetch(
     current_user: User = Depends(get_current_user),
 ):
     """Fetch deep data for specific stocks (background task)."""
-    background_tasks.add_task(_run_deep_fetch, stock_codes)
-    return {"status": "started", "message": f"Deep fetch started for {len(stock_codes)} stocks"}
+    task_id = f"deep_{uuid.uuid4().hex[:8]}"
+    background_tasks.add_task(_run_deep_fetch, stock_codes, task_id)
+    return {"status": "started", "message": f"Deep fetch started for {len(stock_codes)} stocks", "task_id": task_id}
 
 
 @router.get("/collect/status")

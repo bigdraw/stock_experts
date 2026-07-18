@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 
 import akshare as ak
@@ -18,6 +19,34 @@ from app.services.data.provider import (
 logger = logging.getLogger(__name__)
 
 
+def _bypass_proxy():
+    """Temporarily bypass proxy settings for akshare requests."""
+    # Save original proxy settings
+    original_http = os.environ.get('HTTP_PROXY')
+    original_https = os.environ.get('HTTPS_PROXY')
+    original_http_lower = os.environ.get('http_proxy')
+    original_https_lower = os.environ.get('https_proxy')
+    
+    # Remove proxy settings
+    for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+        if key in os.environ:
+            del os.environ[key]
+    
+    return {
+        'HTTP_PROXY': original_http,
+        'HTTPS_PROXY': original_https,
+        'http_proxy': original_http_lower,
+        'https_proxy': original_https_lower,
+    }
+
+
+def _restore_proxy(original_settings: dict):
+    """Restore original proxy settings."""
+    for key, value in original_settings.items():
+        if value is not None:
+            os.environ[key] = value
+
+
 class AkShareProvider(DataProvider):
     """Free data provider using AkShare."""
 
@@ -30,7 +59,9 @@ class AkShareProvider(DataProvider):
         """Get all A-share stocks (600/000/300 prefix)."""
         async with self._semaphore:
             try:
-                df = ak.stock_info_a_code_name()
+                # Run synchronous akshare call in thread pool to avoid blocking event loop
+                df = await asyncio.to_thread(self._fetch_stock_list_sync)
+                
                 stocks = []
                 for _, row in df.iterrows():
                     code = str(row["code"]).zfill(6)
@@ -48,42 +79,73 @@ class AkShareProvider(DataProvider):
                 logger.error(f"Failed to fetch stock list: {e}")
                 raise
 
+    def _fetch_stock_list_sync(self):
+        """Synchronous wrapper for fetching stock list."""
+        original_proxy = _bypass_proxy()
+        try:
+            return ak.stock_info_a_code_name()
+        finally:
+            _restore_proxy(original_proxy)
+
     async def get_basic_indicators(self, codes: list[str]) -> list[StockBasicIndicators]:
-        """Get basic indicators for given stock codes."""
+        """Get basic indicators for given stock codes using stock_zh_a_spot_em."""
         results = []
-        for code in codes:
-            async with self._semaphore:
-                try:
-                    # Use ak.stock_a_indicator_lg for PE/PB/market_cap
-                    df = ak.stock_a_indicator_lg(symbol=code)
-                    if df.empty:
-                        continue
-                    latest = df.iloc[-1]
+        
+        # Fetch all A-share spot data in one call (more efficient)
+        async with self._semaphore:
+            try:
+                # Run synchronous akshare call in thread pool to avoid blocking event loop
+                df = await asyncio.to_thread(self._fetch_spot_data_sync)
+                
+                # Filter by codes and extract indicators
+                df['代码'] = df['代码'].astype(str).str.zfill(6)
+                filtered_df = df[df['代码'].isin(codes)]
+                
+                for _, row in filtered_df.iterrows():
+                    code = row['代码']
+                    
+                    # Extract indicators from spot data
+                    # 总市值 (total market cap), 市盈率-动态 (PE ratio), 市净率 (PB ratio)
+                    market_cap = float(row.get('总市值', 0)) if pd.notna(row.get('总市值')) else None
+                    pe_ratio = float(row.get('市盈率-动态', 0)) if pd.notna(row.get('市盈率-动态')) else None
+                    pb_ratio = float(row.get('市净率', 0)) if pd.notna(row.get('市净率')) else None
+                    
                     results.append(StockBasicIndicators(
                         code=code,
-                        date=str(latest.get("trade_date", datetime.now().strftime("%Y-%m-%d"))),
-                        market_cap=float(latest.get("total_mv", 0)) * 10000 if pd.notna(latest.get("total_mv")) else None,
-                        pe_ratio=float(latest.get("pe_ttm")) if pd.notna(latest.get("pe_ttm")) else None,
-                        pb_ratio=float(latest.get("pb")) if pd.notna(latest.get("pb")) else None,
-                        is_profitable=float(latest.get("pe_ttm", 0)) > 0 if pd.notna(latest.get("pe_ttm")) else None,
+                        date=datetime.now().strftime("%Y-%m-%d"),
+                        market_cap=market_cap,
+                        pe_ratio=pe_ratio,
+                        pb_ratio=pb_ratio,
+                        is_profitable=pe_ratio is not None and pe_ratio > 0 if pe_ratio is not None else None,
                     ))
-                except Exception as e:
-                    logger.warning(f"Failed to fetch indicators for {code}: {e}")
-                    continue
-                await asyncio.sleep(0.1)  # Rate limiting
+                
+                logger.info(f"Fetched indicators for {len(results)} stocks")
+                
+            except Exception as e:
+                logger.error(f"Failed to fetch batch indicators: {e}")
+                # Return empty list, let caller handle it
+                return []
+        
         return results
+
+    def _fetch_spot_data_sync(self):
+        """Synchronous wrapper for fetching spot data."""
+        original_proxy = _bypass_proxy()
+        try:
+            return ak.stock_zh_a_spot_em()
+        finally:
+            _restore_proxy(original_proxy)
 
     async def get_daily_quotes(self, code: str, start_date: str, end_date: str) -> list[DailyQuote]:
         """Get daily OHLCV data for a stock."""
         async with self._semaphore:
             try:
-                df = ak.stock_zh_a_hist(
-                    symbol=code,
-                    period="daily",
-                    start_date=start_date.replace("-", ""),
-                    end_date=end_date.replace("-", ""),
-                    adjust="qfq",  # Forward-adjusted
+                # Run synchronous akshare call in thread pool to avoid blocking event loop
+                df = await asyncio.to_thread(
+                    self._fetch_daily_quotes_sync,
+                    code, start_date, end_date
                 )
+                
                 quotes = []
                 for _, row in df.iterrows():
                     quotes.append(DailyQuote(
@@ -102,11 +164,30 @@ class AkShareProvider(DataProvider):
                 logger.error(f"Failed to fetch daily quotes for {code}: {e}")
                 raise
 
+    def _fetch_daily_quotes_sync(self, code: str, start_date: str, end_date: str):
+        """Synchronous wrapper for fetching daily quotes."""
+        original_proxy = _bypass_proxy()
+        try:
+            return ak.stock_zh_a_hist(
+                symbol=code,
+                period="daily",
+                start_date=start_date.replace("-", ""),
+                end_date=end_date.replace("-", ""),
+                adjust="qfq",  # Forward-adjusted
+            )
+        finally:
+            _restore_proxy(original_proxy)
+
     async def get_financial_reports(self, code: str) -> list[FinancialReport]:
         """Get financial reports for a stock."""
         async with self._semaphore:
             try:
-                df = ak.stock_financial_abstract_ths(symbol=code)
+                # Run synchronous akshare call in thread pool to avoid blocking event loop
+                df = await asyncio.to_thread(
+                    self._fetch_financial_reports_sync,
+                    code
+                )
+                
                 reports = []
                 for _, row in df.iterrows():
                     reports.append(FinancialReport(
@@ -122,6 +203,14 @@ class AkShareProvider(DataProvider):
             except Exception as e:
                 logger.error(f"Failed to fetch financial reports for {code}: {e}")
                 raise
+
+    def _fetch_financial_reports_sync(self, code: str):
+        """Synchronous wrapper for fetching financial reports."""
+        original_proxy = _bypass_proxy()
+        try:
+            return ak.stock_financial_abstract_ths(symbol=code)
+        finally:
+            _restore_proxy(original_proxy)
 
     async def get_research_reports(self, code: str) -> list[dict]:
         """Get research reports for a stock (placeholder)."""

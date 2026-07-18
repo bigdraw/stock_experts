@@ -1,8 +1,9 @@
-"""Data acquisition engine with dual-layer self-healing."""
+"""Data acquisition engine with dual-layer self-healing and task management."""
 
 import asyncio
 import json
 import logging
+import uuid
 from datetime import datetime
 
 from sqlalchemy import select
@@ -13,19 +14,25 @@ from app.models.stock import FinancialReport as FinancialReportModel
 from app.models.stock import Stock
 from app.models.system import DataAcquisitionLog
 from app.services.data.provider import DataProvider
+from app.services.task_manager import task_manager, TaskStatus
 
 logger = logging.getLogger(__name__)
 
 
 class DataAcquisitionEngine:
-    """Orchestrates data collection with self-healing."""
+    """Orchestrates data collection with self-healing and progress tracking."""
 
     def __init__(self, provider: DataProvider, db: AsyncSession):
         self.provider = provider
         self.db = db
 
-    async def full_basic_collection(self, batch_size: int = 50):
-        """Full collection of basic indicators (can run overnight)."""
+    async def full_basic_collection(self, batch_size: int = 50, task_id: str = None) -> str:
+        """Full collection of basic indicators (can run overnight). Returns task_id."""
+        if task_id is None:
+            task_id = f"full_basic_{uuid.uuid4().hex[:8]}"
+        task_manager.create_task(task_id, "full_basic", total=0)
+        task_manager.update_progress(task_id, message="Initializing...")
+
         log = DataAcquisitionLog(
             task_type="full_basic",
             status="running",
@@ -36,10 +43,19 @@ class DataAcquisitionEngine:
 
         try:
             # 1. Get stock list
+            task_manager.update_progress(task_id, message="Fetching stock list...")
             stocks = await self.provider.get_stock_list()
-            logger.info(f"Starting full collection for {len(stocks)} stocks")
+            total = len(stocks)
+            
+            # Update task with total count
+            task = task_manager.get_task(task_id)
+            if task:
+                task.total = total
+            task_manager.update_progress(task_id, message=f"Found {total} stocks, starting collection...")
+            logger.info(f"Starting full collection for {total} stocks")
 
             # 2. Upsert stocks
+            task_manager.update_progress(task_id, message="Updating stock list...")
             for stock_data in stocks:
                 existing = await self.db.get(Stock, stock_data.code)
                 if existing:
@@ -60,12 +76,31 @@ class DataAcquisitionEngine:
 
             # 3. Batch collect indicators
             processed = 0
-            for i in range(0, len(stocks), batch_size):
+            for i in range(0, total, batch_size):
+                # Check for pause/stop
+                if not task_manager.wait_if_paused(task_id):
+                    task_manager.stop_task(task_id)
+                    log.status = "stopped"
+                    log.stocks_processed = processed
+                    log.completed_at = datetime.now()
+                    await self.db.commit()
+                    logger.info(f"Full collection stopped by user: {processed}/{total} stocks")
+                    return task_id
+
                 batch = stocks[i:i + batch_size]
                 codes = [s.code for s in batch]
+                batch_num = i // batch_size + 1
+                total_batches = (total + batch_size - 1) // batch_size
+                
+                task_manager.update_progress(
+                    task_id,
+                    current=processed,
+                    message=f"Processing batch {batch_num}/{total_batches} ({processed}/{total} stocks)",
+                )
+
                 try:
                     indicators = await self.provider.get_basic_indicators(codes)
-                    # Update stocks with indicators (stored in financial_reports table for now)
+                    # Update stocks with indicators
                     for ind in indicators:
                         report = FinancialReportModel(
                             stock_code=ind.code,
@@ -80,19 +115,25 @@ class DataAcquisitionEngine:
                     processed += len(batch)
                     log.stocks_processed = processed
                     await self.db.flush()
-                    logger.info(f"Processed {processed}/{len(stocks)} stocks")
+                    logger.info(f"Processed {processed}/{total} stocks")
                 except Exception as e:
-                    logger.error(f"Failed to process batch {i//batch_size + 1}: {e}")
-                    # Self-healing: log and continue
+                    logger.error(f"Failed to process batch {batch_num}: {e}")
+                    task_manager.update_progress(
+                        task_id,
+                        message=f"Batch {batch_num} failed: {str(e)[:50]}, continuing...",
+                    )
                     continue
 
+            task_manager.complete_task(task_id, f"Completed: {processed}/{total} stocks")
             log.status = "success"
             log.completed_at = datetime.now()
-            log.details = json.dumps({"total_stocks": len(stocks), "processed": processed})
+            log.details = json.dumps({"total_stocks": total, "processed": processed})
             await self.db.commit()
-            logger.info(f"Full collection completed: {processed}/{len(stocks)} stocks")
+            logger.info(f"Full collection completed: {processed}/{total} stocks")
+            return task_id
 
         except Exception as e:
+            task_manager.fail_task(task_id, str(e))
             log.status = "failed"
             log.error_message = str(e)
             log.completed_at = datetime.now()
@@ -100,8 +141,13 @@ class DataAcquisitionEngine:
             logger.error(f"Full collection failed: {e}")
             raise
 
-    async def incremental_update(self):
-        """Daily incremental update: today's quotes + basic indicators."""
+    async def incremental_update(self, task_id: str = None) -> str:
+        """Daily incremental update: today's quotes + basic indicators. Returns task_id."""
+        if task_id is None:
+            task_id = f"incremental_{uuid.uuid4().hex[:8]}"
+        task_manager.create_task(task_id, "incremental", total=0)
+        task_manager.update_progress(task_id, message="Initializing...")
+
         log = DataAcquisitionLog(
             task_type="incremental",
             status="running",
@@ -112,12 +158,36 @@ class DataAcquisitionEngine:
 
         try:
             # Get all active stocks
+            task_manager.update_progress(task_id, message="Loading stock list...")
             result = await self.db.execute(select(Stock).where(Stock.is_active == True))
             stocks = result.scalars().all()
+            total = len(stocks)
+            
+            task = task_manager.get_task(task_id)
+            if task:
+                task.total = total
+            
             today = datetime.now().strftime("%Y-%m-%d")
+            task_manager.update_progress(task_id, message=f"Updating {total} stocks for {today}...")
 
             processed = 0
             for stock in stocks:
+                # Check for pause/stop
+                if not task_manager.wait_if_paused(task_id):
+                    task_manager.stop_task(task_id)
+                    log.status = "stopped"
+                    log.stocks_processed = processed
+                    log.completed_at = datetime.now()
+                    await self.db.commit()
+                    logger.info(f"Incremental update stopped: {processed}/{total}")
+                    return task_id
+
+                task_manager.update_progress(
+                    task_id,
+                    current=processed,
+                    message=f"Updating {stock.code} ({stock.name}) - {processed}/{total}",
+                )
+
                 try:
                     # Fetch today's quote
                     quotes = await self.provider.get_daily_quotes(stock.code, today, today)
@@ -143,18 +213,21 @@ class DataAcquisitionEngine:
                     processed += 1
                     if processed % 100 == 0:
                         await self.db.flush()
-                        logger.info(f"Incremental update: {processed}/{len(stocks)}")
+                        logger.info(f"Incremental update: {processed}/{total}")
                 except Exception as e:
                     logger.warning(f"Failed to update {stock.code}: {e}")
                     continue
 
+            task_manager.complete_task(task_id, f"Completed: {processed}/{total} stocks")
             log.status = "success"
             log.stocks_processed = processed
             log.completed_at = datetime.now()
             await self.db.commit()
             logger.info(f"Incremental update completed: {processed} stocks")
+            return task_id
 
         except Exception as e:
+            task_manager.fail_task(task_id, str(e))
             log.status = "failed"
             log.error_message = str(e)
             log.completed_at = datetime.now()
@@ -162,8 +235,14 @@ class DataAcquisitionEngine:
             logger.error(f"Incremental update failed: {e}")
             raise
 
-    async def deep_data_on_demand(self, stock_codes: list[str]):
-        """Fetch deep data (financial reports) for specific stocks."""
+    async def deep_data_on_demand(self, stock_codes: list[str], task_id: str = None) -> str:
+        """Fetch deep data (financial reports) for specific stocks. Returns task_id."""
+        if task_id is None:
+            task_id = f"deep_{uuid.uuid4().hex[:8]}"
+        total = len(stock_codes)
+        task_manager.create_task(task_id, "deep", total=total)
+        task_manager.update_progress(task_id, message=f"Fetching deep data for {total} stocks...")
+
         log = DataAcquisitionLog(
             task_type="deep",
             status="running",
@@ -175,6 +254,22 @@ class DataAcquisitionEngine:
         try:
             processed = 0
             for code in stock_codes:
+                # Check for pause/stop
+                if not task_manager.wait_if_paused(task_id):
+                    task_manager.stop_task(task_id)
+                    log.status = "stopped"
+                    log.stocks_processed = processed
+                    log.completed_at = datetime.now()
+                    await self.db.commit()
+                    logger.info(f"Deep data fetch stopped: {processed}/{total}")
+                    return task_id
+
+                task_manager.update_progress(
+                    task_id,
+                    current=processed,
+                    message=f"Fetching financial reports for {code} ({processed}/{total})",
+                )
+
                 try:
                     reports = await self.provider.get_financial_reports(code)
                     for r in reports:
@@ -196,13 +291,16 @@ class DataAcquisitionEngine:
                     logger.warning(f"Failed to fetch deep data for {code}: {e}")
                     continue
 
+            task_manager.complete_task(task_id, f"Completed: {processed}/{total} stocks")
             log.status = "success"
             log.stocks_processed = processed
             log.completed_at = datetime.now()
             await self.db.commit()
             logger.info(f"Deep data fetch completed: {processed} stocks")
+            return task_id
 
         except Exception as e:
+            task_manager.fail_task(task_id, str(e))
             log.status = "failed"
             log.error_message = str(e)
             log.completed_at = datetime.now()

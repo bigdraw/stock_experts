@@ -102,3 +102,13 @@ export const dataApi = {
   startDeepFetch: (stockCodes: string[]) => apiClient.post('/data/collect/deep', stockCodes),
   getStatus: () => apiClient.get('/data/collect/status'),
 }
+
+// Tasks
+export const tasksApi = {
+  list: () => apiClient.get('/tasks'),
+  get: (taskId: string) => apiClient.get(`/tasks/${taskId}`),
+  pause: (taskId: string) => apiClient.post(`/tasks/${taskId}/pause`),
+  resume: (taskId: string) => apiClient.post(`/tasks/${taskId}/resume`),
+  stop: (taskId: string) => apiClient.post(`/tasks/${taskId}/stop`),
+  delete: (taskId: string) => apiClient.delete(`/tasks/${taskId}`),
+}

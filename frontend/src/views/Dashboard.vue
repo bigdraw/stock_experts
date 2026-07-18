@@ -29,12 +29,22 @@
       <n-gi>
         <n-card title="数据采集">
           <n-space vertical>
-            <n-button @click="startCollection('full')" :loading="collecting">全量采集基础指标</n-button>
-            <n-button @click="startCollection('incremental')" :loading="collecting">增量更新</n-button>
+            <n-button @click="startCollection('full')" :loading="collecting" :disabled="!!activeTaskId">全量采集基础指标</n-button>
+            <n-button @click="startCollection('incremental')" :loading="collecting" :disabled="!!activeTaskId">增量更新</n-button>
           </n-space>
         </n-card>
       </n-gi>
     </n-grid>
+
+    <!-- Task Progress -->
+    <TaskProgress
+      v-if="activeTaskId"
+      :task-id="activeTaskId"
+      :show-controls="true"
+      @completed="onTaskCompleted"
+      @failed="onTaskFailed"
+      @stopped="onTaskStopped"
+    />
 
     <n-card title="最近通知">
       <n-list v-if="notifications.length">
@@ -51,11 +61,13 @@
 import { ref, onMounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { stocksApi, portfoliosApi, filtersApi, agentsApi, dataApi, notificationsApi } from '../api'
+import TaskProgress from '../components/common/TaskProgress.vue'
 
 const message = useMessage()
 const stats = ref({ stockCount: 0, portfolioCount: 0, filterCount: 0, agentCount: 0 })
 const notifications = ref<any[]>([])
 const collecting = ref(false)
+const activeTaskId = ref<string | null>(null)
 
 onMounted(async () => {
   try {
@@ -81,16 +93,59 @@ onMounted(async () => {
 async function startCollection(type: string) {
   collecting.value = true
   try {
+    let res
     if (type === 'full') {
-      await dataApi.startFullCollection()
+      res = await dataApi.startFullCollection()
     } else {
-      await dataApi.startIncrementalUpdate()
+      res = await dataApi.startIncrementalUpdate()
     }
-    message.success('数据采集任务已启动')
+    const taskId = res.data.task_id
+    if (taskId) {
+      activeTaskId.value = taskId
+      message.success('数据采集任务已启动')
+    } else {
+      message.warning('任务已启动但未返回任务ID')
+    }
   } catch (e: any) {
     message.error('启动失败: ' + (e.response?.data?.detail || e.message))
   } finally {
     collecting.value = false
+  }
+}
+
+function onTaskCompleted() {
+  message.success('数据采集完成')
+  activeTaskId.value = null
+  // Refresh stats
+  refreshStats()
+}
+
+function onTaskFailed() {
+  message.error('数据采集失败')
+  activeTaskId.value = null
+}
+
+function onTaskStopped() {
+  message.warning('数据采集已停止')
+  activeTaskId.value = null
+}
+
+async function refreshStats() {
+  try {
+    const [stocks, portfolios, filters, agents] = await Promise.all([
+      stocksApi.list({ limit: 1 }),
+      portfoliosApi.list(),
+      filtersApi.list(),
+      agentsApi.list(),
+    ])
+    stats.value = {
+      stockCount: stocks.data.length,
+      portfolioCount: portfolios.data.length,
+      filterCount: filters.data.length,
+      agentCount: agents.data.length,
+    }
+  } catch (e) {
+    console.error('Failed to refresh stats:', e)
   }
 }
 </script>
