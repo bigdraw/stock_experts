@@ -1,73 +1,85 @@
 # Stop backend and frontend services for stock analysis platform
 # Usage: .\scripts\stop-services.ps1
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $pidFile = Join-Path $PSScriptRoot ".service-pids.json"
 
 Write-Host "Stopping Stock Analysis Platform services..." -ForegroundColor Cyan
 
-if (-not (Test-Path $pidFile)) {
-    Write-Host "No PID file found. Services may not be running." -ForegroundColor Yellow
-    exit 0
+# Step 1: Kill by PID file
+if (Test-Path $pidFile) {
+    $pids = Get-Content $pidFile | ConvertFrom-Json
+    Write-Host "Found services started at: $($pids.startedAt)" -ForegroundColor Gray
+
+    foreach ($pidValue in @($pids.backend, $pids.frontend)) {
+        if ($pidValue) {
+            try {
+                $proc = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+                if ($proc) {
+                    # Kill the entire process tree
+                    $proc | ForEach-Object {
+                        Get-CimInstance Win32_Process -Filter "ParentProcessId=$($_.Id)" | ForEach-Object {
+                            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                    Stop-Process -Id $pidValue -Force -ErrorAction SilentlyContinue
+                    Write-Host "Killed PID $pidValue and children" -ForegroundColor Green
+                }
+            } catch {
+                Write-Host "Warning: Failed to stop PID ${pidValue}: $_" -ForegroundColor Yellow
+            }
+        }
+    }
+    Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Host "No PID file found." -ForegroundColor Yellow
 }
 
-# Read PIDs
-$pids = Get-Content $pidFile | ConvertFrom-Json
-Write-Host "Found services started at: $($pids.startedAt)" -ForegroundColor Gray
+# Step 2: Kill by port (catches processes not tracked by PID file)
+Write-Host "`nCleaning up processes on ports 8000 and 5173..." -ForegroundColor Gray
 
-# Stop backend
-if ($pids.backend) {
-    Write-Host "`nStopping backend (PID: $($pids.backend))..." -ForegroundColor Green
-    try {
-        $process = Get-Process -Id $pids.backend -ErrorAction SilentlyContinue
-        if ($process) {
-            Stop-Process -Id $pids.backend -Force
-            Write-Host "✓ Backend stopped" -ForegroundColor Green
-        } else {
-            Write-Host "Backend process not found (already stopped)" -ForegroundColor Yellow
+foreach ($port in @(8000, 5173)) {
+    $connections = Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue
+    if ($connections) {
+        $procIds = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+        foreach ($procId in $procIds) {
+            if ($procId -and $procId -ne 0) {
+                try {
+                    Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+                    Write-Host "Killed process on port $port (PID: $procId)" -ForegroundColor Gray
+                } catch {}
+            }
         }
-    } catch {
-        Write-Host "Warning: Failed to stop backend: $_" -ForegroundColor Yellow
     }
 }
 
-# Stop frontend
-if ($pids.frontend) {
-    Write-Host "`nStopping frontend (PID: $($pids.frontend))..." -ForegroundColor Green
-    try {
-        $process = Get-Process -Id $pids.frontend -ErrorAction SilentlyContinue
-        if ($process) {
-            Stop-Process -Id $pids.frontend -Force
-            Write-Host "✓ Frontend stopped" -ForegroundColor Green
-        } else {
-            Write-Host "Frontend process not found (already stopped)" -ForegroundColor Yellow
-        }
-    } catch {
-        Write-Host "Warning: Failed to stop frontend: $_" -ForegroundColor Yellow
+# Step 3: Kill uvicorn processes by command line
+Write-Host "Cleaning up uvicorn processes from this project..." -ForegroundColor Gray
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*uvicorn*" -and $_.CommandLine -like "*stock*" } |
+    ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        Write-Host "Killed uvicorn process (PID: $($_.ProcessId))" -ForegroundColor Gray
     }
+
+# Step 4: Kill node processes from this project's frontend
+Write-Host "Cleaning up node processes from this project..." -ForegroundColor Gray
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*stock*frontend*" -or $_.CommandLine -like "*vite*" } |
+    ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        Write-Host "Killed node process (PID: $($_.ProcessId))" -ForegroundColor Gray
+    }
+
+# Step 5: Wait and verify
+Start-Sleep -Seconds 2
+$remaining8000 = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue
+$remaining5173 = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue
+
+if ($remaining8000 -or $remaining5173) {
+    Write-Host "`nWarning: Some processes still running!" -ForegroundColor Yellow
+    if ($remaining8000) { Write-Host "  Port 8000 still in use" -ForegroundColor Yellow }
+    if ($remaining5173) { Write-Host "  Port 5173 still in use" -ForegroundColor Yellow }
+} else {
+    Write-Host "`n[OK] All services stopped" -ForegroundColor Green
 }
-
-# Also kill any lingering node/uvicorn processes on our ports
-Write-Host "`nCleaning up any lingering processes..." -ForegroundColor Gray
-
-# Kill processes on port 8000 (backend)
-$port8000 = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
-foreach ($procId in $port8000) {
-    try {
-        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-        Write-Host "Killed process on port 8000 (PID: $procId)" -ForegroundColor Gray
-    } catch {}
-}
-
-# Kill processes on port 5173 (frontend)
-$port5173 = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
-foreach ($procId in $port5173) {
-    try {
-        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-        Write-Host "Killed process on port 5173 (PID: $procId)" -ForegroundColor Gray
-    } catch {}
-}
-
-# Remove PID file
-Remove-Item $pidFile -Force
-Write-Host "`n✓ All services stopped" -ForegroundColor Green
