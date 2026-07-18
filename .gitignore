@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.log
+
+# Environment
+.env
+.env.local
+
+# AI workflow derived cache (markdown is source of truth, this is regenerable)
+.ai/cache/
+.ai/*.db
+.ai/*.db-journal
+.ai/*.bak
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
