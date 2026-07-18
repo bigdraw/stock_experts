@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
-from app.config import settings
 from app.database import get_db
 from app.models.strategy import BacktestResult as BacktestResultModel
 from app.models.strategy import BacktestStrategy
@@ -15,6 +14,7 @@ from app.schemas import BacktestGenerateRequest, BacktestResultResponse, Backtes
 from app.services.backtest.engine import BacktestEngine, FrictionConfig
 from app.services.backtest.generator import StrategyCodeGenerator
 from app.services.llm.manager import llm_manager
+from app.services import settings_service
 from app.utils.exceptions import BadRequestException, NotFoundException
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -31,12 +31,15 @@ async def generate_strategy(
     generator = StrategyCodeGenerator(llm)
     code = await generator.generate(req.nl_description)
 
+    # Read friction config from DB
+    friction_config = await settings_service.get_friction_config(db)
+
     strategy = BacktestStrategy(
         user_id=current_user.id,
         name=req.name,
         nl_description=req.nl_description,
         strategy_code=code,
-        friction_config=json.dumps(settings.backtest.friction.model_dump()),
+        friction_config=json.dumps(friction_config),
     )
     db.add(strategy)
     await db.flush()
@@ -55,7 +58,13 @@ async def run_backtest(
     if not strategy:
         raise NotFoundException(f"Strategy {req.strategy_id} not found")
 
-    friction = FrictionConfig(**(req.friction_config or settings.backtest.friction.model_dump()))
+    # Read friction config: request > DB > defaults
+    if req.friction_config:
+        friction = FrictionConfig(**req.friction_config)
+    else:
+        db_friction = await settings_service.get_friction_config(db)
+        friction = FrictionConfig(**db_friction)
+
     engine = BacktestEngine(db, friction)
 
     stock_codes = req.stock_codes or ["600519"]  # Default to Moutai for testing

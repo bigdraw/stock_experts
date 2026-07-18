@@ -114,8 +114,44 @@ export const tasksApi = {
 }
 
 // Settings
+export interface LLMConfig {
+  provider: string
+  base_url: string
+  api_key: string
+  model: string
+  max_tokens: number
+  temperature: number
+}
+
+export interface DataSourceConfig {
+  provider: string
+  rate_limit: number
+  retry_max: number
+}
+
+export interface FrictionConfig {
+  stamp_tax: number
+  commission: number
+  commission_min: number
+  slippage: number
+}
+
 export const settingsApi = {
+  // Proxy
   getProxy: () => apiClient.get<{ enabled: boolean }>('/settings/proxy'),
   setProxy: (enabled: boolean) => apiClient.put('/settings/proxy', { enabled }),
   testConnection: () => apiClient.post<{ success: boolean; message: string }>('/settings/test-connection'),
+
+  // LLM
+  getLLM: () => apiClient.get<LLMConfig>('/settings/llm'),
+  setLLM: (config: LLMConfig) => apiClient.put<LLMConfig>('/settings/llm', config),
+  testLLM: () => apiClient.post<{ success: boolean; message: string }>('/settings/test-llm'),
+
+  // Data Source
+  getDataSource: () => apiClient.get<DataSourceConfig>('/settings/data-source'),
+  setDataSource: (config: DataSourceConfig) => apiClient.put<DataSourceConfig>('/settings/data-source', config),
+
+  // Friction
+  getFriction: () => apiClient.get<FrictionConfig>('/settings/friction'),
+  setFriction: (config: FrictionConfig) => apiClient.put<FrictionConfig>('/settings/friction', config),
 }
