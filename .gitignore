@@ -10,11 +10,11 @@ build/
 .env
 .env.local
 
-# AI workflow derived cache (markdown is source of truth, this is regenerable)
-.ai/cache/
-.ai/*.db
-.ai/*.db-journal
-.ai/*.bak
+# AI development framework (local only, not part of the platform)
+.ai/
+.opencode/
+AGENTS.md
+opencode.json
 
 # OS
 Thumbs.db
