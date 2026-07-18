@@ -20,6 +20,12 @@ build/
 Thumbs.db
 .DS_Store
 
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
 # Editor
 .vscode/
 .idea/
