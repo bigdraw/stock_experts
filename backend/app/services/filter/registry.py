@@ -20,13 +20,15 @@ logger = logging.getLogger(__name__)
 class FilterRegistry:
     """Filter script tool library: save, find, execute."""
 
-    def __init__(self, db: AsyncSession, llm: LLMProvider):
+    def __init__(self, db: AsyncSession, llm: LLMProvider | None = None):
         self.db = db
-        self.generator = FilterCodeGenerator(llm)
+        self.generator = FilterCodeGenerator(llm) if llm else None
         self.sandbox = FilterSandbox()
 
     async def generate_and_save(self, name: str, nl_description: str) -> FilterScript:
         """Generate filter code from NL and save to tool library."""
+        if not self.generator:
+            raise ValueError("LLM provider not configured. Cannot generate filter scripts.")
         code = await self.generator.generate(nl_description)
 
         # Try a dry-run validation with empty DataFrame

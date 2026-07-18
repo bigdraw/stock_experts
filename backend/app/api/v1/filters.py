@@ -39,7 +39,7 @@ async def list_filters(
     current_user: User = Depends(get_current_user),
 ):
     """List all filter scripts."""
-    registry = FilterRegistry(db, llm_manager.get())
+    registry = FilterRegistry(db)
     return await registry.list_all()
 
 
