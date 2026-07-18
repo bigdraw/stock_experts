@@ -52,19 +52,19 @@ Write-Host "`nCleaning up any lingering processes..." -ForegroundColor Gray
 
 # Kill processes on port 8000 (backend)
 $port8000 = Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
-foreach ($pid in $port8000) {
+foreach ($procId in $port8000) {
     try {
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Write-Host "Killed process on port 8000 (PID: $pid)" -ForegroundColor Gray
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+        Write-Host "Killed process on port 8000 (PID: $procId)" -ForegroundColor Gray
     } catch {}
 }
 
 # Kill processes on port 5173 (frontend)
 $port5173 = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique
-foreach ($pid in $port5173) {
+foreach ($procId in $port5173) {
     try {
-        Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
-        Write-Host "Killed process on port 5173 (PID: $pid)" -ForegroundColor Gray
+        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+        Write-Host "Killed process on port 5173 (PID: $procId)" -ForegroundColor Gray
     } catch {}
 }
 
