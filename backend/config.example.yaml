@@ -1,0 +1,49 @@
+# Stock Analysis Platform - Backend Configuration
+# Copy this file to config.yaml and customize
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "http://localhost:5173"
+    - "http://localhost:3000"
+
+database:
+  url: "sqlite+aiosqlite:///./data/stock.db"
+
+auth:
+  secret_key: "CHANGE-ME-TO-A-RANDOM-SECRET"
+  algorithm: "HS256"
+  token_expire_minutes: 1440
+
+llm:
+  default_provider: "qwen"
+  providers:
+    qwen:
+      base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      api_key: "${LLM_API_KEY}"
+      model: "qwen3.7-max"
+      max_tokens: 65536
+      temperature: 0.7
+    # deepseek:
+    #   base_url: "https://api.deepseek.com/v1"
+    #   api_key: "${DEEPSEEK_API_KEY}"
+    #   model: "deepseek-chat"
+
+data_source:
+  default_provider: "akshare"
+  providers:
+    akshare:
+      rate_limit: 10
+      retry_max: 3
+
+backtest:
+  friction:
+    stamp_tax: 0.0005       # 印花税 0.05%（卖出单边）
+    commission: 0.00025     # 佣金 0.025%（买卖各）
+    commission_min: 5.0     # 最低佣金 5 元
+    slippage: 0.001         # 滑点 0.1%
+
+scheduler:
+  daily_update_time: "16:30"
+  backup_day: "sunday"

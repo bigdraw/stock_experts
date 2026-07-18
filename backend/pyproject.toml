@@ -1,0 +1,26 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "akshare>=1.18.64",
+    "apscheduler>=3.11.3",
+    "ebooklib>=0.20",
+    "fastapi>=0.139.2",
+    "httpx>=0.28.1",
+    "numpy>=2.5.1",
+    "pandas>=3.0.3",
+    "passlib[bcrypt]>=1.7.4",
+    "pydantic-settings>=2.14.2",
+    "pymupdf>=1.28.0",
+    "python-jose[cryptography]>=3.5.0",
+    "python-multipart>=0.0.32",
+    "pyyaml>=6.0.3",
+    "restrictedpython>=8.4",
+    "sqlalchemy[asyncio]>=2.0.51",
+    "uvicorn[standard]>=0.51.0",
+    "websockets>=16.1.1",
+]

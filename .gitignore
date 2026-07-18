@@ -25,6 +25,7 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+backend/data/*.db
 
 # Editor
 .vscode/

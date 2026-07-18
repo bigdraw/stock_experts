@@ -1,0 +1,151 @@
+"""AkShare data provider implementation."""
+
+import asyncio
+import logging
+from datetime import datetime
+
+import akshare as ak
+import pandas as pd
+
+from app.services.data.provider import (
+    DailyQuote,
+    DataProvider,
+    FinancialReport,
+    StockBasic,
+    StockBasicIndicators,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class AkShareProvider(DataProvider):
+    """Free data provider using AkShare."""
+
+    def __init__(self, rate_limit: int = 10, retry_max: int = 3):
+        self.rate_limit = rate_limit
+        self.retry_max = retry_max
+        self._semaphore = asyncio.Semaphore(rate_limit)
+
+    async def get_stock_list(self) -> list[StockBasic]:
+        """Get all A-share stocks (600/000/300 prefix)."""
+        async with self._semaphore:
+            try:
+                df = ak.stock_info_a_code_name()
+                stocks = []
+                for _, row in df.iterrows():
+                    code = str(row["code"]).zfill(6)
+                    # Filter: 600xxx (SH), 000xxx/001xxx/002xxx/003xxx (SZ), 300xxx (SZ)
+                    if code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300")):
+                        market = "SH" if code.startswith(("600", "601", "603", "605")) else "SZ"
+                        stocks.append(StockBasic(
+                            code=code,
+                            name=row["name"],
+                            market=market,
+                        ))
+                logger.info(f"Fetched {len(stocks)} stocks from AkShare")
+                return stocks
+            except Exception as e:
+                logger.error(f"Failed to fetch stock list: {e}")
+                raise
+
+    async def get_basic_indicators(self, codes: list[str]) -> list[StockBasicIndicators]:
+        """Get basic indicators for given stock codes."""
+        results = []
+        for code in codes:
+            async with self._semaphore:
+                try:
+                    # Use ak.stock_a_indicator_lg for PE/PB/market_cap
+                    df = ak.stock_a_indicator_lg(symbol=code)
+                    if df.empty:
+                        continue
+                    latest = df.iloc[-1]
+                    results.append(StockBasicIndicators(
+                        code=code,
+                        date=str(latest.get("trade_date", datetime.now().strftime("%Y-%m-%d"))),
+                        market_cap=float(latest.get("total_mv", 0)) * 10000 if pd.notna(latest.get("total_mv")) else None,
+                        pe_ratio=float(latest.get("pe_ttm")) if pd.notna(latest.get("pe_ttm")) else None,
+                        pb_ratio=float(latest.get("pb")) if pd.notna(latest.get("pb")) else None,
+                        is_profitable=float(latest.get("pe_ttm", 0)) > 0 if pd.notna(latest.get("pe_ttm")) else None,
+                    ))
+                except Exception as e:
+                    logger.warning(f"Failed to fetch indicators for {code}: {e}")
+                    continue
+                await asyncio.sleep(0.1)  # Rate limiting
+        return results
+
+    async def get_daily_quotes(self, code: str, start_date: str, end_date: str) -> list[DailyQuote]:
+        """Get daily OHLCV data for a stock."""
+        async with self._semaphore:
+            try:
+                df = ak.stock_zh_a_hist(
+                    symbol=code,
+                    period="daily",
+                    start_date=start_date.replace("-", ""),
+                    end_date=end_date.replace("-", ""),
+                    adjust="qfq",  # Forward-adjusted
+                )
+                quotes = []
+                for _, row in df.iterrows():
+                    quotes.append(DailyQuote(
+                        code=code,
+                        date=str(row["日期"]),
+                        open=float(row["开盘"]),
+                        high=float(row["最高"]),
+                        low=float(row["最低"]),
+                        close=float(row["收盘"]),
+                        volume=float(row["成交量"]),
+                        amount=float(row["成交额"]),
+                        turnover_rate=float(row.get("换手率")) if pd.notna(row.get("换手率")) else None,
+                    ))
+                return quotes
+            except Exception as e:
+                logger.error(f"Failed to fetch daily quotes for {code}: {e}")
+                raise
+
+    async def get_financial_reports(self, code: str) -> list[FinancialReport]:
+        """Get financial reports for a stock."""
+        async with self._semaphore:
+            try:
+                df = ak.stock_financial_abstract_ths(symbol=code)
+                reports = []
+                for _, row in df.iterrows():
+                    reports.append(FinancialReport(
+                        code=code,
+                        report_date=str(row.get("报告期", "")),
+                        report_type=self._infer_report_type(str(row.get("报告期", ""))),
+                        revenue=float(row.get("营业总收入")) if pd.notna(row.get("营业总收入")) else None,
+                        net_profit=float(row.get("净利润")) if pd.notna(row.get("净利润")) else None,
+                        roe=float(row.get("净资产收益率")) if pd.notna(row.get("净资产收益率")) else None,
+                        raw_data=row.to_dict(),
+                    ))
+                return reports
+            except Exception as e:
+                logger.error(f"Failed to fetch financial reports for {code}: {e}")
+                raise
+
+    async def get_research_reports(self, code: str) -> list[dict]:
+        """Get research reports for a stock (placeholder)."""
+        # AkShare has limited research report data; this is a placeholder
+        logger.warning(f"Research reports not fully supported for {code}")
+        return []
+
+    async def health_check(self) -> bool:
+        """Check if AkShare is available."""
+        try:
+            ak.stock_info_a_code_name()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _infer_report_type(report_date: str) -> str:
+        """Infer report type from date string."""
+        if "03-31" in report_date or "一季" in report_date:
+            return "Q1"
+        elif "06-30" in report_date or "中报" in report_date or "半年" in report_date:
+            return "H1"
+        elif "09-30" in report_date or "三季" in report_date:
+            return "Q3"
+        elif "12-31" in report_date or "年报" in report_date:
+            return "Annual"
+        return "Unknown"
