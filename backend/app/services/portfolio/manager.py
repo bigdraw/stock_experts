@@ -32,7 +32,7 @@ class PortfolioManager:
 
     async def get_detail(self, portfolio_id: int) -> dict:
         from app.models.stock import FinancialReport
-        
+
         portfolio = await self.db.get(Portfolio, portfolio_id)
         if not portfolio:
             raise ValueError(f"Portfolio {portfolio_id} not found")
@@ -42,19 +42,31 @@ class PortfolioManager:
         )
         items = items_result.scalars().all()
 
+        # Bulk-fetch all stocks + all 'Latest' financials for this portfolio in
+        # TWO queries instead of 2*N (one stock get + one financial select per
+        # holding). For a 50-stock portfolio this is 2 queries vs 100.
+        codes = [item.stock_code for item in items]
+        stock_by_code: dict[str, Stock] = {}
+        fin_by_code: dict[str, FinancialReport] = {}
+        if codes:
+            stocks_res = await self.db.execute(select(Stock).where(Stock.code.in_(codes)))
+            stock_by_code = {s.code: s for s in stocks_res.scalars().all()}
+
+            fins_res = await self.db.execute(
+                select(FinancialReport).where(
+                    FinancialReport.stock_code.in_(codes),
+                    FinancialReport.report_type == "Latest",
+                ).order_by(FinancialReport.report_date.desc())
+            )
+            # Ordered by date desc, so the first occurrence per code is the latest.
+            for fin in fins_res.scalars().all():
+                if fin.stock_code not in fin_by_code:
+                    fin_by_code[fin.stock_code] = fin
+
         holdings = []
         for item in items:
-            stock = await self.db.get(Stock, item.stock_code)
-            
-            # Get latest financial indicators
-            financial_result = await self.db.execute(
-                select(FinancialReport).where(
-                    FinancialReport.stock_code == item.stock_code,
-                    FinancialReport.report_type == "Latest"
-                ).order_by(FinancialReport.report_date.desc()).limit(1)
-            )
-            financial = financial_result.scalar_one_or_none()
-            
+            stock = stock_by_code.get(item.stock_code)
+            financial = fin_by_code.get(item.stock_code)
             holdings.append({
                 "id": item.id,
                 "stock_code": item.stock_code,

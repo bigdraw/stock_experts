@@ -9,6 +9,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.database import async_session_factory
 from app.models.stock import DailyQuote as DailyQuoteModel
 from app.models.stock import FinancialReport as FinancialReportModel
 from app.models.stock import Stock
@@ -29,6 +30,69 @@ class DataAcquisitionEngine:
     def __init__(self, provider: DataProvider, db: AsyncSession):
         self.provider = provider
         self.db = db
+
+    async def _persist_log_outcome(self, log_id: int | None, status: str,
+                                   error_message: str | None = None,
+                                   stocks_processed: int | None = None,
+                                   details: dict | None = None) -> None:
+        """Persist a log row's terminal status in a FRESH session.
+
+        The work session may be rolled back on failure, which would also roll
+        back the in-flight log row (it was only flushed, not committed). To
+        guarantee the failure/stop status survives, we open an independent
+        session, reload the row by id, and commit the terminal state there.
+        This replaces the previous (broken) pattern of
+        ``await db.rollback(); await db.commit()`` which committed an empty
+        transaction and silently dropped the failure log.
+        """
+        if log_id is None:
+            return
+        try:
+            async with async_session_factory() as s2:
+                log2 = await s2.get(DataAcquisitionLog, log_id)
+                if log2 is None:
+                    return
+                log2.status = status
+                if error_message is not None:
+                    log2.error_message = error_message
+                if stocks_processed is not None:
+                    log2.stocks_processed = stocks_processed
+                if details is not None:
+                    log2.details = json.dumps(details)
+                log2.completed_at = datetime.now()
+                await s2.commit()
+        except Exception as e:
+            logger.error(f"Failed to persist log outcome (id={log_id}): {e}")
+
+    @staticmethod
+    def _apply_indicator(report: FinancialReportModel, ind) -> None:
+        """Copy all 20 market + legacy fields from a StockBasicIndicators onto a
+        FinancialReportModel row. Single source for the field mapping so update
+        and insert paths can't drift apart."""
+        report.symbol = ind.symbol
+        report.price = ind.price
+        report.pricechange = ind.pricechange
+        report.changepercent = ind.changepercent
+        report.buy = ind.buy
+        report.sell = ind.sell
+        report.settlement = ind.settlement
+        report.open = ind.open
+        report.high = ind.high
+        report.low = ind.low
+        report.volume = ind.volume
+        report.amount = ind.amount
+        report.ticktime = ind.ticktime
+        report.per = ind.per
+        report.pb = ind.pb
+        report.mktcap = ind.mktcap
+        report.nmc = ind.nmc
+        report.turnoverratio = ind.turnoverratio
+        # Legacy / derived aliases
+        report.pe_ratio = ind.pe_ratio
+        report.pb_ratio = ind.pb_ratio
+        report.market_cap = ind.market_cap
+        report.circulating_market_cap = ind.circulating_market_cap
+        report.is_profitable = ind.is_profitable
 
     async def full_basic_collection(self, batch_size: int = 100, task_id: str = None, code_prefixes: list[str] = None) -> str:
         """Full collection of basic indicators. Fetches all data in one API call, then batches DB writes.
@@ -122,12 +186,27 @@ class DataAcquisitionEngine:
                 batch = all_indicators[i:i + batch_size]
                 batch_num = i // batch_size + 1
                 total_batches = (total_indicators + batch_size - 1) // batch_size
-                
+
                 task_manager.update_progress(
                     task_id,
                     current=processed,
                     message=f"Writing batch {batch_num}/{total_batches} to database ({processed}/{total_indicators})",
                 )
+
+                # Pre-fetch all existing 'Latest' reports for this batch in ONE
+                # query (keyed by stock_code) instead of one query per stock —
+                # this is the N+1 fix (batch_size=100 → ~50 queries for 5000
+                # stocks instead of 5000).
+                today = datetime.now().date()
+                batch_codes = [ind.code for ind in batch]
+                existing_res = await self.db.execute(
+                    select(FinancialReportModel).where(
+                        FinancialReportModel.stock_code.in_(batch_codes),
+                        FinancialReportModel.report_date == today,
+                        FinancialReportModel.report_type == "Latest",
+                    )
+                )
+                existing_by_code = {r.stock_code: r for r in existing_res.scalars().all()}
 
                 for ind in batch:
                     # Validate individual indicator
@@ -135,77 +214,18 @@ class DataAcquisitionEngine:
                     if not validation_result.is_valid:
                         logger.warning(f"Skipping invalid data for {ind.code}: {validation_result.errors}")
                         continue  # Skip invalid data
-                    
-                    # Check if record already exists
-                    existing = await self.db.execute(
-                        select(FinancialReportModel).where(
-                            FinancialReportModel.stock_code == ind.code,
-                            FinancialReportModel.report_date == datetime.now().date(),
-                            FinancialReportModel.report_type == "Latest"
-                        )
-                    )
-                    report = existing.scalar_one_or_none()
-                    
-                    if report:
-                        # Update existing record with all 20 market fields
-                        report.symbol = ind.symbol
-                        report.price = ind.price
-                        report.pricechange = ind.pricechange
-                        report.changepercent = ind.changepercent
-                        report.buy = ind.buy
-                        report.sell = ind.sell
-                        report.settlement = ind.settlement
-                        report.open = ind.open
-                        report.high = ind.high
-                        report.low = ind.low
-                        report.volume = ind.volume
-                        report.amount = ind.amount
-                        report.ticktime = ind.ticktime
-                        report.per = ind.per
-                        report.pb = ind.pb
-                        report.mktcap = ind.mktcap
-                        report.nmc = ind.nmc
-                        report.turnoverratio = ind.turnoverratio
-                        # Legacy fields
-                        report.pe_ratio = ind.pe_ratio
-                        report.pb_ratio = ind.pb_ratio
-                        report.market_cap = ind.market_cap
-                        report.circulating_market_cap = ind.circulating_market_cap
-                        report.is_profitable = ind.is_profitable
-                    else:
-                        # Insert new record with all 20 market fields
+
+                    report = existing_by_code.get(ind.code)
+                    if report is None:
                         report = FinancialReportModel(
                             stock_code=ind.code,
-                            report_date=datetime.now().date(),
+                            report_date=today,
                             report_type="Latest",
-                            # All 20 market fields
-                            symbol=ind.symbol,
-                            price=ind.price,
-                            pricechange=ind.pricechange,
-                            changepercent=ind.changepercent,
-                            buy=ind.buy,
-                            sell=ind.sell,
-                            settlement=ind.settlement,
-                            open=ind.open,
-                            high=ind.high,
-                            low=ind.low,
-                            volume=ind.volume,
-                            amount=ind.amount,
-                            ticktime=ind.ticktime,
-                            per=ind.per,
-                            pb=ind.pb,
-                            mktcap=ind.mktcap,
-                            nmc=ind.nmc,
-                            turnoverratio=ind.turnoverratio,
-                            # Legacy fields
-                            pe_ratio=ind.pe_ratio,
-                            pb_ratio=ind.pb_ratio,
-                            market_cap=ind.market_cap,
-                            circulating_market_cap=ind.circulating_market_cap,
-                            is_profitable=ind.is_profitable,
                         )
                         self.db.add(report)
-                
+                        existing_by_code[ind.code] = report  # dedupe within batch
+                    self._apply_indicator(report, ind)
+
                 processed += len(batch)
                 log.stocks_processed = processed
                 await self.db.flush()
@@ -221,11 +241,11 @@ class DataAcquisitionEngine:
 
         except Exception as e:
             task_manager.fail_task(task_id, str(e))
-            log.status = "failed"
-            log.error_message = str(e)
-            log.completed_at = datetime.now()
             await self.db.rollback()
-            await self.db.commit()
+            await self._persist_log_outcome(
+                log.id, "failed", error_message=str(e),
+                stocks_processed=locals().get("processed", 0),
+            )
             logger.error(f"Full collection failed: {e}")
             raise
 
@@ -316,11 +336,11 @@ class DataAcquisitionEngine:
 
         except Exception as e:
             task_manager.fail_task(task_id, str(e))
-            log.status = "failed"
-            log.error_message = str(e)
-            log.completed_at = datetime.now()
             await self.db.rollback()
-            await self.db.commit()
+            await self._persist_log_outcome(
+                log.id, "failed", error_message=str(e),
+                stocks_processed=locals().get("processed", 0),
+            )
             logger.error(f"Incremental update failed: {e}")
             raise
 
@@ -413,11 +433,11 @@ class DataAcquisitionEngine:
 
         except Exception as e:
             task_manager.fail_task(task_id, str(e))
-            log.status = "failed"
-            log.error_message = str(e)
-            log.completed_at = datetime.now()
             await self.db.rollback()
-            await self.db.commit()
+            await self._persist_log_outcome(
+                log.id, "failed", error_message=str(e),
+                stocks_processed=locals().get("processed", 0),
+            )
             logger.error(f"Deep data fetch failed: {e}")
             raise
 
@@ -495,17 +515,31 @@ class DataAcquisitionEngine:
                         report = existing.scalar_one_or_none()
                         
                         if report:
-                            # Update existing record
+                            # Update existing record with ALL parsed financial fields
                             report.report_type = r.report_type
                             report.roe = r.roe
+                            report.eps = r.eps
+                            report.bps = r.bps
+                            report.revenue_growth = r.revenue_growth
+                            report.net_profit_growth = r.net_profit_growth
+                            report.gross_margin = r.gross_margin
+                            report.net_margin = r.net_margin
+                            report.debt_ratio = r.debt_ratio
                             report.raw_data = json.dumps(r.raw_data) if r.raw_data else None
                         else:
-                            # Insert new record
+                            # Insert new record with ALL parsed financial fields
                             self.db.add(FinancialReportModel(
                                 stock_code=r.code,
                                 report_date=report_date,
                                 report_type=r.report_type,
                                 roe=r.roe,
+                                eps=r.eps,
+                                bps=r.bps,
+                                revenue_growth=r.revenue_growth,
+                                net_profit_growth=r.net_profit_growth,
+                                gross_margin=r.gross_margin,
+                                net_margin=r.net_margin,
+                                debt_ratio=r.debt_ratio,
                                 raw_data=json.dumps(r.raw_data) if r.raw_data else None,
                             ))
                     
@@ -528,10 +562,10 @@ class DataAcquisitionEngine:
 
         except Exception as e:
             task_manager.fail_task(task_id, str(e))
-            log.status = "failed"
-            log.error_message = str(e)
-            log.completed_at = datetime.now()
             await self.db.rollback()
-            await self.db.commit()
+            await self._persist_log_outcome(
+                log.id, "failed", error_message=str(e),
+                stocks_processed=locals().get("processed", 0),
+            )
             logger.error(f"Financial update failed: {e}")
             raise

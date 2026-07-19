@@ -262,52 +262,71 @@ class AkShareProvider(DataProvider):
     
     def _fetch_all_indicators_sina(self, code_prefixes: list[str] = None) -> list[dict]:
         """Fetch all A-share indicators from Sina API.
-        
+
         Args:
             code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
                           If None, fetch all stocks.
         """
         import requests
         import json
-        
+
         s = requests.Session()
         s.trust_env = False
-        
+
         all_data = []
         page = 1
         page_size = 80  # Sina API max per page
-        
-        while True:
-            r = s.get(
-                'https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData',
-                params={
-                    'page': str(page),
-                    'num': str(page_size),
-                    'sort': 'symbol',
-                    'asc': '1',
-                    'node': 'hs_a',
-                    'symbol': '',
-                    '_s_r_a': 'page'
-                },
-                timeout=10
-            )
-            
-            data = json.loads(r.text)
+        MAX_PAGES = 200  # safety guard against runaway pagination
+
+        while page <= MAX_PAGES:
+            try:
+                r = s.get(
+                    'https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData',
+                    params={
+                        'page': str(page),
+                        'num': str(page_size),
+                        'sort': 'symbol',
+                        'asc': '1',
+                        'node': 'hs_a',
+                        'symbol': '',
+                        '_s_r_a': 'page'
+                    },
+                    timeout=10
+                )
+            except requests.RequestException as e:
+                logger.error(f"Sina request failed on page {page}: {e}")
+                break
+
+            # Validate HTTP status — Sina returns an HTML error page (not JSON)
+            # on failures; without this guard we'd raise JSONDecodeError and
+            # discard everything already collected this run.
+            if r.status_code != 200 or not r.text or not r.text.strip().startswith('['):
+                logger.warning(f"Sina page {page} returned status {r.status_code}, "
+                               f"non-JSON body (len={len(r.text)}) — stopping pagination")
+                break
+
+            try:
+                data = json.loads(r.text)
+            except json.JSONDecodeError as e:
+                logger.error(f"Sina page {page} JSON decode failed: {e}")
+                break
+
             if not data:
                 break
-            
+
             # Filter by code prefixes if specified
             if code_prefixes:
                 filtered = [item for item in data if any(item['code'].startswith(prefix) for prefix in code_prefixes)]
                 all_data.extend(filtered)
             else:
                 all_data.extend(data)
-            
+
+            # A short page means we've reached the end; stop cleanly.
             if len(data) < page_size:
                 break
-            
+
             page += 1
-        
+
         return all_data
 
     def _fetch_spot_data_sync(self):
@@ -438,46 +457,51 @@ class AkShareProvider(DataProvider):
                 for _, row in df.iterrows():
                     # Extract key metrics
                     report_date = str(row.get("日期", ""))
-                    
-                    # ROE - use weighted ROE if available, otherwise use diluted
-                    roe = None
-                    if pd.notna(row.get("加权净资产收益率(%)")):
-                        roe = float(row.get("加权净资产收益率(%)"))
-                    elif pd.notna(row.get("摊薄净资产收益率(%)")):
-                        roe = float(row.get("摊薄净资产收益率(%)"))
-                    
-                    # EPS
-                    eps = float(row.get("摊薄每股收益(元)")) if pd.notna(row.get("摊薄每股收益(元)")) else None
-                    
-                    # BPS (Book Value Per Share)
-                    bps = float(row.get("每股净资产_调整后(元)")) if pd.notna(row.get("每股净资产_调整后(元)")) else None
-                    
-                    # Profit margins
-                    gross_margin = float(row.get("主营业务利润率(%)")) if pd.notna(row.get("主营业务利润率(%)")) else None
-                    net_margin = float(row.get("净利润增长率(%)")) if pd.notna(row.get("净利润增长率(%)")) else None
-                    
-                    # Growth rates
-                    revenue_growth = float(row.get("主营业务收入增长率(%)")) if pd.notna(row.get("主营业务收入增长率(%)")) else None
-                    
-                    # Debt ratio
-                    debt_ratio = float(row.get("资产负债率(%)")) if pd.notna(row.get("资产负债率(%)")) else None
-                    
+
+                    def _num(key: str) -> float | None:
+                        """Coerce a cell to float, None if missing/NaN."""
+                        v = row.get(key)
+                        return float(v) if pd.notna(v) else None
+
+                    # ROE - prefer weighted, fall back to diluted
+                    roe = _num("加权净资产收益率(%)")
+                    if roe is None:
+                        roe = _num("摊薄净资产收益率(%)")
+
+                    eps = _num("摊薄每股收益(元)")
+                    bps = _num("每股净资产_调整后(元)") or _num("每股净资产(元)")
+                    # Profit margins — 销售净利率 is the true net margin;
+                    # 主营业务利润率 is a related but distinct ratio (used as
+                    # gross_margin proxy when 销售毛利率 is absent).
+                    gross_margin = _num("销售毛利率(%)") or _num("主营业务利润率(%)")
+                    net_margin = _num("销售净利率(%)")
+                    # Growth rates — 净利润增长率 is net-profit GROWTH, not margin.
+                    # (Previous code mis-assigned it to net_margin.)
+                    revenue_growth = _num("主营业务收入增长率(%)")
+                    net_profit_growth = _num("净利润增长率(%)")
+                    debt_ratio = _num("资产负债率(%)")
+
                     reports.append(FinancialReport(
                         code=code,
                         report_date=report_date,
                         report_type=self._infer_report_type(report_date),
                         roe=roe,
-                        # Store comprehensive data in raw_data
+                        eps=eps,
+                        bps=bps,
+                        gross_margin=gross_margin,
+                        net_margin=net_margin,
+                        revenue_growth=revenue_growth,
+                        net_profit_growth=net_profit_growth,
+                        debt_ratio=debt_ratio,
+                        # Keep full payload for traceability / future fields.
                         raw_data={
-                            "eps": eps,
-                            "bps": bps,
-                            "roe": roe,
-                            "gross_margin": gross_margin,
-                            "net_margin": net_margin,
+                            "eps": eps, "bps": bps, "roe": roe,
+                            "gross_margin": gross_margin, "net_margin": net_margin,
                             "revenue_growth": revenue_growth,
+                            "net_profit_growth": net_profit_growth,
                             "debt_ratio": debt_ratio,
-                            "full_data": row.to_dict()
-                        }
+                            "full_data": row.to_dict(),
+                        },
                     ))
                 return reports
             except Exception as e:

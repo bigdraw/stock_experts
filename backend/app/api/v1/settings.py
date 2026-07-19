@@ -10,6 +10,7 @@ from app.database import get_db
 from app.models.user import User
 from app.services.data.akshare_provider import get_proxy_enabled, set_proxy_enabled, AkShareProvider
 from app.services import settings_service
+from app.services.llm.manager import llm_manager
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +144,11 @@ async def set_llm_setting(
         "temperature": request.temperature,
     }
     await settings_service.set_llm_config(db, config)
+
+    # Reload the live LLM manager from the DB so the new key takes effect
+    # immediately. Without this, the manager kept using the startup-time
+    # in-memory provider and admin edits silently did nothing.
+    await llm_manager.reload(db)
 
     return LLMConfigResponse(
         provider=config["provider"],

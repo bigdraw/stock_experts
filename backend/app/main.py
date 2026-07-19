@@ -40,9 +40,13 @@ async def lifespan(app: FastAPI):
     proxy_enabled = await get_proxy_enabled()
     logger.info(f"Proxy cache initialized: proxy_enabled={proxy_enabled}")
 
-    # Initialize LLM providers
+    # Initialize LLM providers — prefer DB-stored config (single source of
+    # truth) so admin edits to /settings/llm persist across restarts; fall
+    # back to config.yaml when the DB has no api_key yet.
     logger.info("Initializing LLM providers...")
-    await llm_manager.init_from_config()
+    from app.database import async_session_factory
+    async with async_session_factory() as db:
+        await llm_manager.reload(db)
     logger.info(f"LLM providers ready: {llm_manager.list_providers()}")
 
     # Start scheduler

@@ -38,9 +38,12 @@ class LLMManager:
         return list(self._providers.keys())
 
     async def init_from_config(self):
-        """Initialize providers from config.yaml."""
+        """Initialize providers from config.yaml.
+
+        ``${VAR}`` placeholders are resolved against os.environ; an unset var
+        yields an empty string and the provider is skipped with a warning.
+        """
         for name, cfg in settings.llm.providers.items():
-            # Resolve environment variables in api_key
             api_key = cfg.api_key
             if api_key.startswith("${") and api_key.endswith("}"):
                 env_var = api_key[2:-1]
@@ -60,6 +63,47 @@ class LLMManager:
 
         if not self._providers:
             logger.warning("No LLM providers configured")
+
+    async def reload(self, db=None) -> None:
+        """Reload providers from the DB system_settings (single source of truth).
+
+        Previously the LLM manager only read config.yaml at startup, while the
+        /settings/llm PUT endpoint wrote a separate copy to the DB — so admin
+        edits to api_key appeared to save but never took effect at runtime. This
+        method unifies the two: the DB is authoritative when it carries a real
+        api_key; otherwise we fall back to config.yaml (init_from_config).
+        Call this after set_llm_config() and on app startup.
+        """
+        await self.close_all()
+        self._providers.clear()
+        self._default = ""
+
+        db_config = None
+        if db is not None:
+            try:
+                from app.services import settings_service
+                db_config = await settings_service.get_llm_config(db)
+            except Exception as e:
+                logger.warning(f"Could not load LLM config from DB: {e}")
+                db_config = None
+
+        if db_config and db_config.get("api_key"):
+            try:
+                provider = OpenAICompatibleProvider(
+                    base_url=db_config["base_url"],
+                    api_key=db_config["api_key"],
+                    model=db_config["model"],
+                    max_tokens=int(db_config.get("max_tokens", 4096)),
+                    temperature=float(db_config.get("temperature", 0.7)),
+                )
+                self.register(db_config.get("provider", "qwen"), provider, is_default=True)
+                logger.info("LLM provider reloaded from DB settings")
+                return
+            except Exception as e:
+                logger.error(f"Failed to build provider from DB config, falling back to yaml: {e}")
+
+        # Fall back to config.yaml.
+        await self.init_from_config()
 
     async def close_all(self):
         """Close all providers."""
