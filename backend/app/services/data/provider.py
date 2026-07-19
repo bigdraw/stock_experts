@@ -71,6 +71,11 @@ class DataProvider(ABC):
         ...
 
     @abstractmethod
+    async def get_all_basic_indicators(self) -> list[StockBasicIndicators]:
+        """Get basic indicators for ALL A-share stocks in a single call."""
+        ...
+
+    @abstractmethod
     async def get_daily_quotes(self, code: str, start_date: str, end_date: str) -> list[DailyQuote]:
         """Get daily OHLCV data for a stock."""
         ...

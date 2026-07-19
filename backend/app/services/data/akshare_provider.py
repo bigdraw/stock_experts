@@ -149,27 +149,56 @@ class AkShareProvider(DataProvider):
             _restore_proxy(original_proxy)
 
     async def get_basic_indicators(self, codes: list[str]) -> list[StockBasicIndicators]:
-        """Get basic indicators for given stock codes using stock_zh_a_spot_em."""
+        """Get basic indicators for given stock codes using Sina API."""
         results = []
         
-        # Fetch all A-share spot data in one call (more efficient)
+        # Fetch all A-share data from Sina (eastmoney is broken)
         async with self._semaphore:
             try:
-                # Run synchronous akshare call in thread pool to avoid blocking event loop
-                df = await asyncio.to_thread(self._fetch_spot_data_sync)
+                # Run synchronous call in thread pool
+                all_data = await asyncio.to_thread(self._fetch_all_indicators_sina)
                 
-                # Filter by codes and extract indicators
-                df['代码'] = df['代码'].astype(str).str.zfill(6)
-                filtered_df = df[df['代码'].isin(codes)]
+                # Filter by codes
+                code_set = set(codes)
+                for item in all_data:
+                    code = item['code']
+                    if code in code_set:
+                        market_cap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
+                        pe_ratio = float(item.get('per', 0)) if item.get('per') else None
+                        pb_ratio = float(item.get('pb', 0)) if item.get('pb') else None
+                        
+                        results.append(StockBasicIndicators(
+                            code=code,
+                            date=datetime.now().strftime("%Y-%m-%d"),
+                            market_cap=market_cap,
+                            pe_ratio=pe_ratio,
+                            pb_ratio=pb_ratio,
+                            is_profitable=pe_ratio is not None and pe_ratio > 0 if pe_ratio is not None else None,
+                        ))
                 
-                for _, row in filtered_df.iterrows():
-                    code = row['代码']
-                    
-                    # Extract indicators from spot data
-                    # 总市值 (total market cap), 市盈率-动态 (PE ratio), 市净率 (PB ratio)
-                    market_cap = float(row.get('总市值', 0)) if pd.notna(row.get('总市值')) else None
-                    pe_ratio = float(row.get('市盈率-动态', 0)) if pd.notna(row.get('市盈率-动态')) else None
-                    pb_ratio = float(row.get('市净率', 0)) if pd.notna(row.get('市净率')) else None
+                logger.info(f"Fetched indicators for {len(results)} stocks")
+                
+            except Exception as e:
+                logger.error(f"Failed to fetch indicators: {e}")
+                return []
+        
+        return results
+    
+    async def get_all_basic_indicators(self) -> list[StockBasicIndicators]:
+        """Get basic indicators for ALL A-share stocks in a single API call."""
+        results = []
+        
+        async with self._semaphore:
+            try:
+                # Run synchronous call in thread pool
+                all_data = await asyncio.to_thread(self._fetch_all_indicators_sina)
+                
+                # Convert to StockBasicIndicators
+                for item in all_data:
+                    code = item['code']
+                    market_cap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
+                    pe_ratio = float(item.get('per', 0)) if item.get('per') else None
+                    pb_ratio = float(item.get('pb', 0)) if item.get('pb') else None
                     
                     results.append(StockBasicIndicators(
                         code=code,
@@ -180,14 +209,53 @@ class AkShareProvider(DataProvider):
                         is_profitable=pe_ratio is not None and pe_ratio > 0 if pe_ratio is not None else None,
                     ))
                 
-                logger.info(f"Fetched indicators for {len(results)} stocks")
+                logger.info(f"Fetched indicators for {len(results)} stocks (all)")
                 
             except Exception as e:
-                logger.error(f"Failed to fetch batch indicators: {e}")
-                # Return empty list, let caller handle it
+                logger.error(f"Failed to fetch all indicators: {e}")
                 return []
         
         return results
+    
+    def _fetch_all_indicators_sina(self) -> list[dict]:
+        """Fetch all A-share indicators from Sina API."""
+        import requests
+        import json
+        
+        s = requests.Session()
+        s.trust_env = False
+        
+        all_data = []
+        page = 1
+        page_size = 80  # Sina API max per page
+        
+        while True:
+            r = s.get(
+                'https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData',
+                params={
+                    'page': str(page),
+                    'num': str(page_size),
+                    'sort': 'symbol',
+                    'asc': '1',
+                    'node': 'hs_a',
+                    'symbol': '',
+                    '_s_r_a': 'page'
+                },
+                timeout=10
+            )
+            
+            data = json.loads(r.text)
+            if not data:
+                break
+            
+            all_data.extend(data)
+            
+            if len(data) < page_size:
+                break
+            
+            page += 1
+        
+        return all_data
 
     def _fetch_spot_data_sync(self):
         """Synchronous wrapper for fetching spot data."""

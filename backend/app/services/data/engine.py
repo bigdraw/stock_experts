@@ -26,8 +26,8 @@ class DataAcquisitionEngine:
         self.provider = provider
         self.db = db
 
-    async def full_basic_collection(self, batch_size: int = 50, task_id: str = None) -> str:
-        """Full collection of basic indicators (can run overnight). Returns task_id."""
+    async def full_basic_collection(self, batch_size: int = 100, task_id: str = None) -> str:
+        """Full collection of basic indicators. Fetches all data in one API call, then batches DB writes."""
         if task_id is None:
             task_id = f"full_basic_{uuid.uuid4().hex[:8]}"
         task_manager.create_task(task_id, "full_basic", total=0)
@@ -51,11 +51,11 @@ class DataAcquisitionEngine:
             task = task_manager.get_task(task_id)
             if task:
                 task.total = total
-            task_manager.update_progress(task_id, message=f"Found {total} stocks, starting collection...")
-            logger.info(f"Starting full collection for {total} stocks")
+            task_manager.update_progress(task_id, message=f"Found {total} stocks")
+            logger.info(f"Found {total} stocks")
 
             # 2. Upsert stocks
-            task_manager.update_progress(task_id, message="Updating stock list...")
+            task_manager.update_progress(task_id, message="Updating stock list in database...")
             for stock_data in stocks:
                 existing = await self.db.get(Stock, stock_data.code)
                 if existing:
@@ -74,9 +74,20 @@ class DataAcquisitionEngine:
                     ))
             await self.db.flush()
 
-            # 3. Batch collect indicators
+            # 3. Fetch ALL indicators in one API call (Sina API)
+            task_manager.update_progress(task_id, message="Fetching all indicators from data source...")
+            all_indicators = await self.provider.get_all_basic_indicators()
+            
+            if not all_indicators:
+                raise Exception("Failed to fetch indicators from data source")
+            
+            logger.info(f"Fetched {len(all_indicators)} indicators")
+
+            # 4. Batch write indicators to database
             processed = 0
-            for i in range(0, total, batch_size):
+            total_indicators = len(all_indicators)
+            
+            for i in range(0, total_indicators, batch_size):
                 # Check for pause/stop
                 if not task_manager.wait_if_paused(task_id):
                     task_manager.stop_task(task_id)
@@ -84,52 +95,42 @@ class DataAcquisitionEngine:
                     log.stocks_processed = processed
                     log.completed_at = datetime.now()
                     await self.db.commit()
-                    logger.info(f"Full collection stopped by user: {processed}/{total} stocks")
+                    logger.info(f"Full collection stopped by user: {processed}/{total_indicators} stocks")
                     return task_id
 
-                batch = stocks[i:i + batch_size]
-                codes = [s.code for s in batch]
+                batch = all_indicators[i:i + batch_size]
                 batch_num = i // batch_size + 1
-                total_batches = (total + batch_size - 1) // batch_size
+                total_batches = (total_indicators + batch_size - 1) // batch_size
                 
                 task_manager.update_progress(
                     task_id,
                     current=processed,
-                    message=f"Processing batch {batch_num}/{total_batches} ({processed}/{total} stocks)",
+                    message=f"Writing batch {batch_num}/{total_batches} to database ({processed}/{total_indicators})",
                 )
 
-                try:
-                    indicators = await self.provider.get_basic_indicators(codes)
-                    # Update stocks with indicators
-                    for ind in indicators:
-                        report = FinancialReportModel(
-                            stock_code=ind.code,
-                            report_date=datetime.now().date(),
-                            report_type="Latest",
-                            market_cap=ind.market_cap,
-                            pe_ratio=ind.pe_ratio,
-                            pb_ratio=ind.pb_ratio,
-                            is_profitable=ind.is_profitable,
-                        )
-                        self.db.add(report)
-                    processed += len(batch)
-                    log.stocks_processed = processed
-                    await self.db.flush()
-                    logger.info(f"Processed {processed}/{total} stocks")
-                except Exception as e:
-                    logger.error(f"Failed to process batch {batch_num}: {e}")
-                    task_manager.update_progress(
-                        task_id,
-                        message=f"Batch {batch_num} failed: {str(e)[:50]}, continuing...",
+                for ind in batch:
+                    report = FinancialReportModel(
+                        stock_code=ind.code,
+                        report_date=datetime.now().date(),
+                        report_type="Latest",
+                        market_cap=ind.market_cap,
+                        pe_ratio=ind.pe_ratio,
+                        pb_ratio=ind.pb_ratio,
+                        is_profitable=ind.is_profitable,
                     )
-                    continue
+                    self.db.add(report)
+                
+                processed += len(batch)
+                log.stocks_processed = processed
+                await self.db.flush()
+                logger.info(f"Processed {processed}/{total_indicators} stocks")
 
-            task_manager.complete_task(task_id, f"Completed: {processed}/{total} stocks")
+            task_manager.complete_task(task_id, f"Completed: {processed}/{total_indicators} stocks")
             log.status = "success"
             log.completed_at = datetime.now()
-            log.details = json.dumps({"total_stocks": total, "processed": processed})
+            log.details = json.dumps({"total_stocks": total_indicators, "processed": processed})
             await self.db.commit()
-            logger.info(f"Full collection completed: {processed}/{total} stocks")
+            logger.info(f"Full collection completed: {processed}/{total_indicators} stocks")
             return task_id
 
         except Exception as e:
