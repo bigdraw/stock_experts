@@ -94,6 +94,19 @@ async def remove_stock(
     return {"status": "removed"}
 
 
+@router.delete("/{portfolio_id}/items/by-id/{item_id}")
+async def remove_stock_by_id(
+    portfolio_id: int,
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Remove a portfolio item by its ID (more reliable for items with empty/invalid stock codes)."""
+    mgr = PortfolioManager(db)
+    await mgr.remove_stock_by_id(portfolio_id, item_id)
+    return {"status": "removed"}
+
+
 @router.delete("/{portfolio_id}")
 async def delete_portfolio(
     portfolio_id: int,

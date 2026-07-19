@@ -37,6 +37,7 @@ export interface PortfolioDetail extends Portfolio {
 }
 
 export interface PortfolioHolding {
+  id: number
   stock_code: string
   stock_name: string
   shares: number

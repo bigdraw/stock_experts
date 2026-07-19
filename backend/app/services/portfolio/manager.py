@@ -44,6 +44,7 @@ class PortfolioManager:
         for item in items:
             stock = await self.db.get(Stock, item.stock_code)
             holdings.append({
+                "id": item.id,
                 "stock_code": item.stock_code,
                 "stock_name": stock.name if stock else "Unknown",
                 "shares": item.shares,
@@ -86,6 +87,19 @@ class PortfolioManager:
             select(PortfolioItem).where(
                 PortfolioItem.portfolio_id == portfolio_id,
                 PortfolioItem.stock_code == stock_code,
+            )
+        )
+        item = result.scalar_one_or_none()
+        if item:
+            await self.db.delete(item)
+            await self.db.flush()
+
+    async def remove_stock_by_id(self, portfolio_id: int, item_id: int):
+        """Remove a portfolio item by its ID (more reliable than by stock_code)."""
+        result = await self.db.execute(
+            select(PortfolioItem).where(
+                PortfolioItem.id == item_id,
+                PortfolioItem.portfolio_id == portfolio_id,
             )
         )
         item = result.scalar_one_or_none()

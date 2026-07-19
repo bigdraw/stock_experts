@@ -29,6 +29,7 @@ export const portfoliosApi = {
   addByFilter: (id: number, filterId: number, params?: Record<string, unknown>) =>
     apiClient.post(`/portfolios/${id}/items/filter`, null, { params: { filter_id: filterId, ...params } }),
   removeStock: (id: number, stockCode: string) => apiClient.delete(`/portfolios/${id}/items/${stockCode}`),
+  removeStockById: (portfolioId: number, itemId: number) => apiClient.delete(`/portfolios/${portfolioId}/items/by-id/${itemId}`),
 }
 
 // Filters
