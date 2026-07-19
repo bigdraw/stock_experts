@@ -1,19 +1,22 @@
 <template>
   <div class="page-container">
     <n-space vertical :size="20">
-      <n-input 
-        v-model:value="search" 
-        placeholder="搜索代码、名称、拼音或首字母..." 
-        clearable 
-        @update:value="handleSearch"
+      <n-auto-complete
+        v-model:value="search"
+        :options="searchOptions"
+        :loading="searching"
+        placeholder="搜索代码、名称、拼音或首字母..."
+        clearable
         size="large"
+        @update:value="handleSearch"
+        @select="handleSelect"
       >
         <template #prefix>
           <n-icon :size="18" color="#64748b">
             <SearchOutline />
           </n-icon>
         </template>
-      </n-input>
+      </n-auto-complete>
       
       <n-card class="data-card">
         <n-data-table 
@@ -40,6 +43,8 @@ const router = useRouter()
 const stocks = ref<Stock[]>([])
 const loading = ref(false)
 const search = ref('')
+const searchOptions = ref<any[]>([])
+const searching = ref(false)
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const columns = [
@@ -95,15 +100,8 @@ const columns = [
 async function loadStocks() {
   loading.value = true
   try {
-    if (search.value && search.value.trim()) {
-      // Use search API for pinyin/first letter support
-      const res = await stocksApi.search(search.value.trim(), 500)
-      stocks.value = res.data
-    } else {
-      // Load all stocks when no search query
-      const res = await stocksApi.list({ limit: 500 })
-      stocks.value = res.data
-    }
+    const res = await stocksApi.list({ limit: 500 })
+    stocks.value = res.data
   } catch (e) {
     console.error(e)
   } finally {
@@ -111,14 +109,40 @@ async function loadStocks() {
   }
 }
 
-function handleSearch() {
-  // Debounce search
+function handleSearch(value: string) {
   if (searchTimeout) {
     clearTimeout(searchTimeout)
   }
-  searchTimeout = setTimeout(() => {
+
+  if (!value || !value.trim()) {
+    searchOptions.value = []
     loadStocks()
+    return
+  }
+
+  searchTimeout = setTimeout(async () => {
+    searching.value = true
+    try {
+      const res = await stocksApi.search(value.trim(), 20)
+      // 更新下拉候选列表
+      searchOptions.value = res.data.map((stock: Stock) => ({
+        label: `${stock.code} ${stock.name}`,
+        value: stock.code
+      }))
+      // 同时更新表格
+      stocks.value = res.data
+    } catch (e) {
+      console.error(e)
+      searchOptions.value = []
+    } finally {
+      searching.value = false
+    }
   }, 300)
+}
+
+function handleSelect(value: string) {
+  // 选中后跳转到股票详情
+  router.push(`/stocks/${value}`)
 }
 
 onMounted(loadStocks)
@@ -129,7 +153,8 @@ onMounted(loadStocks)
   animation: fadeIn 0.3s ease-out;
 }
 
-.page-container :deep(.n-input) {
+.page-container :deep(.n-input),
+.page-container :deep(.n-base-selection .n-base-selection-input) {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
   border-radius: 12px !important;
@@ -137,13 +162,15 @@ onMounted(loadStocks)
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.page-container :deep(.n-input:hover) {
+.page-container :deep(.n-input:hover),
+.page-container :deep(.n-base-selection:hover .n-base-selection-input) {
   border-color: var(--primary) !important;
   background: var(--bg-elevated) !important;
   box-shadow: 0 4px 16px rgba(0, 212, 170, 0.15) !important;
 }
 
-.page-container :deep(.n-input--focus) {
+.page-container :deep(.n-input--focus),
+.page-container :deep(.n-base-selection--focus .n-base-selection-input) {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15) !important;
   background: var(--bg-elevated) !important;
