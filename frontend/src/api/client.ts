@@ -8,24 +8,37 @@ const apiClient = axios.create({
   timeout: 30000,
 })
 
-apiClient.interceptors.request.use((config) => {
-  const authStore = useAuthStore()
-  if (authStore.token) {
-    config.headers.Authorization = `Bearer ${authStore.token}`
-  }
-  return config
+// Admin client uses root path (no /api/v1 prefix)
+const adminClient = axios.create({
+  baseURL: '',
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 30000,
 })
 
-apiClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      const authStore = useAuthStore()
-      authStore.logout()
-      router.push('/login')
+function addAuthInterceptor(client: ReturnType<typeof axios.create>) {
+  client.interceptors.request.use((config) => {
+    const authStore = useAuthStore()
+    if (authStore.token) {
+      config.headers.Authorization = `Bearer ${authStore.token}`
     }
-    return Promise.reject(error)
-  }
-)
+    return config
+  })
 
+  client.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      if (error.response?.status === 401) {
+        const authStore = useAuthStore()
+        authStore.logout()
+        router.push('/login')
+      }
+      return Promise.reject(error)
+    }
+  )
+}
+
+addAuthInterceptor(apiClient)
+addAuthInterceptor(adminClient)
+
+export { adminClient }
 export default apiClient
