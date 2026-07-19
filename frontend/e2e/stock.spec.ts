@@ -151,7 +151,7 @@ test.describe('投资组合', () => {
     await page.waitForURL(/\/portfolios\/\d+/);
 
     // 添加股票 - 输入股票代码
-    await page.fill('input[placeholder="股票代码"]', '000001');
+    await page.fill('input[placeholder="输入代码、名称、拼音或首字母"]', '000001');
     await page.click('button:has-text("添加股票")');
 
     // 验证股票添加成功

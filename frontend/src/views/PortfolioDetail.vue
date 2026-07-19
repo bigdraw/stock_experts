@@ -16,18 +16,22 @@
         </n-icon>
       </template>
       <n-space :size="12">
-        <n-input 
-          v-model:value="addCode" 
-          placeholder="股票代码" 
-          style="width: 180px"
+        <n-auto-complete
+          v-model:value="addCode"
+          :options="searchResults"
+          :loading="searching"
+          placeholder="输入代码、名称、拼音或首字母"
+          style="width: 280px"
           size="large"
+          @update:value="handleSearch"
+          clearable
         >
           <template #prefix>
             <n-icon :size="18" color="#64748b">
-              <CodeOutline />
+              <SearchOutline />
             </n-icon>
           </template>
-        </n-input>
+        </n-auto-complete>
         <n-input-number 
           v-model:value="addShares" 
           placeholder="数量" 
@@ -73,13 +77,13 @@ import { NButton, NTag, NIcon, useMessage } from 'naive-ui'
 import { 
   BriefcaseOutline, 
   AddOutline, 
-  CodeOutline,
+  SearchOutline,
   CalculatorOutline,
   ListOutline,
   TrashOutline
 } from '@vicons/ionicons5'
-import { portfoliosApi } from '../api'
-import type { PortfolioDetail } from '../types'
+import { portfoliosApi, stocksApi } from '../api'
+import type { PortfolioDetail, Stock } from '../types'
 
 const route = useRoute()
 const message = useMessage()
@@ -87,6 +91,39 @@ const id = computed(() => Number(route.params.id))
 const detail = ref<PortfolioDetail | null>(null)
 const addCode = ref('')
 const addShares = ref(100)
+const searchResults = ref<any[]>([])
+const searching = ref(false)
+let searchTimeout: ReturnType<typeof setTimeout> | null = null
+
+async function handleSearch(value: string) {
+  // Clear previous timeout
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+  }
+  
+  // If empty, clear results
+  if (!value || value.trim().length === 0) {
+    searchResults.value = []
+    return
+  }
+  
+  // Debounce search
+  searchTimeout = setTimeout(async () => {
+    searching.value = true
+    try {
+      const res = await stocksApi.search(value.trim())
+      searchResults.value = res.data.map((stock: Stock) => ({
+        label: `${stock.code} ${stock.name}`,
+        value: stock.code
+      }))
+    } catch (e: any) {
+      console.error('Search failed:', e)
+      searchResults.value = []
+    } finally {
+      searching.value = false
+    }
+  }, 300)
+}
 
 const columns = [
   { 

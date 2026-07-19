@@ -3,7 +3,7 @@
     <n-space vertical :size="20">
       <n-input 
         v-model:value="search" 
-        placeholder="搜索股票代码或名称..." 
+        placeholder="搜索代码、名称、拼音或首字母..." 
         clearable 
         @update:value="handleSearch"
         size="large"
@@ -40,6 +40,7 @@ const router = useRouter()
 const stocks = ref<Stock[]>([])
 const loading = ref(false)
 const search = ref('')
+let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const columns = [
   { 
@@ -94,8 +95,15 @@ const columns = [
 async function loadStocks() {
   loading.value = true
   try {
-    const res = await stocksApi.list({ search: search.value || undefined, limit: 500 })
-    stocks.value = res.data
+    if (search.value && search.value.trim()) {
+      // Use search API for pinyin/first letter support
+      const res = await stocksApi.search(search.value.trim(), 500)
+      stocks.value = res.data
+    } else {
+      // Load all stocks when no search query
+      const res = await stocksApi.list({ limit: 500 })
+      stocks.value = res.data
+    }
   } catch (e) {
     console.error(e)
   } finally {
@@ -104,7 +112,13 @@ async function loadStocks() {
 }
 
 function handleSearch() {
-  loadStocks()
+  // Debounce search
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+  }
+  searchTimeout = setTimeout(() => {
+    loadStocks()
+  }, 300)
 }
 
 onMounted(loadStocks)

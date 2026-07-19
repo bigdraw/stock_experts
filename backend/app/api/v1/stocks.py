@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
+from pypinyin import pinyin, Style
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,20 @@ from app.schemas import DailyQuoteResponse, StockResponse
 from app.utils.exceptions import NotFoundException
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
+
+
+def get_pinyin(text: str) -> str:
+    """Convert Chinese text to pinyin."""
+    if not text:
+        return ""
+    return "".join([item[0] for item in pinyin(text, style=Style.NORMAL)])
+
+
+def get_first_letter(text: str) -> str:
+    """Get first letter of each Chinese character."""
+    if not text:
+        return ""
+    return "".join([item[0][0] for item in pinyin(text, style=Style.FIRST_LETTER)])
 
 
 @router.get("/count")
@@ -49,6 +64,50 @@ async def list_stocks(
     query = query.offset(offset).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
+
+
+@router.get("/search", response_model=list[StockResponse])
+async def search_stocks(
+    q: str = Query(..., min_length=1, description="Search query (code, name, pinyin, or first letter)"),
+    limit: int = Query(default=20, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Search stocks by code, name, pinyin, or first letter."""
+    # Get all active stocks
+    result = await db.execute(select(Stock).where(Stock.is_active == True))
+    all_stocks = result.scalars().all()
+    
+    # Filter stocks based on search query
+    matched_stocks = []
+    q_lower = q.lower()
+    
+    for stock in all_stocks:
+        # Match by code
+        if q_lower in stock.code.lower():
+            matched_stocks.append(stock)
+            continue
+        
+        # Match by name
+        if stock.name and q_lower in stock.name.lower():
+            matched_stocks.append(stock)
+            continue
+        
+        # Match by pinyin
+        if stock.name:
+            stock_pinyin = get_pinyin(stock.name).lower()
+            if q_lower in stock_pinyin:
+                matched_stocks.append(stock)
+                continue
+            
+            # Match by first letter
+            stock_first_letter = get_first_letter(stock.name).lower()
+            if q_lower in stock_first_letter:
+                matched_stocks.append(stock)
+                continue
+    
+    # Return limited results
+    return matched_stocks[:limit]
 
 
 @router.get("/{code}", response_model=StockResponse)

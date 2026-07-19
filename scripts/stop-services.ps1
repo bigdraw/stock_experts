@@ -38,7 +38,7 @@ if ($pids.frontend) {
 }
 
 # Remove duplicates and nulls, ensure integers
-$allPids = $allPids | Where-Object { $_ } | ForEach-Object { [int]$_ } | Sort-Object -Unique
+$allPids = $allPids | Where-Object { $_ -and $_ -match '^\d+$' } | ForEach-Object { [int]$_ } | Sort-Object -Unique
 
 Write-Host "PIDs to stop: $($allPids -join ', ')" -ForegroundColor Gray
 
