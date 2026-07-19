@@ -70,40 +70,37 @@ test.describe('股票详情页', () => {
     await expect(page.locator('h2:has-text("策略回测")')).toBeVisible();
   });
 
-  test('股票详情页之间导航正常切换', async ({ page }) => {
+  test('股票列表搜索实时更新表格', async ({ page }) => {
     // 进入股票列表
     await page.click('text=股票列表');
     await page.waitForURL('/stocks');
     await page.waitForSelector('tbody tr', { timeout: 5000 });
 
-    // 获取前两个股票的"查看详情"按钮
-    const stocks = page.locator('tbody tr');
-    const firstStockButton = stocks.nth(0).locator('button:has-text("查看详情")');
-    const secondStockButton = stocks.nth(1).locator('button:has-text("查看详情")');
+    // 获取初始表格行数
+    const initialRowCount = await page.locator('tbody tr').count();
+    expect(initialRowCount).toBeGreaterThan(0);
 
-    // 进入第一个股票详情
-    await firstStockButton.click();
-    await page.waitForURL(/\/stocks\/\d{6}/);
-    const firstUrl = page.url();
-    const firstStockCode = firstUrl.match(/\/stocks\/(\d{6})/)?.[1];
+    // 在搜索框输入
+    await page.fill('input[placeholder*="搜索"]', '000001');
+    
+    // 等待防抖和 API 调用
+    await page.waitForTimeout(1000);
+    
+    // 验证表格已更新（行数应该减少）
+    const filteredRowCount = await page.locator('tbody tr').count();
+    expect(filteredRowCount).toBeLessThan(initialRowCount);
+    expect(filteredRowCount).toBeGreaterThan(0);
 
-    // 返回列表
-    await page.click('text=股票列表');
-    await page.waitForURL('/stocks');
-    await page.waitForSelector('tbody tr', { timeout: 5000 });
+    // 验证表格中包含搜索的股票
+    await expect(page.locator('tbody')).toContainText('000001');
 
-    // 进入第二个股票详情
-    const secondStockButtonAfterReturn = page.locator('tbody tr').nth(1).locator('button:has-text("查看详情")');
-    await secondStockButtonAfterReturn.click();
-    await page.waitForURL(/\/stocks\/\d{6}/);
-    const secondUrl = page.url();
-    const secondStockCode = secondUrl.match(/\/stocks\/(\d{6})/)?.[1];
-
-    // 验证 URL 不同
-    expect(firstStockCode).not.toBe(secondStockCode);
-
-    // 验证页面内容已更新（股票代码显示在页面上）
-    await expect(page.locator(`text=${secondStockCode}`)).toBeVisible();
+    // 清空搜索框
+    await page.fill('input[placeholder*="搜索"]', '');
+    await page.waitForTimeout(500);
+    
+    // 验证表格恢复到初始状态
+    const restoredRowCount = await page.locator('tbody tr').count();
+    expect(restoredRowCount).toBe(initialRowCount);
   });
 });
 

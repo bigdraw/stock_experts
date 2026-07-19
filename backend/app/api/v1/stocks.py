@@ -69,29 +69,38 @@ async def list_stocks(
 @router.get("/search", response_model=list[StockResponse])
 async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query (code, name, pinyin, or first letter)"),
-    limit: int = Query(default=20, le=100),
+    limit: int = Query(default=500, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Search stocks by code, name, pinyin, or first letter."""
-    # Get all active stocks
-    result = await db.execute(select(Stock).where(Stock.is_active == True))
-    all_stocks = result.scalars().all()
-    
-    # Filter stocks based on search query
-    matched_stocks = []
     q_lower = q.lower()
     
-    for stock in all_stocks:
-        # Match by code
-        if q_lower in stock.code.lower():
-            matched_stocks.append(stock)
-            continue
-        
-        # Match by name
-        if stock.name and q_lower in stock.name.lower():
-            matched_stocks.append(stock)
-            continue
+    # First, try database filtering by code and name (fast)
+    query = select(Stock).where(
+        Stock.is_active == True,
+        (Stock.code.contains(q_lower)) | (Stock.name.contains(q))
+    ).limit(limit)
+    result = await db.execute(query)
+    matched_stocks = list(result.scalars().all())
+    
+    # If we have enough results, return them
+    if len(matched_stocks) >= limit:
+        return matched_stocks[:limit]
+    
+    # If not enough results, try pinyin and first letter matching
+    # Load only stocks that haven't been matched yet
+    matched_codes = {stock.code for stock in matched_stocks}
+    query = select(Stock).where(
+        Stock.is_active == True,
+        ~Stock.code.in_(matched_codes)
+    )
+    result = await db.execute(query)
+    remaining_stocks = result.scalars().all()
+    
+    for stock in remaining_stocks:
+        if len(matched_stocks) >= limit:
+            break
         
         # Match by pinyin
         if stock.name:
@@ -106,7 +115,6 @@ async def search_stocks(
                 matched_stocks.append(stock)
                 continue
     
-    # Return limited results
     return matched_stocks[:limit]
 
 

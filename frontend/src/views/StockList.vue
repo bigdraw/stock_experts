@@ -118,9 +118,10 @@ function handleSearch(value: string) {
     loading.value = true
     try {
       const res = await stocksApi.search(value.trim(), 500)
-      stocks.value = res.data
-    } catch (e) {
-      console.error(e)
+      console.log('Search results:', res.data)
+      stocks.value = res.data || []
+    } catch (e: any) {
+      console.error('Search failed:', e.response?.data || e.message)
     } finally {
       loading.value = false
     }
