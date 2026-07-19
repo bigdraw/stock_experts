@@ -23,17 +23,49 @@ test.describe('股票详情页', () => {
   });
 
   test('侧边栏导航在股票详情页正常工作', async ({ page }) => {
-    // 进入股票列表
+    // 先进入股票列表，如果没有组合则创建一个
     await page.click('text=股票列表');
     await page.waitForURL('/stocks');
     
-    // 等待表格加载
-    await page.waitForSelector('tbody tr', { timeout: 5000 });
-
-    // 点击第一个股票的"查看详情"按钮进入详情页
-    const firstStockButton = page.locator('tbody tr').first().locator('button:has-text("查看详情")');
-    await firstStockButton.click();
-    await page.waitForURL(/\/stocks\/\d{6}/);
+    // 检查是否有空状态
+    const emptyState = page.locator('text=还没有自选股组合');
+    const hasEmptyState = await emptyState.isVisible({ timeout: 3000 }).catch(() => false);
+    
+    if (hasEmptyState) {
+      // 创建组合
+      await page.click('button:has-text("创建自选组合")');
+      await page.waitForSelector('.n-modal');
+      
+      await page.fill('input[placeholder="输入组合名称"]', '测试组合');
+      await page.fill('textarea[placeholder="输入组合描述（可选）"]', 'E2E测试创建的组合');
+      await page.click('.n-modal button:has-text("创建")');
+      
+      // 等待组合创建成功
+      await page.waitForSelector('text=组合创建成功', { timeout: 5000 });
+    }
+    
+    // 等待标签页加载
+    await page.waitForSelector('.n-tabs-tab', { timeout: 5000 });
+    
+    // 添加股票到组合（如果组合为空）
+    const tableRows = page.locator('tbody tr');
+    const rowCount = await tableRows.count();
+    
+    if (rowCount === 0) {
+      // 搜索并添加股票
+      await page.fill('input[placeholder*="搜索"]', '000001');
+      await page.waitForTimeout(1000);
+      
+      // 点击第一个搜索结果的"查看详情"按钮
+      const firstStockButton = page.locator('tbody tr').first().locator('button:has-text("查看详情")');
+      await firstStockButton.click();
+      await page.waitForURL(/\/stocks\/\d{6}/);
+    } else {
+      // 点击第一个股票的"查看详情"按钮进入详情页
+      const firstStockButton = page.locator('tbody tr').first().locator('button:has-text("查看详情")');
+      await firstStockButton.click();
+      await page.waitForURL(/\/stocks\/\d{6}/);
+    }
 
     // 验证股票详情页加载成功
     await expect(page.locator('.page-header')).toBeVisible();
@@ -46,6 +78,7 @@ test.describe('股票详情页', () => {
     // 再次进入股票详情
     await page.click('text=股票列表');
     await page.waitForURL('/stocks');
+    await page.waitForSelector('.n-tabs-tab', { timeout: 5000 });
     await page.waitForSelector('tbody tr', { timeout: 5000 });
     const secondStockButton = page.locator('tbody tr').first().locator('button:has-text("查看详情")');
     await secondStockButton.click();
@@ -59,6 +92,7 @@ test.describe('股票详情页', () => {
     // 再次进入股票详情
     await page.click('text=股票列表');
     await page.waitForURL('/stocks');
+    await page.waitForSelector('.n-tabs-tab', { timeout: 5000 });
     await page.waitForSelector('tbody tr', { timeout: 5000 });
     const thirdStockButton = page.locator('tbody tr').first().locator('button:has-text("查看详情")');
     await thirdStockButton.click();
@@ -71,9 +105,50 @@ test.describe('股票详情页', () => {
   });
 
   test('股票列表搜索实时更新表格', async ({ page }) => {
-    // 进入股票列表
+    // 先进入股票列表，如果没有组合则创建一个
     await page.click('text=股票列表');
     await page.waitForURL('/stocks');
+    
+    // 检查是否有空状态
+    const emptyState = page.locator('text=还没有自选股组合');
+    const hasEmptyState = await emptyState.isVisible({ timeout: 3000 }).catch(() => false);
+    
+    if (hasEmptyState) {
+      // 创建组合
+      await page.click('button:has-text("创建自选组合")');
+      await page.waitForSelector('.n-modal');
+      
+      await page.fill('input[placeholder="输入组合名称"]', '测试组合');
+      await page.fill('textarea[placeholder="输入组合描述（可选）"]', 'E2E测试创建的组合');
+      await page.click('.n-modal button:has-text("创建")');
+      
+      // 等待组合创建成功
+      await page.waitForSelector('text=组合创建成功', { timeout: 5000 });
+    }
+    
+    // 等待标签页加载
+    await page.waitForSelector('.n-tabs-tab', { timeout: 5000 });
+    
+    // 添加股票到组合（如果组合为空）
+    const tableRows = page.locator('tbody tr');
+    const rowCount = await tableRows.count();
+    
+    if (rowCount === 0) {
+      // 搜索并添加股票
+      await page.fill('input[placeholder*="搜索"]', '000001');
+      await page.waitForTimeout(1000);
+      
+      // 点击第一个搜索结果的"查看详情"按钮
+      const firstStockButton = page.locator('tbody tr').first().locator('button:has-text("查看详情")');
+      await firstStockButton.click();
+      await page.waitForURL(/\/stocks\/\d{6}/);
+      
+      // 返回股票列表
+      await page.click('text=股票列表');
+      await page.waitForURL('/stocks');
+      await page.waitForSelector('.n-tabs-tab', { timeout: 5000 });
+    }
+    
     await page.waitForSelector('tbody tr', { timeout: 5000 });
 
     // 获取初始表格行数
