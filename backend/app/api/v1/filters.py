@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, require_admin
 from app.database import get_db
 from app.models.user import User
 from app.schemas import FilterExecuteRequest, FilterGenerateRequest, FilterResponse
@@ -18,9 +18,14 @@ router = APIRouter(prefix="/filters", tags=["filters"])
 async def generate_filter(
     req: FilterGenerateRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
-    """Generate filter script from natural language description."""
+    """Generate filter script from natural language description (admin only).
+
+    Admin-only because it invokes the LLM to produce executable code — a
+    prompt-injection surface. Executable output is sandboxed (see
+    app/services/filter/sandbox.py) but generation itself is gated.
+    """
     llm = llm_manager.get()
     registry = FilterRegistry(db, llm)
 
@@ -62,9 +67,13 @@ async def execute_filter(
     script_id: int,
     req: FilterExecuteRequest | None = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
-    """Execute a filter script and return results."""
+    """Execute a filter script and return results (admin only).
+
+    Runs LLM-generated Python in a hardened RestrictedPython sandbox. Admin-gated
+    as defence-in-depth alongside the sandbox.
+    """
     registry = FilterRegistry(db, llm_manager.get())
     try:
         result_df = await registry.execute(script_id, req.params if req else None)

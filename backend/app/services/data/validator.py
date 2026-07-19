@@ -23,17 +23,18 @@ class ValidationResult:
 class IndicatorValidator:
     """Validates stock indicator data for reasonable values."""
     
-    # Reasonable ranges for indicators
+    # Reasonable ranges for indicators. Keys MUST match the StockBasicIndicators
+    # dataclass field names exactly (the raw Sina names — no underscore variants).
     RANGES = {
         'price': (0.01, 100000),  # 股价范围：0.01 - 100000 元
         'pe_ratio': (-10000, 10000),  # PE 范围：-10000 到 10000（负值表示亏损）
         'pb_ratio': (0, 1000),  # PB 范围：0 到 1000
-        'market_cap': (0, 1e10),  # 市值范围：0 到 100 亿万元（即 100 万亿元）
+        'market_cap': (0, 1e10),  # 市值范围：0 到 1e10 万元（约 100 万亿元，上限宽松）
         'circulating_market_cap': (0, 1e10),  # 流通市值范围同上
         'volume': (0, 1e12),  # 成交量范围：0 到 1 万亿股
         'amount': (0, 1e15),  # 成交额范围：0 到 1000 万亿元
-        'turnover_ratio': (0, 100),  # 换手率范围：0% 到 100%
-        'change_pct': (-20, 20),  # 涨跌幅范围：-20% 到 20%（考虑 ST 股票）
+        'turnoverratio': (0, 100),  # 换手率范围：0% 到 100%
+        'changepercent': (-20, 20),  # 涨跌幅范围：-20% 到 20%（考虑 ST 股票）
     }
     
     @classmethod
@@ -95,15 +96,15 @@ class IndicatorValidator:
             if ind.amount < 0:
                 errors.append(f"Invalid amount: {ind.amount} (must be >= 0)")
         
-        # Validate turnover ratio
-        if ind.turnover_ratio is not None:
-            if ind.turnover_ratio < 0 or ind.turnover_ratio > cls.RANGES['turnover_ratio'][1]:
-                warnings.append(f"Turnover ratio out of range: {ind.turnover_ratio}")
-        
-        # Validate change percentage
-        if ind.change_pct is not None:
-            if ind.change_pct < cls.RANGES['change_pct'][0] or ind.change_pct > cls.RANGES['change_pct'][1]:
-                warnings.append(f"Change percentage out of range: {ind.change_pct}")
+        # Validate turnover ratio (raw Sina field name: turnoverratio)
+        if ind.turnoverratio is not None:
+            if ind.turnoverratio < 0 or ind.turnoverratio > cls.RANGES['turnoverratio'][1]:
+                warnings.append(f"Turnover ratio out of range: {ind.turnoverratio}")
+
+        # Validate change percentage (raw Sina field name: changepercent)
+        if ind.changepercent is not None:
+            if ind.changepercent < cls.RANGES['changepercent'][0] or ind.changepercent > cls.RANGES['changepercent'][1]:
+                warnings.append(f"Change percentage out of range: {ind.changepercent}")
         
         # Cross-validation: circulating market cap should be <= total market cap
         if ind.market_cap is not None and ind.circulating_market_cap is not None:
