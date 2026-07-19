@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# long-dev commit-msg hook: enforce <type>(<scope>): <subject> format.
+# Receives the path to the temporary commit-message file as $1.
+
+set -u
+
+MSG_FILE="$1"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+
+cd "$REPO_ROOT" || exit 0
+
+if command -v python >/dev/null 2>&1; then
+    PY=python
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    exit 0
+fi
+
+"$PY" scripts/check_discipline.py --commit-msg "$MSG_FILE"
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo "" >&2
+    echo "commit message 不符合语义化规范，commit 已中止。" >&2
+    echo "格式: <type>(<scope>): <subject>" >&2
+    echo "type ∈ {feat, fix, docs, refactor, test, chore, progress}" >&2
+    echo "(若需跳过本次检查: git commit --no-verify)" >&2
+fi
+exit $rc

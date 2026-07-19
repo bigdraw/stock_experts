@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# long-dev pre-commit hook: block sensitive files / broken STATUS, warn on stale.
+# Installed via `git config core.hooksPath githooks` (see scripts/setup-githooks.*).
+# Cross-platform: git invokes this with sh (Git Bash on Windows).
+
+set -u
+
+# Resolve repo root (hooks run with cwd == repo root, but be safe).
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+
+cd "$REPO_ROOT" || exit 0
+
+if command -v python >/dev/null 2>&1; then
+    PY=python
+elif command -v python3 >/dev/null 2>&1; then
+    PY=python3
+else
+    # No python — skip silently rather than block commits.
+    exit 0
+fi
+
+"$PY" scripts/check_discipline.py --pre-commit
+rc=$?
+if [ $rc -ne 0 ]; then
+    echo ""
+    echo "pre-commit 纪律检查未通过，commit 已中止。修复后重试。" >&2
+    echo "(若需跳过本次检查: git commit --no-verify)" >&2
+fi
+exit $rc
