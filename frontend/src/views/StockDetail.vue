@@ -254,7 +254,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, h, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'

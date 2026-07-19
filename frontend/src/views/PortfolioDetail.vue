@@ -67,9 +67,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted } from 'vue'
+import { ref, h, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { NButton, NTag, useMessage } from 'naive-ui'
+import { NButton, NTag, NIcon, useMessage } from 'naive-ui'
 import { 
   BriefcaseOutline, 
   AddOutline, 
@@ -83,7 +83,7 @@ import type { PortfolioDetail } from '../types'
 
 const route = useRoute()
 const message = useMessage()
-const id = Number(route.params.id)
+const id = computed(() => Number(route.params.id))
 const detail = ref<PortfolioDetail | null>(null)
 const addCode = ref('')
 const addShares = ref(100)
@@ -137,8 +137,12 @@ const columns = [
 ]
 
 async function load() {
-  const res = await portfoliosApi.get(id)
-  detail.value = res.data
+  try {
+    const res = await portfoliosApi.get(id.value)
+    detail.value = res.data
+  } catch (e: any) {
+    message.error('加载组合详情失败: ' + (e.response?.data?.detail || e.message))
+  }
 }
 
 async function handleAdd() {
@@ -146,19 +150,31 @@ async function handleAdd() {
     message.warning('请输入股票代码')
     return
   }
-  await portfoliosApi.addStock(id, addCode.value.trim(), addShares.value)
-  message.success('已添加')
-  addCode.value = ''
-  await load()
+  try {
+    await portfoliosApi.addStock(id.value, addCode.value.trim(), addShares.value)
+    message.success('已添加')
+    addCode.value = ''
+    await load()
+  } catch (e: any) {
+    message.error('添加失败: ' + (e.response?.data?.detail || e.message))
+  }
 }
 
 async function handleRemove(itemId: number) {
-  await portfoliosApi.removeStockById(id, itemId)
-  message.success('已移除')
-  await load()
+  try {
+    await portfoliosApi.removeStockById(id.value, itemId)
+    message.success('已移除')
+    await load()
+  } catch (e: any) {
+    message.error('移除失败: ' + (e.response?.data?.detail || e.message))
+  }
 }
 
 onMounted(load)
+
+watch(id, () => {
+  load()
+})
 </script>
 
 <style scoped>
