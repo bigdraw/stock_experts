@@ -68,6 +68,14 @@ class FinancialReport:
     pe_ratio: float | None = None
     pb_ratio: float | None = None
     market_cap: float | None = None
+    # Extended financial metrics
+    eps: float | None = None  # 基本每股收益
+    bps: float | None = None  # 每股净资产
+    revenue_growth: float | None = None  # 营业收入同比增长率
+    net_profit_growth: float | None = None  # 净利润同比增长率
+    gross_margin: float | None = None  # 销售毛利率
+    net_margin: float | None = None  # 销售净利率
+    debt_ratio: float | None = None  # 资产负债率
     raw_data: dict | None = None
 
 

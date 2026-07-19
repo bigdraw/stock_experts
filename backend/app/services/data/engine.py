@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 class DataAcquisitionEngine:
     """Orchestrates data collection with self-healing and task management."""
 
-    # Default stock code prefixes to collect (000=SZ main, 600=SH main, 300=SZ ChiNext)
-    DEFAULT_CODE_PREFIXES = ['000', '600', '300']
+    # Default stock code prefixes to collect (includes all A-share prefixes)
+    DEFAULT_CODE_PREFIXES = ['000', '001', '002', '003', '300', '600', '601', '603', '605']
 
     def __init__(self, provider: DataProvider, db: AsyncSession):
         self.provider = provider

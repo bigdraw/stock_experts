@@ -73,6 +73,15 @@ class FinancialReport(Base):
     total_equity: Mapped[float | None] = mapped_column(Float)
     roe: Mapped[float | None] = mapped_column(Float)
     
+    # 扩展财务指标
+    eps: Mapped[float | None] = mapped_column(Float)  # 基本每股收益
+    bps: Mapped[float | None] = mapped_column(Float)  # 每股净资产
+    revenue_growth: Mapped[float | None] = mapped_column(Float)  # 营业收入同比增长率（%）
+    net_profit_growth: Mapped[float | None] = mapped_column(Float)  # 净利润同比增长率（%）
+    gross_margin: Mapped[float | None] = mapped_column(Float)  # 销售毛利率（%）
+    net_margin: Mapped[float | None] = mapped_column(Float)  # 销售净利率（%）
+    debt_ratio: Mapped[float | None] = mapped_column(Float)  # 资产负债率（%）
+    
     # 衍生指标
     is_profitable: Mapped[bool | None] = mapped_column(Boolean)
     raw_data: Mapped[str | None] = mapped_column(Text)  # JSON

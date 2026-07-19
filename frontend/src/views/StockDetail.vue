@@ -80,7 +80,7 @@
     </n-grid>
 
     <!-- 实时行情指标 -->
-    <n-card title="实时行情" class="data-card" v-if="latestQuote">
+    <n-card title="实时行情" class="data-card" v-if="latestIndicators">
       <template #header-extra>
         <n-icon :size="20" color="#00d4aa">
           <PulseOutline />
@@ -90,57 +90,77 @@
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">最新价</div>
-            <div class="metric-value metric-value-primary">¥{{ formatNumber(latestQuote.close) }}</div>
+            <div class="metric-value metric-value-primary">¥{{ formatNumber(latestIndicators.price) }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box">
+            <div class="metric-label">涨跌幅</div>
+            <div class="metric-value" :class="latestIndicators.change_pct > 0 ? 'metric-value-error' : latestIndicators.change_pct < 0 ? 'metric-value-success' : ''">
+              {{ latestIndicators.change_pct != null ? (latestIndicators.change_pct > 0 ? '+' : '') + latestIndicators.change_pct.toFixed(2) + '%' : '-' }}
+            </div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">开盘价</div>
-            <div class="metric-value">¥{{ formatNumber(latestQuote.open) }}</div>
+            <div class="metric-value">¥{{ formatNumber(latestIndicators.open) }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">最高价</div>
-            <div class="metric-value metric-value-success">¥{{ formatNumber(latestQuote.high) }}</div>
+            <div class="metric-value metric-value-success">¥{{ formatNumber(latestIndicators.high) }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">最低价</div>
-            <div class="metric-value metric-value-error">¥{{ formatNumber(latestQuote.low) }}</div>
+            <div class="metric-value" style="color: #ef4444;">¥{{ formatNumber(latestIndicators.low) }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
+            <div class="metric-label">昨收价</div>
+            <div class="metric-value">¥{{ formatNumber(latestIndicators.settlement) }}</div>
+          </div>
+        </n-gi>
+      </n-grid>
+      <n-grid :cols="6" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
+        <n-gi>
+          <div class="metric-box">
             <div class="metric-label">成交量</div>
-            <div class="metric-value">{{ formatVolume(latestQuote.volume) }}</div>
+            <div class="metric-value">{{ formatVolume(latestIndicators.volume) }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">成交额</div>
-            <div class="metric-value">{{ formatAmount(latestQuote.amount) }}</div>
+            <div class="metric-value">{{ formatAmount(latestIndicators.amount) }}</div>
           </div>
         </n-gi>
-      </n-grid>
-      <n-grid :cols="3" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">换手率</div>
-            <div class="metric-value">{{ latestQuote.turnover_rate ? (latestQuote.turnover_rate * 100).toFixed(2) + '%' : '-' }}</div>
+            <div class="metric-value">{{ latestIndicators.turnover_ratio ? latestIndicators.turnover_ratio.toFixed(2) + '%' : '-' }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
-            <div class="metric-label">振幅</div>
-            <div class="metric-value">{{ calculateAmplitude(latestQuote) }}</div>
+            <div class="metric-label">总市值</div>
+            <div class="metric-value">{{ formatMarketCap(latestIndicators.market_cap) }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box">
+            <div class="metric-label">流通市值</div>
+            <div class="metric-value">{{ formatMarketCap(latestIndicators.circulating_market_cap) }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">日期</div>
-            <div class="metric-value">{{ latestQuote.date }}</div>
+            <div class="metric-value">{{ latestIndicators.report_date }}</div>
           </div>
         </n-gi>
       </n-grid>
@@ -156,6 +176,41 @@
       <v-chart :option="klineOption" style="height: 500px" autoresize />
     </n-card>
 
+    <!-- 估值指标 -->
+    <n-card title="估值指标" class="data-card" v-if="latestIndicators">
+      <template #header-extra>
+        <n-icon :size="20" color="#6366f1">
+          <AnalyticsOutline />
+        </n-icon>
+      </template>
+      <n-grid :cols="4" :x-gap="16" :y-gap="16">
+        <n-gi>
+          <div class="metric-box metric-box-large">
+            <div class="metric-label">市盈率 (PE)</div>
+            <div class="metric-value">{{ latestIndicators.pe_ratio ? latestIndicators.pe_ratio.toFixed(2) : '-' }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box metric-box-large">
+            <div class="metric-label">市净率 (PB)</div>
+            <div class="metric-value">{{ latestIndicators.pb_ratio ? latestIndicators.pb_ratio.toFixed(2) : '-' }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box metric-box-large">
+            <div class="metric-label">总市值</div>
+            <div class="metric-value metric-value-primary">{{ formatMarketCap(latestIndicators.market_cap) }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box metric-box-large">
+            <div class="metric-label">流通市值</div>
+            <div class="metric-value">{{ formatMarketCap(latestIndicators.circulating_market_cap) }}</div>
+          </div>
+        </n-gi>
+      </n-grid>
+    </n-card>
+
     <!-- 财务指标概览 -->
     <n-card title="财务指标概览" class="data-card" v-if="latestFinancial">
       <template #header-extra>
@@ -166,26 +221,26 @@
       <n-grid :cols="4" :x-gap="16" :y-gap="16">
         <n-gi>
           <div class="metric-box metric-box-large">
-            <div class="metric-label">市值</div>
-            <div class="metric-value metric-value-primary">{{ formatMarketCap(latestFinancial.market_cap) }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">市盈率 (PE)</div>
-            <div class="metric-value">{{ latestFinancial.pe_ratio ? latestFinancial.pe_ratio.toFixed(2) : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">市净率 (PB)</div>
-            <div class="metric-value">{{ latestFinancial.pb_ratio ? latestFinancial.pb_ratio.toFixed(2) : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
             <div class="metric-label">净资产收益率 (ROE)</div>
-            <div class="metric-value">{{ latestFinancial.roe ? (latestFinancial.roe * 100).toFixed(2) + '%' : '-' }}</div>
+            <div class="metric-value">{{ latestFinancial.roe ? latestFinancial.roe.toFixed(2) + '%' : '-' }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box metric-box-large">
+            <div class="metric-label">每股收益 (EPS)</div>
+            <div class="metric-value">{{ latestFinancial.eps ? '¥' + latestFinancial.eps.toFixed(2) : '-' }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box metric-box-large">
+            <div class="metric-label">每股净资产 (BPS)</div>
+            <div class="metric-value">{{ latestFinancial.bps ? '¥' + latestFinancial.bps.toFixed(2) : '-' }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box metric-box-large">
+            <div class="metric-label">资产负债率</div>
+            <div class="metric-value">{{ latestFinancial.debt_ratio ? latestFinancial.debt_ratio.toFixed(2) + '%' : '-' }}</div>
           </div>
         </n-gi>
       </n-grid>
@@ -204,18 +259,34 @@
         </n-gi>
         <n-gi>
           <div class="metric-box">
-            <div class="metric-label">总资产</div>
-            <div class="metric-value">{{ formatAmount(latestFinancial.total_assets) }}</div>
+            <div class="metric-label">营收同比增长</div>
+            <div class="metric-value" :class="latestFinancial.revenue_growth > 0 ? 'metric-value-success' : latestFinancial.revenue_growth < 0 ? 'metric-value-error' : ''">
+              {{ latestFinancial.revenue_growth ? (latestFinancial.revenue_growth > 0 ? '+' : '') + latestFinancial.revenue_growth.toFixed(2) + '%' : '-' }}
+            </div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
-            <div class="metric-label">净资产</div>
-            <div class="metric-value">{{ formatAmount(latestFinancial.total_equity) }}</div>
+            <div class="metric-label">净利润同比增长</div>
+            <div class="metric-value" :class="latestFinancial.net_profit_growth > 0 ? 'metric-value-success' : latestFinancial.net_profit_growth < 0 ? 'metric-value-error' : ''">
+              {{ latestFinancial.net_profit_growth ? (latestFinancial.net_profit_growth > 0 ? '+' : '') + latestFinancial.net_profit_growth.toFixed(2) + '%' : '-' }}
+            </div>
           </div>
         </n-gi>
       </n-grid>
-      <n-grid :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
+      <n-grid :cols="4" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
+        <n-gi>
+          <div class="metric-box">
+            <div class="metric-label">销售毛利率</div>
+            <div class="metric-value">{{ latestFinancial.gross_margin ? latestFinancial.gross_margin.toFixed(2) + '%' : '-' }}</div>
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="metric-box">
+            <div class="metric-label">销售净利率</div>
+            <div class="metric-value">{{ latestFinancial.net_margin ? latestFinancial.net_margin.toFixed(2) + '%' : '-' }}</div>
+          </div>
+        </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">是否盈利</div>
@@ -284,10 +355,15 @@ const code = computed(() => route.params.code as string)
 const stock = ref<Stock | null>(null)
 const quotes = ref<DailyQuote[]>([])
 const financials = ref<any[]>([])
+const latestIndicators = ref<any>(null)
 const finLoading = ref(false)
 
 const latestQuote = computed(() => quotes.value.length > 0 ? quotes.value[quotes.value.length - 1] : null)
-const latestFinancial = computed(() => financials.value.length > 0 ? financials.value[0] : null)
+const latestFinancial = computed(() => {
+  // Find the most recent non-Latest financial report (actual quarterly/annual report)
+  const report = financials.value.find(f => f.report_type !== 'Latest')
+  return report || null
+})
 
 const klineOption = computed(() => ({
   tooltip: { 
@@ -384,47 +460,71 @@ const finColumns = [
   { 
     title: '类型', 
     key: 'report_type',
-    width: 100,
+    width: 80,
     render: (row: any) => h(NTag, { size: 'small', type: 'info', round: true }, { default: () => row.report_type })
   },
   { 
     title: '营收', 
     key: 'revenue',
+    width: 120,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatAmount(row.revenue))
   },
   { 
     title: '净利润', 
     key: 'net_profit',
+    width: 120,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatAmount(row.net_profit))
-  },
-  { 
-    title: '总资产', 
-    key: 'total_assets',
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatAmount(row.total_assets))
-  },
-  { 
-    title: '净资产', 
-    key: 'total_equity',
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatAmount(row.total_equity))
   },
   { 
     title: 'ROE', 
     key: 'roe',
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.roe ? (row.roe * 100).toFixed(2) + '%' : '-')
+    width: 80,
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.roe ? row.roe.toFixed(2) + '%' : '-')
+  },
+  { 
+    title: 'EPS', 
+    key: 'eps',
+    width: 80,
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.eps ? '¥' + row.eps.toFixed(2) : '-')
+  },
+  { 
+    title: '营收增长', 
+    key: 'revenue_growth',
+    width: 100,
+    render: (row: any) => h('span', { 
+      style: `color: ${row.revenue_growth > 0 ? '#10b981' : row.revenue_growth < 0 ? '#ef4444' : 'var(--text-secondary)'};`
+    }, row.revenue_growth ? (row.revenue_growth > 0 ? '+' : '') + row.revenue_growth.toFixed(2) + '%' : '-')
+  },
+  { 
+    title: '净利润增长', 
+    key: 'net_profit_growth',
+    width: 100,
+    render: (row: any) => h('span', { 
+      style: `color: ${row.net_profit_growth > 0 ? '#10b981' : row.net_profit_growth < 0 ? '#ef4444' : 'var(--text-secondary)'};`
+    }, row.net_profit_growth ? (row.net_profit_growth > 0 ? '+' : '') + row.net_profit_growth.toFixed(2) + '%' : '-')
+  },
+  { 
+    title: '毛利率', 
+    key: 'gross_margin',
+    width: 80,
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.gross_margin ? row.gross_margin.toFixed(2) + '%' : '-')
   },
   { 
     title: 'PE', 
     key: 'pe_ratio',
+    width: 80,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.pe_ratio ? row.pe_ratio.toFixed(2) : '-')
   },
   { 
     title: 'PB', 
     key: 'pb_ratio',
+    width: 80,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.pb_ratio ? row.pb_ratio.toFixed(2) : '-')
   },
   { 
     title: '市值', 
     key: 'market_cap',
+    width: 120,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.market_cap))
   },
 ]
@@ -450,9 +550,9 @@ function formatAmount(amount: number | null | undefined): string {
 
 function formatMarketCap(cap: number | null | undefined): string {
   if (cap === null || cap === undefined) return '-'
-  if (cap >= 100000000) return '¥' + (cap / 100000000).toFixed(2) + '亿'
-  if (cap >= 10000) return '¥' + (cap / 10000).toFixed(2) + '万'
-  return '¥' + cap.toFixed(2)
+  // market_cap is in 万元 (10,000 yuan)
+  if (cap >= 10000) return '¥' + (cap / 10000).toFixed(2) + '亿'
+  return '¥' + cap.toFixed(2) + '万'
 }
 
 function calculateAmplitude(quote: DailyQuote): string {
@@ -465,13 +565,16 @@ async function loadData(stockCode: string) {
   stock.value = null
   quotes.value = []
   financials.value = []
+  latestIndicators.value = null
   
-  const [stockRes, quotesRes] = await Promise.all([
+  const [stockRes, quotesRes, indicatorsRes] = await Promise.all([
     stocksApi.get(stockCode),
     stocksApi.getQuotes(stockCode, 120),
+    stocksApi.getIndicators(stockCode),
   ])
   stock.value = stockRes.data
   quotes.value = quotesRes.data
+  latestIndicators.value = indicatorsRes.data || null
 
   finLoading.value = true
   try {

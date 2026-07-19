@@ -366,13 +366,32 @@ class AkShareProvider(DataProvider):
                 
                 reports = []
                 for _, row in df.iterrows():
+                    # Extract all available financial metrics
+                    revenue = float(row.get("营业总收入")) if pd.notna(row.get("营业总收入")) else None
+                    net_profit = float(row.get("净利润")) if pd.notna(row.get("净利润")) else None
+                    roe = float(row.get("净资产收益率")) if pd.notna(row.get("净资产收益率")) else None
+                    eps = float(row.get("基本每股收益")) if pd.notna(row.get("基本每股收益")) else None
+                    bps = float(row.get("每股净资产")) if pd.notna(row.get("每股净资产")) else None
+                    revenue_growth = float(row.get("营业总收入同比增长率")) if pd.notna(row.get("营业总收入同比增长率")) else None
+                    net_profit_growth = float(row.get("净利润同比增长率")) if pd.notna(row.get("净利润同比增长率")) else None
+                    gross_margin = float(row.get("销售毛利率")) if pd.notna(row.get("销售毛利率")) else None
+                    net_margin = float(row.get("销售净利率")) if pd.notna(row.get("销售净利率")) else None
+                    debt_ratio = float(row.get("资产负债率")) if pd.notna(row.get("资产负债率")) else None
+                    
                     reports.append(FinancialReport(
                         code=code,
                         report_date=str(row.get("报告期", "")),
                         report_type=self._infer_report_type(str(row.get("报告期", ""))),
-                        revenue=float(row.get("营业总收入")) if pd.notna(row.get("营业总收入")) else None,
-                        net_profit=float(row.get("净利润")) if pd.notna(row.get("净利润")) else None,
-                        roe=float(row.get("净资产收益率")) if pd.notna(row.get("净资产收益率")) else None,
+                        revenue=revenue,
+                        net_profit=net_profit,
+                        roe=roe,
+                        eps=eps,
+                        bps=bps,
+                        revenue_growth=revenue_growth,
+                        net_profit_growth=net_profit_growth,
+                        gross_margin=gross_margin,
+                        net_margin=net_margin,
+                        debt_ratio=debt_ratio,
                         raw_data=row.to_dict(),
                     ))
                 return reports

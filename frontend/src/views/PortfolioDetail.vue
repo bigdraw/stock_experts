@@ -24,6 +24,7 @@
           style="width: 280px"
           size="large"
           @update:value="handleSearch"
+          @select="handleSelect"
           clearable
         >
           <template #prefix>
@@ -114,7 +115,8 @@ async function handleSearch(value: string) {
       const res = await stocksApi.search(value.trim())
       searchResults.value = res.data.map((stock: Stock) => ({
         label: `${stock.code} ${stock.name}`,
-        value: stock.code
+        value: stock.code,
+        stock: stock
       }))
     } catch (e: any) {
       console.error('Search failed:', e)
@@ -125,10 +127,16 @@ async function handleSearch(value: string) {
   }, 300)
 }
 
+function handleSelect(value: string) {
+  // When user selects from dropdown, ensure we only keep the code
+  addCode.value = value
+}
+
 const columns = [
   { 
     title: '代码', 
     key: 'stock_code',
+    width: 90,
     render: (row: any) => h(NTag, { 
       size: 'small',
       type: 'info',
@@ -138,13 +146,31 @@ const columns = [
   { 
     title: '名称', 
     key: 'stock_name',
+    width: 100,
     render: (row: any) => h('span', { 
       style: 'font-weight: 600; color: var(--text-primary);'
     }, row.stock_name)
   },
   { 
+    title: '现价', 
+    key: 'price',
+    width: 80,
+    render: (row: any) => h('span', { 
+      style: `color: ${row.change > 0 ? '#e74c3c' : row.change < 0 ? '#27ae60' : 'var(--text-primary)'}; font-weight: 600;`
+    }, row.price ? '¥' + row.price.toFixed(2) : '-')
+  },
+  { 
+    title: '涨跌幅', 
+    key: 'change_pct',
+    width: 80,
+    render: (row: any) => h('span', { 
+      style: `color: ${row.change_pct > 0 ? '#e74c3c' : row.change_pct < 0 ? '#27ae60' : 'var(--text-secondary)'}; font-weight: 600;`
+    }, row.change_pct != null ? `${row.change_pct > 0 ? '+' : ''}${row.change_pct.toFixed(2)}%` : '-')
+  },
+  { 
     title: '数量', 
     key: 'shares',
+    width: 80,
     render: (row: any) => h('span', { 
       style: 'font-weight: 500; color: var(--text-secondary);'
     }, row.shares.toLocaleString())
@@ -152,13 +178,39 @@ const columns = [
   { 
     title: '成本', 
     key: 'avg_cost',
+    width: 80,
     render: (row: any) => h('span', { 
       style: 'font-weight: 500; color: var(--text-secondary);'
     }, `¥${row.avg_cost.toFixed(2)}`)
   },
+  { 
+    title: 'PE', 
+    key: 'pe_ratio',
+    width: 70,
+    render: (row: any) => h('span', { 
+      style: `color: ${row.pe_ratio && row.pe_ratio > 0 ? '#10b981' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.pe_ratio ? row.pe_ratio.toFixed(1) : '-')
+  },
+  { 
+    title: 'PB', 
+    key: 'pb_ratio',
+    width: 70,
+    render: (row: any) => h('span', { 
+      style: `color: ${row.pb_ratio && row.pb_ratio > 0 ? '#6366f1' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.pb_ratio ? row.pb_ratio.toFixed(2) : '-')
+  },
+  { 
+    title: '市值(亿)', 
+    key: 'market_cap',
+    width: 100,
+    render: (row: any) => h('span', { 
+      style: 'color: var(--text-primary); font-weight: 500;'
+    }, row.market_cap ? (row.market_cap / 10000).toFixed(2) : '-')
+  },
   {
     title: '操作', 
     key: 'actions',
+    width: 80,
     render: (row: any) => h(NButton, { 
       size: 'small', 
       type: 'error',
@@ -187,8 +239,24 @@ async function handleAdd() {
     message.warning('请输入股票代码')
     return
   }
+  
+  // Extract just the 6-digit code from input (handles cases like "001359 平安电工")
+  const input = addCode.value.trim()
+  const codeMatch = input.match(/^\d{6}/)
+  if (!codeMatch) {
+    // Try to find any 6-digit sequence in the input
+    const anyMatch = input.match(/\d{6}/)
+    if (!anyMatch) {
+      message.warning('请输入有效的6位股票代码')
+      return
+    }
+    addCode.value = anyMatch[0]
+  } else {
+    addCode.value = codeMatch[0]
+  }
+  
   try {
-    await portfoliosApi.addStock(id.value, addCode.value.trim(), addShares.value)
+    await portfoliosApi.addStock(id.value, addCode.value, addShares.value)
     message.success('已添加')
     addCode.value = ''
     await load()

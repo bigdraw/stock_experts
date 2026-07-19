@@ -12,6 +12,8 @@ export const authApi = {
 export const stocksApi = {
   list: (params?: { market?: string; search?: string; limit?: number; offset?: number }) =>
     apiClient.get<Stock[]>('/stocks', { params }),
+  listWithIndicators: (params?: { market?: string; search?: string; limit?: number; offset?: number }) =>
+    apiClient.get<any[]>('/stocks/with-indicators', { params }),
   count: (params?: { market?: string }) =>
     apiClient.get<{ count: number }>('/stocks/count', { params }),
   search: (q: string, limit: number = 100) =>
@@ -20,6 +22,7 @@ export const stocksApi = {
   getQuotes: (code: string, days: number = 120) =>
     apiClient.get<DailyQuote[]>(`/stocks/${code}/quotes`, { params: { days } }),
   getFinancials: (code: string) => apiClient.get(`/stocks/${code}/financials`),
+  getIndicators: (code: string) => apiClient.get(`/stocks/${code}/indicators`),
 }
 
 // Portfolios

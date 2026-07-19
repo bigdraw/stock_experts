@@ -291,15 +291,83 @@ async def get_financials(
         {
             "report_date": str(r.report_date),
             "report_type": r.report_type,
+            # 行情指标
+            "price": r.price,
+            "open": r.open,
+            "high": r.high,
+            "low": r.low,
+            "settlement": r.settlement,
+            "change": r.change,
+            "change_pct": r.change_pct,
+            "volume": r.volume,
+            "amount": r.amount,
+            "turnover_ratio": r.turnover_ratio,
+            # 估值指标
+            "pe_ratio": r.pe_ratio,
+            "pb_ratio": r.pb_ratio,
+            # 市值指标（万元）
+            "market_cap": r.market_cap,
+            "circulating_market_cap": r.circulating_market_cap,
+            # 财务报表数据
             "revenue": r.revenue,
             "net_profit": r.net_profit,
             "total_assets": r.total_assets,
             "total_equity": r.total_equity,
             "roe": r.roe,
-            "pe_ratio": r.pe_ratio,
-            "pb_ratio": r.pb_ratio,
-            "market_cap": r.market_cap,
+            # 扩展财务指标
+            "eps": r.eps,
+            "bps": r.bps,
+            "revenue_growth": r.revenue_growth,
+            "net_profit_growth": r.net_profit_growth,
+            "gross_margin": r.gross_margin,
+            "net_margin": r.net_margin,
+            "debt_ratio": r.debt_ratio,
+            # 衍生指标
             "is_profitable": r.is_profitable,
         }
         for r in reports
     ]
+
+
+@router.get("/{code}/indicators")
+async def get_latest_indicators(
+    code: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get the latest market indicators for a stock (from the most recent 'Latest' report)."""
+    result = await db.execute(
+        select(FinancialReport)
+        .where(
+            FinancialReport.stock_code == code,
+            FinancialReport.report_type == "Latest"
+        )
+        .order_by(FinancialReport.report_date.desc())
+        .limit(1)
+    )
+    report = result.scalar_one_or_none()
+    if not report:
+        return {}
+    
+    return {
+        "report_date": str(report.report_date),
+        # 行情指标
+        "price": report.price,
+        "open": report.open,
+        "high": report.high,
+        "low": report.low,
+        "settlement": report.settlement,
+        "change": report.change,
+        "change_pct": report.change_pct,
+        "volume": report.volume,
+        "amount": report.amount,
+        "turnover_ratio": report.turnover_ratio,
+        # 估值指标
+        "pe_ratio": report.pe_ratio,
+        "pb_ratio": report.pb_ratio,
+        # 市值指标（万元）
+        "market_cap": report.market_cap,
+        "circulating_market_cap": report.circulating_market_cap,
+        # 衍生指标
+        "is_profitable": report.is_profitable,
+    }
