@@ -14,60 +14,69 @@
       </template>
     </n-empty>
 
-    <!-- 有投资组合时显示标签页 -->
+    <!-- 有投资组合时显示内容 -->
     <div v-else class="content-container">
-      <n-tabs 
-        v-model:value="activePortfolioId" 
-        type="line"
-        @update:value="handlePortfolioChange"
-      >
-        <n-tab-pane 
-          v-for="portfolio in portfolios" 
-          :key="portfolio.id" 
-          :name="portfolio.id"
-          :tab="portfolio.name"
+      <!-- 搜索框（顶部，不影响下方表格） -->
+      <div class="search-section">
+        <n-auto-complete
+          v-model:value="search"
+          :options="searchOptions"
+          :loading="searching"
+          placeholder="搜索代码、名称、拼音或首字母..."
+          clearable
+          size="large"
+          class="search-autocomplete"
+          @update:value="handleSearch"
+          @select="handleSearchSelect"
         >
-          <!-- 搜索框 -->
-          <n-input 
-            v-model:value="search" 
-            placeholder="搜索代码、名称、拼音或首字母..." 
-            clearable 
-            @update:value="handleSearch"
-            size="large"
-            class="search-input"
-          >
-            <template #prefix>
-              <n-icon :size="18" color="#64748b">
-                <SearchOutline />
-              </n-icon>
-            </template>
-          </n-input>
-
-          <!-- 股票列表 -->
-          <n-card class="data-card">
-            <n-data-table 
-              :columns="columns" 
-              :data="stocks" 
-              :loading="loading" 
-              :pagination="{ pageSize: 50 }"
-              :bordered="false"
-            />
-          </n-card>
-        </n-tab-pane>
-      </n-tabs>
-
-      <!-- 创建新组合按钮 -->
-      <div class="create-portfolio-section">
-        <n-button 
-          type="primary" 
-          ghost 
-          @click="showCreatePortfolio = true"
-        >
-          <template #icon>
-            <n-icon><AddOutline /></n-icon>
+          <template #prefix>
+            <n-icon :size="18" color="#64748b">
+              <SearchOutline />
+            </n-icon>
           </template>
-          创建新组合
-        </n-button>
+        </n-auto-complete>
+      </div>
+
+      <!-- 投资组合标签页 -->
+      <div class="tabs-section">
+        <n-tabs 
+          v-model:value="activePortfolioId" 
+          type="card"
+          @update:value="handlePortfolioChange"
+          class="portfolio-tabs"
+        >
+          <n-tab-pane 
+            v-for="portfolio in portfolios" 
+            :key="portfolio.id" 
+            :name="portfolio.id"
+            :tab="portfolio.name"
+          >
+            <!-- 股票列表 -->
+            <n-card class="data-card">
+              <n-data-table 
+                :columns="columns" 
+                :data="stocks" 
+                :loading="loading" 
+                :pagination="{ pageSize: 50 }"
+                :bordered="false"
+              />
+            </n-card>
+          </n-tab-pane>
+        </n-tabs>
+
+        <!-- 创建新组合按钮 -->
+        <div class="create-portfolio-section">
+          <n-button 
+            type="primary" 
+            ghost 
+            @click="showCreatePortfolio = true"
+          >
+            <template #icon>
+              <n-icon><AddOutline /></n-icon>
+            </template>
+            创建新组合
+          </n-button>
+        </div>
       </div>
     </div>
 
@@ -99,10 +108,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted, computed } from 'vue'
+import { ref, h, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton, NTag, useMessage } from 'naive-ui'
-import { SearchOutline, AddOutline } from '@vicons/ionicons5'
+import { NButton, NTag, NSpace, useMessage } from 'naive-ui'
+import { SearchOutline, AddOutline, EyeOutline, AddCircleOutline } from '@vicons/ionicons5'
 import { stocksApi, portfoliosApi } from '../api'
 import type { Stock, Portfolio, PortfolioDetail } from '../types'
 
@@ -116,6 +125,8 @@ const activePortfolio = ref<PortfolioDetail | null>(null)
 const stocks = ref<Stock[]>([])
 const loading = ref(false)
 const search = ref('')
+const searchOptions = ref<any[]>([])
+const searching = ref(false)
 const showCreatePortfolio = ref(false)
 const newPortfolioName = ref('')
 const newPortfolioDescription = ref('')
@@ -205,7 +216,7 @@ async function loadPortfolioDetail(portfolioId: number) {
       code: holding.stock_code,
       name: holding.stock_name,
       market: holding.stock_code.startsWith('6') ? 'SH' : 'SZ',
-      industry: '', // 持仓数据中没有行业信息
+      industry: '',
       is_active: true
     }))
   } catch (e) {
@@ -222,32 +233,106 @@ function handlePortfolioChange(portfolioId: number) {
   loadPortfolioDetail(portfolioId)
 }
 
-// 搜索股票
+// 搜索股票（只更新下拉候选，不影响表格）
 function handleSearch(value: string) {
   if (searchTimeout) {
     clearTimeout(searchTimeout)
   }
 
   if (!value || !value.trim()) {
-    // 清空搜索时，重新加载当前组合的持仓
-    if (activePortfolioId.value) {
-      loadPortfolioDetail(activePortfolioId.value)
-    }
+    searchOptions.value = []
     return
   }
 
   searchTimeout = setTimeout(async () => {
-    loading.value = true
+    searching.value = true
     try {
-      const res = await stocksApi.search(value.trim(), 100)
-      stocks.value = res.data || []
+      const res = await stocksApi.search(value.trim(), 20)
+      const results = res.data || []
+      
+      // 构建丰富的下拉选项
+      searchOptions.value = results.map((stock: Stock) => ({
+        label: `${stock.code} ${stock.name}`,
+        value: stock.code,
+        stock: stock,
+        // 自定义渲染
+        render: () => {
+          return h('div', { class: 'search-option-item' }, [
+            h('div', { class: 'search-option-main' }, [
+              h(NTag, { size: 'small', type: 'info', round: true }, { default: () => stock.code }),
+              h('span', { class: 'search-option-name' }, stock.name),
+              h(NTag, { 
+                size: 'tiny', 
+                type: stock.market === 'SH' ? 'success' : 'warning',
+                round: true,
+                style: 'margin-left: 8px;'
+              }, { default: () => stock.market })
+            ]),
+            h('div', { class: 'search-option-actions' }, [
+              h(NButton, {
+                size: 'tiny',
+                type: 'info',
+                ghost: true,
+                onClick: (e: Event) => {
+                  e.stopPropagation()
+                  router.push(`/stocks/${stock.code}`)
+                }
+              }, {
+                icon: () => h(EyeOutline, { size: 14 }),
+                default: () => '详情'
+              }),
+              h(NButton, {
+                size: 'tiny',
+                type: 'primary',
+                ghost: true,
+                onClick: (e: Event) => {
+                  e.stopPropagation()
+                  handleAddToPortfolio(stock.code)
+                }
+              }, {
+                icon: () => h(AddCircleOutline, { size: 14 }),
+                default: () => '添加'
+              })
+            ])
+          ])
+        }
+      }))
     } catch (e: any) {
       console.error('Search failed:', e.response?.data || e.message)
-      message.error('搜索失败')
+      searchOptions.value = []
     } finally {
-      loading.value = false
+      searching.value = false
     }
   }, 300)
+}
+
+// 选中搜索结果时清空搜索框
+function handleSearchSelect(value: string) {
+  search.value = ''
+  searchOptions.value = []
+}
+
+// 添加股票到当前组合
+async function handleAddToPortfolio(stockCode: string) {
+  if (!activePortfolioId.value) {
+    message.warning('请先创建或选择一个组合')
+    return
+  }
+
+  try {
+    await portfoliosApi.addStock(activePortfolioId.value, stockCode)
+    message.success(`已添加 ${stockCode} 到当前组合`)
+    
+    // 刷新当前组合
+    await loadPortfolioDetail(activePortfolioId.value)
+    
+    // 清空搜索
+    search.value = ''
+    searchOptions.value = []
+  } catch (e: any) {
+    console.error('Failed to add stock:', e)
+    message.error('添加股票失败')
+  }
 }
 
 // 创建投资组合
@@ -306,11 +391,16 @@ onMounted(() => {
   gap: 20px;
 }
 
-.search-input {
+/* 搜索区域 */
+.search-section {
   margin-bottom: 20px;
 }
 
-.search-input :deep(.n-input) {
+.search-autocomplete {
+  max-width: 600px;
+}
+
+.search-autocomplete :deep(.n-input) {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
   border-radius: 12px !important;
@@ -318,16 +408,79 @@ onMounted(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.search-input :deep(.n-input:hover) {
+.search-autocomplete :deep(.n-input:hover) {
   border-color: var(--primary) !important;
   background: var(--bg-elevated) !important;
   box-shadow: 0 4px 16px rgba(0, 212, 170, 0.15) !important;
 }
 
-.search-input :deep(.n-input--focus) {
+.search-autocomplete :deep(.n-input--focus) {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15) !important;
   background: var(--bg-elevated) !important;
+}
+
+/* 搜索下拉选项样式 */
+:deep(.search-option-item) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  width: 100%;
+}
+
+:deep(.search-option-main) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+:deep(.search-option-name) {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: 8px;
+}
+
+:deep(.search-option-actions) {
+  display: flex;
+  gap: 8px;
+  margin-left: 16px;
+}
+
+/* 标签页区域 */
+.tabs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.portfolio-tabs :deep(.n-tabs-nav) {
+  background: var(--bg-elevated);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 20px;
+}
+
+.portfolio-tabs :deep(.n-tabs-tab) {
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 500;
+  transition: all 0.3s;
+  min-width: 120px;
+  text-align: center;
+}
+
+.portfolio-tabs :deep(.n-tabs-tab--active) {
+  background: linear-gradient(135deg, rgba(0, 212, 170, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 212, 170, 0.2);
+}
+
+.portfolio-tabs :deep(.n-tabs-tab:hover:not(.n-tabs-tab--active)) {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .data-card {
@@ -405,20 +558,14 @@ onMounted(() => {
   text-align: center;
 }
 
-:deep(.n-tabs-nav) {
-  background: var(--bg-elevated);
-  border-radius: 12px;
-  padding: 8px;
-  margin-bottom: 20px;
-}
-
-:deep(.n-tabs-tab) {
-  border-radius: 8px;
-  transition: all 0.3s;
-}
-
-:deep(.n-tabs-tab--active) {
-  background: linear-gradient(135deg, rgba(0, 212, 170, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%);
-  color: var(--primary);
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>
