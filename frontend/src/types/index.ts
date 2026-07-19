@@ -13,6 +13,10 @@ export interface Stock {
   sector?: string
   list_date?: string
   is_active: boolean
+  pe_ratio?: number
+  pb_ratio?: number
+  market_cap?: number
+  is_profitable?: boolean
 }
 
 export interface DailyQuote {
@@ -41,9 +45,15 @@ export interface PortfolioHolding {
   id: number
   stock_code: string
   stock_name: string
+  market: string
+  industry?: string
   shares: number
   avg_cost: number
   added_at: string
+  pe_ratio?: number
+  pb_ratio?: number
+  market_cap?: number
+  is_profitable?: boolean
 }
 
 export interface Agent {

@@ -31,6 +31,8 @@ class PortfolioManager:
         return list(result.scalars().all())
 
     async def get_detail(self, portfolio_id: int) -> dict:
+        from app.models.stock import FinancialReport
+        
         portfolio = await self.db.get(Portfolio, portfolio_id)
         if not portfolio:
             raise ValueError(f"Portfolio {portfolio_id} not found")
@@ -43,13 +45,29 @@ class PortfolioManager:
         holdings = []
         for item in items:
             stock = await self.db.get(Stock, item.stock_code)
+            
+            # Get latest financial indicators
+            financial_result = await self.db.execute(
+                select(FinancialReport).where(
+                    FinancialReport.stock_code == item.stock_code,
+                    FinancialReport.report_type == "Latest"
+                ).order_by(FinancialReport.report_date.desc()).limit(1)
+            )
+            financial = financial_result.scalar_one_or_none()
+            
             holdings.append({
                 "id": item.id,
                 "stock_code": item.stock_code,
                 "stock_name": stock.name if stock else "Unknown",
+                "market": stock.market if stock else "Unknown",
+                "industry": stock.industry if stock else None,
                 "shares": item.shares,
                 "avg_cost": item.avg_cost,
                 "added_at": str(item.added_at),
+                "pe_ratio": financial.pe_ratio if financial else None,
+                "pb_ratio": financial.pb_ratio if financial else None,
+                "market_cap": financial.market_cap if financial else None,
+                "is_profitable": financial.is_profitable if financial else None,
             })
 
         return {

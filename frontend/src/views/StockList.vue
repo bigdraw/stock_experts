@@ -171,6 +171,30 @@ const columns = [
       style: 'color: var(--text-secondary);'
     }, row.industry || '-')
   },
+  { 
+    title: 'PE', 
+    key: 'pe_ratio',
+    width: 80,
+    render: (row: Stock) => h('span', { 
+      style: `color: ${row.pe_ratio && row.pe_ratio > 0 ? 'var(--success-color)' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.pe_ratio ? row.pe_ratio.toFixed(2) : '-')
+  },
+  { 
+    title: 'PB', 
+    key: 'pb_ratio',
+    width: 80,
+    render: (row: Stock) => h('span', { 
+      style: `color: ${row.pb_ratio && row.pb_ratio > 0 ? 'var(--info-color)' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.pb_ratio ? row.pb_ratio.toFixed(2) : '-')
+  },
+  { 
+    title: '市值(亿)', 
+    key: 'market_cap',
+    width: 100,
+    render: (row: Stock) => h('span', { 
+      style: 'color: var(--text-primary); font-weight: 500;'
+    }, row.market_cap ? (row.market_cap / 100000000).toFixed(2) : '-')
+  },
   {
     title: '操作', 
     key: 'actions', 
@@ -215,9 +239,13 @@ async function loadPortfolioDetail(portfolioId: number) {
     stocks.value = res.data.holdings.map(holding => ({
       code: holding.stock_code,
       name: holding.stock_name,
-      market: holding.stock_code.startsWith('6') ? 'SH' : 'SZ',
-      industry: '',
-      is_active: true
+      market: holding.market,
+      industry: holding.industry,
+      is_active: true,
+      pe_ratio: holding.pe_ratio,
+      pb_ratio: holding.pb_ratio,
+      market_cap: holding.market_cap,
+      is_profitable: holding.is_profitable,
     }))
   } catch (e) {
     console.error('Failed to load portfolio detail:', e)

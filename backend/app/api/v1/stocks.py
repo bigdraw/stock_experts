@@ -66,6 +66,80 @@ async def list_stocks(
     return result.scalars().all()
 
 
+@router.get("/with-indicators", response_model=list[dict])
+async def list_stocks_with_indicators(
+    market: str | None = None,
+    search: str | None = None,
+    limit: int = Query(default=100, le=10000),
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List stocks with their latest financial indicators."""
+    from sqlalchemy import and_, desc
+    
+    # Subquery to get the latest financial report for each stock
+    latest_reports_subq = (
+        select(
+            FinancialReport.stock_code,
+            FinancialReport.pe_ratio,
+            FinancialReport.pb_ratio,
+            FinancialReport.market_cap,
+            FinancialReport.is_profitable,
+            FinancialReport.report_date,
+        )
+        .where(FinancialReport.report_type == "Latest")
+        .subquery()
+    )
+    
+    # Main query joining stocks with their latest financial reports
+    query = (
+        select(
+            Stock.code,
+            Stock.name,
+            Stock.market,
+            Stock.industry,
+            Stock.sector,
+            Stock.is_active,
+            latest_reports_subq.c.pe_ratio,
+            latest_reports_subq.c.pb_ratio,
+            latest_reports_subq.c.market_cap,
+            latest_reports_subq.c.is_profitable,
+        )
+        .outerjoin(
+            latest_reports_subq,
+            Stock.code == latest_reports_subq.c.stock_code
+        )
+        .where(Stock.is_active == True)
+    )
+    
+    if market:
+        query = query.where(Stock.market == market)
+    if search:
+        query = query.where(Stock.name.contains(search) | Stock.code.contains(search))
+    
+    query = query.offset(offset).limit(limit)
+    result = await db.execute(query)
+    rows = result.all()
+    
+    # Convert to list of dicts
+    return [
+        {
+            "code": row.code,
+            "name": row.name,
+            "market": row.market,
+            "industry": row.industry,
+            "sector": row.sector,
+            "is_active": row.is_active,
+            "pe_ratio": row.pe_ratio,
+            "pb_ratio": row.pb_ratio,
+            "market_cap": row.market_cap,
+            "is_profitable": row.is_profitable,
+        }
+        for row in rows
+    ]
+
+
 @router.get("/search", response_model=list[StockResponse])
 async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query (code, name, pinyin, or first letter)"),

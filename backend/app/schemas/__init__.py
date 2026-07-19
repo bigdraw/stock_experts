@@ -43,6 +43,22 @@ class StockResponse(BaseModel):
         from_attributes = True
 
 
+class StockWithIndicatorsResponse(BaseModel):
+    code: str
+    name: str
+    market: str
+    industry: str | None = None
+    sector: str | None = None
+    is_active: bool = True
+    pe_ratio: float | None = None
+    pb_ratio: float | None = None
+    market_cap: float | None = None
+    is_profitable: bool | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class DailyQuoteResponse(BaseModel):
     date: str
     open: float | None = None
