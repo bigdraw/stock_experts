@@ -12,7 +12,11 @@ database:
   url: "sqlite+aiosqlite:///./data/stock.db"
 
 auth:
-  secret_key: "CHANGE-ME-TO-A-RANDOM-SECRET"
+  # JWT signing secret. NEVER commit a real secret.
+  # Set via env:  export AUTH_SECRET_KEY=$(python -c "import secrets;print(secrets.token_urlsafe(64))")
+  # The loader resolves ${AUTH_SECRET_KEY} at startup; an unset var is left
+  # as the literal placeholder so the absence is visible, not silently empty.
+  secret_key: "${AUTH_SECRET_KEY}"
   algorithm: "HS256"
   token_expire_minutes: 1440
 
