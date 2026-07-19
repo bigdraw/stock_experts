@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { Stock, DailyQuote, Portfolio, PortfolioDetail, Agent, FilterScript, BacktestStrategy, BacktestResult, Notification, Alert, DebateResult } from '../types'
+import type { Stock, DailyQuote, Portfolio, PortfolioDetail, Agent, FilterScript, BacktestStrategy, BacktestResult, Notification, Alert, DebateResult, AdminUser } from '../types'
 
 // Auth
 export const authApi = {
@@ -156,4 +156,16 @@ export const settingsApi = {
   // Friction
   getFriction: () => apiClient.get<FrictionConfig>('/settings/friction'),
   setFriction: (config: FrictionConfig) => apiClient.put<FrictionConfig>('/settings/friction', config),
+}
+
+// Admin
+export const adminApi = {
+  listUsers: () => apiClient.get<AdminUser[]>('/admin/users'),
+  resetPassword: (userId: number, newPassword: string) =>
+    apiClient.post(`/admin/users/${userId}/reset-password`, { new_password: newPassword }),
+  updateUserRole: (userId: number, role: string) =>
+    apiClient.put(`/admin/users/${userId}/role`, { role }),
+  updateUserStatus: (userId: number, isActive: boolean) =>
+    apiClient.put(`/admin/users/${userId}/status`, { is_active: isActive }),
+  deleteUser: (userId: number) => apiClient.delete(`/admin/users/${userId}`),
 }

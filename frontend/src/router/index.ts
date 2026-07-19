@@ -26,6 +26,12 @@ const router = createRouter({
         { path: 'books', name: 'BookManager', component: () => import('../views/BookManager.vue') },
         { path: 'alerts', name: 'AlertManager', component: () => import('../views/AlertManager.vue') },
         { path: 'settings', name: 'Settings', component: () => import('../views/Settings.vue') },
+        { 
+          path: 'admin/users', 
+          name: 'AdminUsers', 
+          component: () => import('../views/AdminUsers.vue'),
+          meta: { requiresAuth: true, requiresAdmin: true }
+        },
       ],
     },
   ],
@@ -33,8 +39,15 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const authStore = useAuthStore()
+  
+  // Check if route requires authentication
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
     return { name: 'Login' }
+  }
+  
+  // Check if route requires admin role
+  if (to.meta.requiresAdmin && authStore.user?.role !== 'admin') {
+    return { name: 'Dashboard' }
   }
 })
 

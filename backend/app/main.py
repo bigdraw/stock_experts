@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import api_router
+from app.api.admin import router as admin_router
 from app.config import settings
 from app.database import init_db
 from app.scheduler.jobs import alert_check, backup_reminder, daily_data_update
@@ -78,6 +79,7 @@ app.add_middleware(
 
 # Routes
 app.include_router(api_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")

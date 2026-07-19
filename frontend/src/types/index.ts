@@ -114,3 +114,12 @@ export interface DebateResult {
   rounds: DebateRound[]
   summary: string
 }
+
+export interface AdminUser {
+  id: number
+  username: string
+  role: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}

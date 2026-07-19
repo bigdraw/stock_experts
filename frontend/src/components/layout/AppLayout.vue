@@ -86,7 +86,8 @@ import {
   NotificationsOutline,
   SettingsOutline,
   LogOutOutline,
-  PersonCircleOutline
+  PersonCircleOutline,
+  ShieldCheckmarkOutline
 } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
 import { useNotificationStore } from '../../stores/notifications'
@@ -104,17 +105,30 @@ function renderIcon(icon: any) {
   return () => h(NIcon, null, { default: () => h(icon) })
 }
 
-const menuOptions = [
-  { label: '仪表盘', key: 'Dashboard', icon: renderIcon(HomeOutline) },
-  { label: '股票列表', key: 'StockList', icon: renderIcon(TrendingUpOutline) },
-  { label: '投资组合', key: 'PortfolioList', icon: renderIcon(BriefcaseOutline) },
-  { label: '筛选工具库', key: 'FilterLibrary', icon: renderIcon(FunnelOutline) },
-  { label: '策略回测', key: 'BacktestCreate', icon: renderIcon(BarChartOutline) },
-  { label: '辩论分析', key: 'DebateCreate', icon: renderIcon(ChatbubblesOutline) },
-  { label: '书籍管理', key: 'BookManager', icon: renderIcon(BookOutline) },
-  { label: '告警管理', key: 'AlertManager', icon: renderIcon(NotificationsOutline) },
-  { label: '系统设置', key: 'Settings', icon: renderIcon(SettingsOutline) },
-]
+const menuOptions = computed(() => {
+  const baseMenu = [
+    { label: '仪表盘', key: 'Dashboard', icon: renderIcon(HomeOutline) },
+    { label: '股票列表', key: 'StockList', icon: renderIcon(TrendingUpOutline) },
+    { label: '投资组合', key: 'PortfolioList', icon: renderIcon(BriefcaseOutline) },
+    { label: '筛选工具库', key: 'FilterLibrary', icon: renderIcon(FunnelOutline) },
+    { label: '策略回测', key: 'BacktestCreate', icon: renderIcon(BarChartOutline) },
+    { label: '辩论分析', key: 'DebateCreate', icon: renderIcon(ChatbubblesOutline) },
+    { label: '书籍管理', key: 'BookManager', icon: renderIcon(BookOutline) },
+    { label: '告警管理', key: 'AlertManager', icon: renderIcon(NotificationsOutline) },
+    { label: '系统设置', key: 'Settings', icon: renderIcon(SettingsOutline) },
+  ]
+  
+  // Add admin menu if user is admin
+  if (authStore.user?.role === 'admin') {
+    baseMenu.push({
+      label: '用户管理',
+      key: 'AdminUsers',
+      icon: renderIcon(ShieldCheckmarkOutline)
+    })
+  }
+  
+  return baseMenu
+})
 
 const userMenuOptions = [
   { label: '退出登录', key: 'logout', icon: renderIcon(LogOutOutline) },
