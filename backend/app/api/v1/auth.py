@@ -1,6 +1,6 @@
 """Auth API routes."""
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +22,11 @@ async def get_current_user(
     authorization: str = Header(default=""),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Dependency: extract and validate JWT from Authorization header."""
+    """Dependency: extract and validate JWT from Authorization header.
+
+    Also enforces account-active status so a disabled user's still-valid token
+    (within its 24h lifetime) is rejected instead of silently honoured.
+    """
     if not authorization.startswith("Bearer "):
         raise UnauthorizedException("Missing or invalid Authorization header")
     token = authorization[7:]
@@ -34,7 +38,19 @@ async def get_current_user(
     user = result.scalar_one_or_none()
     if not user:
         raise UnauthorizedException("User not found")
+    if not user.is_active:
+        raise UnauthorizedException("User account is disabled")
     return user
+
+
+async def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Dependency: require admin role. Single source of truth for admin gating."""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user
 
 
 @router.post("/login", response_model=TokenResponse)

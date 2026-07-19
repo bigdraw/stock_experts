@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, require_admin
 from app.database import get_db
 from app.models.user import User
 from app.services.data.akshare_provider import get_proxy_enabled, set_proxy_enabled, AkShareProvider
@@ -13,7 +13,14 @@ from app.services import settings_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+# All settings endpoints mutate or expose sensitive runtime config (LLM api_key,
+# proxy toggles, data-source, backtest friction). Admin-only at the router level
+# so no endpoint can accidentally be left open.
+router = APIRouter(
+    prefix="/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 # ========== Proxy Settings ==========

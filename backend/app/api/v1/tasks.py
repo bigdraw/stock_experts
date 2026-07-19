@@ -8,7 +8,7 @@ from typing import Optional
 
 from app.database import get_db
 from app.models.user import User
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, require_admin
 from app.services.task_manager import task_manager, TaskStatus
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -31,8 +31,8 @@ async def get_task(task_id: str, current_user: User = Depends(get_current_user))
 
 
 @router.post("/{task_id}/pause")
-async def pause_task(task_id: str, current_user: User = Depends(get_current_user)):
-    """Pause a running task."""
+async def pause_task(task_id: str, current_user: User = Depends(require_admin)):
+    """Pause a running task (admin only)."""
     success = task_manager.pause_task(task_id)
     if not success:
         raise HTTPException(status_code=400, detail="Cannot pause task")
@@ -40,8 +40,8 @@ async def pause_task(task_id: str, current_user: User = Depends(get_current_user
 
 
 @router.post("/{task_id}/resume")
-async def resume_task(task_id: str, current_user: User = Depends(get_current_user)):
-    """Resume a paused task."""
+async def resume_task(task_id: str, current_user: User = Depends(require_admin)):
+    """Resume a paused task (admin only)."""
     success = task_manager.resume_task(task_id)
     if not success:
         raise HTTPException(status_code=400, detail="Cannot resume task")
@@ -49,8 +49,8 @@ async def resume_task(task_id: str, current_user: User = Depends(get_current_use
 
 
 @router.post("/{task_id}/stop")
-async def stop_task(task_id: str, current_user: User = Depends(get_current_user)):
-    """Stop a task."""
+async def stop_task(task_id: str, current_user: User = Depends(require_admin)):
+    """Stop a task (admin only)."""
     success = task_manager.stop_task(task_id)
     if not success:
         raise HTTPException(status_code=400, detail="Cannot stop task")
@@ -131,8 +131,8 @@ async def stream_task_progress(
 
 
 @router.delete("/{task_id}")
-async def delete_task(task_id: str, current_user: User = Depends(get_current_user)):
-    """Delete a completed/failed/stopped task."""
+async def delete_task(task_id: str, current_user: User = Depends(require_admin)):
+    """Delete a completed/failed/stopped task (admin only)."""
     task = task_manager.get_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.user import User
 from app.schemas import UserResponse
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, require_admin
 from app.utils.security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -39,16 +39,6 @@ class UpdateUserRoleRequest(BaseModel):
 class UpdateUserStatusRequest(BaseModel):
     """Request to enable/disable user."""
     is_active: bool = Field(..., description="Whether user account is active")
-
-
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    """Dependency to require admin role."""
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
-        )
-    return current_user
 
 
 @router.get("/users", response_model=list[AdminUserResponse])

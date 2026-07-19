@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, require_admin
 from app.database import async_session_factory, get_db
 from app.models.user import User
 from app.services.data.akshare_provider import AkShareProvider
@@ -49,7 +49,7 @@ async def _run_financial_update(task_id: str):
 @router.post("/collect/full")
 async def start_full_collection(
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Start full basic indicator collection (background task)."""
     task_id = f"full_{uuid.uuid4().hex[:8]}"
@@ -60,7 +60,7 @@ async def start_full_collection(
 @router.post("/collect/incremental")
 async def start_incremental_update(
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Start incremental update (background task)."""
     task_id = f"incr_{uuid.uuid4().hex[:8]}"
@@ -72,7 +72,7 @@ async def start_incremental_update(
 async def start_deep_fetch(
     stock_codes: list[str],
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Fetch deep data for specific stocks (background task)."""
     task_id = f"deep_{uuid.uuid4().hex[:8]}"
@@ -83,7 +83,7 @@ async def start_deep_fetch(
 @router.post("/collect/financial")
 async def start_financial_update(
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_admin),
 ):
     """Start full financial data update for all stocks (background task).
     
