@@ -184,14 +184,19 @@ class AkShareProvider(DataProvider):
         
         return results
     
-    async def get_all_basic_indicators(self) -> list[StockBasicIndicators]:
-        """Get basic indicators for ALL A-share stocks in a single API call."""
+    async def get_all_basic_indicators(self, code_prefixes: list[str] = None) -> list[StockBasicIndicators]:
+        """Get basic indicators for ALL A-share stocks in a single API call.
+        
+        Args:
+            code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
+                          If None, fetch all stocks.
+        """
         results = []
         
         async with self._semaphore:
             try:
                 # Run synchronous call in thread pool
-                all_data = await asyncio.to_thread(self._fetch_all_indicators_sina)
+                all_data = await asyncio.to_thread(self._fetch_all_indicators_sina, code_prefixes)
                 
                 # Convert to StockBasicIndicators
                 for item in all_data:
@@ -209,7 +214,7 @@ class AkShareProvider(DataProvider):
                         is_profitable=pe_ratio is not None and pe_ratio > 0 if pe_ratio is not None else None,
                     ))
                 
-                logger.info(f"Fetched indicators for {len(results)} stocks (all)")
+                logger.info(f"Fetched indicators for {len(results)} stocks (filtered by {code_prefixes if code_prefixes else 'all'})")
                 
             except Exception as e:
                 logger.error(f"Failed to fetch all indicators: {e}")
@@ -217,8 +222,13 @@ class AkShareProvider(DataProvider):
         
         return results
     
-    def _fetch_all_indicators_sina(self) -> list[dict]:
-        """Fetch all A-share indicators from Sina API."""
+    def _fetch_all_indicators_sina(self, code_prefixes: list[str] = None) -> list[dict]:
+        """Fetch all A-share indicators from Sina API.
+        
+        Args:
+            code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
+                          If None, fetch all stocks.
+        """
         import requests
         import json
         
@@ -248,7 +258,12 @@ class AkShareProvider(DataProvider):
             if not data:
                 break
             
-            all_data.extend(data)
+            # Filter by code prefixes if specified
+            if code_prefixes:
+                filtered = [item for item in data if any(item['code'].startswith(prefix) for prefix in code_prefixes)]
+                all_data.extend(filtered)
+            else:
+                all_data.extend(data)
             
             if len(data) < page_size:
                 break
@@ -338,6 +353,88 @@ class AkShareProvider(DataProvider):
         original_proxy = _bypass_proxy()
         try:
             return ak.stock_financial_abstract_ths(symbol=code)
+        finally:
+            _restore_proxy(original_proxy)
+
+    async def get_financial_analysis_indicators(self, code: str, start_year: str = None) -> list[FinancialReport]:
+        """Get comprehensive financial analysis indicators for a stock.
+        
+        This method fetches detailed financial metrics including ROE, EPS, profit margins,
+        growth rates, and other key financial ratios.
+        
+        Args:
+            code: Stock code (e.g., '600519')
+            start_year: Optional start year (e.g., '2020'). If None, fetches all available data.
+        
+        Returns:
+            List of FinancialReport objects with comprehensive financial data
+        """
+        async with self._semaphore:
+            try:
+                # Run synchronous akshare call in thread pool
+                df = await asyncio.to_thread(
+                    self._fetch_financial_analysis_indicators_sync,
+                    code, start_year
+                )
+                
+                reports = []
+                for _, row in df.iterrows():
+                    # Extract key metrics
+                    report_date = str(row.get("日期", ""))
+                    
+                    # ROE - use weighted ROE if available, otherwise use diluted
+                    roe = None
+                    if pd.notna(row.get("加权净资产收益率(%)")):
+                        roe = float(row.get("加权净资产收益率(%)"))
+                    elif pd.notna(row.get("摊薄净资产收益率(%)")):
+                        roe = float(row.get("摊薄净资产收益率(%)"))
+                    
+                    # EPS
+                    eps = float(row.get("摊薄每股收益(元)")) if pd.notna(row.get("摊薄每股收益(元)")) else None
+                    
+                    # BPS (Book Value Per Share)
+                    bps = float(row.get("每股净资产_调整后(元)")) if pd.notna(row.get("每股净资产_调整后(元)")) else None
+                    
+                    # Profit margins
+                    gross_margin = float(row.get("主营业务利润率(%)")) if pd.notna(row.get("主营业务利润率(%)")) else None
+                    net_margin = float(row.get("净利润增长率(%)")) if pd.notna(row.get("净利润增长率(%)")) else None
+                    
+                    # Growth rates
+                    revenue_growth = float(row.get("主营业务收入增长率(%)")) if pd.notna(row.get("主营业务收入增长率(%)")) else None
+                    
+                    # Debt ratio
+                    debt_ratio = float(row.get("资产负债率(%)")) if pd.notna(row.get("资产负债率(%)")) else None
+                    
+                    reports.append(FinancialReport(
+                        code=code,
+                        report_date=report_date,
+                        report_type=self._infer_report_type(report_date),
+                        roe=roe,
+                        # Store comprehensive data in raw_data
+                        raw_data={
+                            "eps": eps,
+                            "bps": bps,
+                            "roe": roe,
+                            "gross_margin": gross_margin,
+                            "net_margin": net_margin,
+                            "revenue_growth": revenue_growth,
+                            "debt_ratio": debt_ratio,
+                            "full_data": row.to_dict()
+                        }
+                    ))
+                return reports
+            except Exception as e:
+                logger.error(f"Failed to fetch financial analysis indicators for {code}: {e}")
+                raise
+
+    def _fetch_financial_analysis_indicators_sync(self, code: str, start_year: str = None):
+        """Synchronous wrapper for fetching financial analysis indicators."""
+        original_proxy = _bypass_proxy()
+        try:
+            if start_year:
+                return ak.stock_financial_analysis_indicator(symbol=code, start_year=start_year)
+            else:
+                return ak.stock_financial_analysis_indicator(symbol=code)
         finally:
             _restore_proxy(original_proxy)
 

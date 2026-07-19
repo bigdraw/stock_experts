@@ -38,6 +38,14 @@ async def _run_deep_fetch(stock_codes: list[str], task_id: str):
         await engine.deep_data_on_demand(stock_codes, task_id=task_id)
 
 
+async def _run_financial_update(task_id: str):
+    """Background task: full financial data update."""
+    async with async_session_factory() as db:
+        provider = AkShareProvider()
+        engine = DataAcquisitionEngine(provider, db)
+        await engine.full_financial_update(task_id=task_id)
+
+
 @router.post("/collect/full")
 async def start_full_collection(
     background_tasks: BackgroundTasks,
@@ -70,6 +78,21 @@ async def start_deep_fetch(
     task_id = f"deep_{uuid.uuid4().hex[:8]}"
     background_tasks.add_task(_run_deep_fetch, stock_codes, task_id)
     return {"status": "started", "message": f"Deep fetch started for {len(stock_codes)} stocks", "task_id": task_id}
+
+
+@router.post("/collect/financial")
+async def start_financial_update(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    """Start full financial data update for all stocks (background task).
+    
+    This fetches comprehensive financial indicators including ROE, EPS, profit margins,
+    growth rates, and other key financial ratios.
+    """
+    task_id = f"financial_{uuid.uuid4().hex[:8]}"
+    background_tasks.add_task(_run_financial_update, task_id)
+    return {"status": "started", "message": "Financial data update started", "task_id": task_id}
 
 
 @router.get("/collect/status")

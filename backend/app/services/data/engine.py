@@ -20,16 +20,31 @@ logger = logging.getLogger(__name__)
 
 
 class DataAcquisitionEngine:
-    """Orchestrates data collection with self-healing and progress tracking."""
+    """Orchestrates data collection with self-healing and task management."""
+
+    # Default stock code prefixes to collect (000=SZ main, 600=SH main, 300=SZ ChiNext)
+    DEFAULT_CODE_PREFIXES = ['000', '600', '300']
 
     def __init__(self, provider: DataProvider, db: AsyncSession):
         self.provider = provider
         self.db = db
 
-    async def full_basic_collection(self, batch_size: int = 100, task_id: str = None) -> str:
-        """Full collection of basic indicators. Fetches all data in one API call, then batches DB writes."""
+    async def full_basic_collection(self, batch_size: int = 100, task_id: str = None, code_prefixes: list[str] = None) -> str:
+        """Full collection of basic indicators. Fetches all data in one API call, then batches DB writes.
+        
+        Args:
+            batch_size: Number of stocks to process per batch
+            task_id: Optional task ID for progress tracking
+            code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
+                          If None, uses DEFAULT_CODE_PREFIXES.
+        """
         if task_id is None:
             task_id = f"full_basic_{uuid.uuid4().hex[:8]}"
+        
+        # Use default prefixes if not specified
+        if code_prefixes is None:
+            code_prefixes = self.DEFAULT_CODE_PREFIXES
+        
         task_manager.create_task(task_id, "full_basic", total=0)
         task_manager.update_progress(task_id, message="Initializing...")
 
@@ -75,8 +90,8 @@ class DataAcquisitionEngine:
             await self.db.flush()
 
             # 3. Fetch ALL indicators in one API call (Sina API)
-            task_manager.update_progress(task_id, message="Fetching all indicators from data source...")
-            all_indicators = await self.provider.get_all_basic_indicators()
+            task_manager.update_progress(task_id, message=f"Fetching indicators for {code_prefixes} stocks...")
+            all_indicators = await self.provider.get_all_basic_indicators(code_prefixes=code_prefixes)
             
             if not all_indicators:
                 raise Exception("Failed to fetch indicators from data source")
@@ -351,4 +366,128 @@ class DataAcquisitionEngine:
             await self.db.rollback()
             await self.db.commit()
             logger.error(f"Deep data fetch failed: {e}")
+            raise
+
+    async def full_financial_update(self, task_id: str = None, code_prefixes: list[str] = None) -> str:
+        """Full update of financial analysis indicators for all stocks.
+        
+        This method fetches comprehensive financial data including ROE, EPS, profit margins,
+        growth rates, and other key financial ratios for all stocks matching the code prefixes.
+        
+        Args:
+            task_id: Optional task ID for progress tracking
+            code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
+                          If None, uses DEFAULT_CODE_PREFIXES.
+        
+        Returns:
+            task_id: The task ID for tracking progress
+        """
+        if task_id is None:
+            task_id = f"financial_{uuid.uuid4().hex[:8]}"
+        
+        # Use default prefixes if not specified
+        if code_prefixes is None:
+            code_prefixes = self.DEFAULT_CODE_PREFIXES
+        
+        task_manager.create_task(task_id, "financial", total=0)
+        task_manager.update_progress(task_id, message="Initializing financial data update...")
+
+        log = DataAcquisitionLog(
+            task_type="financial",
+            status="running",
+            started_at=datetime.now(),
+        )
+        self.db.add(log)
+        await self.db.flush()
+
+        try:
+            # Get all active stocks matching the code prefixes
+            task_manager.update_progress(task_id, message="Loading stock list...")
+            result = await self.db.execute(select(Stock).where(Stock.is_active == True))
+            all_stocks = result.scalars().all()
+            
+            # Filter by code prefixes
+            stocks = [s for s in all_stocks if any(s.code.startswith(prefix) for prefix in code_prefixes)]
+            total = len(stocks)
+            
+            task = task_manager.get_task(task_id)
+            if task:
+                task.total = total
+            
+            task_manager.update_progress(task_id, message=f"Updating financial data for {total} stocks...")
+
+            processed = 0
+            for stock in stocks:
+                # Check for pause/stop
+                if not task_manager.wait_if_paused(task_id):
+                    task_manager.stop_task(task_id)
+                    log.status = "stopped"
+                    log.stocks_processed = processed
+                    log.completed_at = datetime.now()
+                    await self.db.commit()
+                    logger.info(f"Financial update stopped: {processed}/{total}")
+                    return task_id
+
+                task_manager.update_progress(
+                    task_id,
+                    current=processed,
+                    message=f"Fetching financial indicators for {stock.code} ({stock.name}) - {processed}/{total}",
+                )
+
+                try:
+                    # Fetch comprehensive financial indicators
+                    reports = await self.provider.get_financial_analysis_indicators(stock.code)
+                    
+                    for r in reports:
+                        report_date = datetime.strptime(r.report_date, "%Y-%m-%d").date() if r.report_date else datetime.now().date()
+                        
+                        # Check if record already exists
+                        existing = await self.db.execute(
+                            select(FinancialReportModel).where(
+                                FinancialReportModel.stock_code == r.code,
+                                FinancialReportModel.report_date == report_date
+                            )
+                        )
+                        report = existing.scalar_one_or_none()
+                        
+                        if report:
+                            # Update existing record
+                            report.report_type = r.report_type
+                            report.roe = r.roe
+                            report.raw_data = json.dumps(r.raw_data) if r.raw_data else None
+                        else:
+                            # Insert new record
+                            self.db.add(FinancialReportModel(
+                                stock_code=r.code,
+                                report_date=report_date,
+                                report_type=r.report_type,
+                                roe=r.roe,
+                                raw_data=json.dumps(r.raw_data) if r.raw_data else None,
+                            ))
+                    
+                    processed += 1
+                    if processed % 50 == 0:
+                        await self.db.flush()
+                        logger.info(f"Financial update: {processed}/{total}")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to update financial data for {stock.code}: {e}")
+                    continue
+
+            task_manager.complete_task(task_id, f"Completed: {processed}/{total} stocks")
+            log.status = "success"
+            log.stocks_processed = processed
+            log.completed_at = datetime.now()
+            await self.db.commit()
+            logger.info(f"Financial update completed: {processed} stocks")
+            return task_id
+
+        except Exception as e:
+            task_manager.fail_task(task_id, str(e))
+            log.status = "failed"
+            log.error_message = str(e)
+            log.completed_at = datetime.now()
+            await self.db.rollback()
+            await self.db.commit()
+            logger.error(f"Financial update failed: {e}")
             raise

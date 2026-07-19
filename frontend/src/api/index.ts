@@ -100,6 +100,7 @@ export const dataApi = {
   startFullCollection: () => apiClient.post('/data/collect/full'),
   startIncrementalUpdate: () => apiClient.post('/data/collect/incremental'),
   startDeepFetch: (stockCodes: string[]) => apiClient.post('/data/collect/deep', stockCodes),
+  startFinancialUpdate: () => apiClient.post('/data/collect/financial'),
   getStatus: () => apiClient.get('/data/collect/status'),
 }
 

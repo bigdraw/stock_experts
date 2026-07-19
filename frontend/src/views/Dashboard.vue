@@ -31,6 +31,7 @@
           <n-space vertical>
             <n-button @click="startCollection('full')" :loading="collecting" :disabled="!!taskStore.activeTaskId">全量采集基础指标</n-button>
             <n-button @click="startCollection('incremental')" :loading="collecting" :disabled="!!taskStore.activeTaskId">增量更新</n-button>
+            <n-button @click="startCollection('financial')" :loading="collecting" :disabled="!!taskStore.activeTaskId">全量更新财务数据</n-button>
           </n-space>
         </n-card>
       </n-gi>
@@ -113,8 +114,10 @@ async function startCollection(type: string) {
     let res
     if (type === 'full') {
       res = await dataApi.startFullCollection()
-    } else {
+    } else if (type === 'incremental') {
       res = await dataApi.startIncrementalUpdate()
+    } else if (type === 'financial') {
+      res = await dataApi.startFinancialUpdate()
     }
     const taskId = res.data.task_id
     if (taskId) {
