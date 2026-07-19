@@ -95,7 +95,7 @@ const columns = [
 async function loadStocks() {
   loading.value = true
   try {
-    const res = await stocksApi.list({ limit: 500 })
+    const res = await stocksApi.list({ limit: 100 })
     stocks.value = res.data
   } catch (e) {
     console.error(e)
@@ -117,7 +117,7 @@ function handleSearch(value: string) {
   searchTimeout = setTimeout(async () => {
     loading.value = true
     try {
-      const res = await stocksApi.search(value.trim(), 500)
+      const res = await stocksApi.search(value.trim(), 100)
       console.log('Search results:', res.data)
       stocks.value = res.data || []
     } catch (e: any) {

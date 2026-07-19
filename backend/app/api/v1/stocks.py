@@ -69,7 +69,7 @@ async def list_stocks(
 @router.get("/search", response_model=list[StockResponse])
 async def search_stocks(
     q: str = Query(..., min_length=1, description="Search query (code, name, pinyin, or first letter)"),
-    limit: int = Query(default=500, le=500),
+    limit: int = Query(default=100, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
