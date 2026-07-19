@@ -13,9 +13,24 @@ export interface Stock {
   sector?: string
   list_date?: string
   is_active: boolean
+  // 行情指标
+  price?: number
+  open?: number
+  high?: number
+  low?: number
+  settlement?: number
+  change?: number
+  change_pct?: number
+  volume?: number
+  amount?: number
+  turnover_ratio?: number
+  // 估值指标
   pe_ratio?: number
   pb_ratio?: number
+  // 市值指标（万元）
   market_cap?: number
+  circulating_market_cap?: number
+  // 衍生指标
   is_profitable?: boolean
 }
 
@@ -50,9 +65,24 @@ export interface PortfolioHolding {
   shares: number
   avg_cost: number
   added_at: string
+  // 行情指标
+  price?: number
+  open?: number
+  high?: number
+  low?: number
+  settlement?: number
+  change?: number
+  change_pct?: number
+  volume?: number
+  amount?: number
+  turnover_ratio?: number
+  // 估值指标
   pe_ratio?: number
   pb_ratio?: number
+  // 市值指标（万元）
   market_cap?: number
+  circulating_market_cap?: number
+  // 衍生指标
   is_profitable?: boolean
 }
 

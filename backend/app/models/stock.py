@@ -39,20 +39,41 @@ class DailyQuote(Base):
 
 class FinancialReport(Base):
     __tablename__ = "financial_reports"
-    __table_args__ = (UniqueConstraint("stock_code", "report_date", name="uq_financial_report"),)
+    __table_args__ = (UniqueConstraint("stock_code", "report_date", "report_type", name="uq_financial_report"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     stock_code: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
     report_date: Mapped[date] = mapped_column(Date, nullable=False)
-    report_type: Mapped[str | None] = mapped_column(String(10))  # Q1/H1/Q3/Annual
+    report_type: Mapped[str | None] = mapped_column(String(10))  # Q1/H1/Q3/Annual/Latest
+    
+    # 行情指标
+    price: Mapped[float | None] = mapped_column(Float)  # 当前价格（元）
+    open: Mapped[float | None] = mapped_column(Float)  # 开盘价（元）
+    high: Mapped[float | None] = mapped_column(Float)  # 最高价（元）
+    low: Mapped[float | None] = mapped_column(Float)  # 最低价（元）
+    settlement: Mapped[float | None] = mapped_column(Float)  # 昨收价（元）
+    change: Mapped[float | None] = mapped_column(Float)  # 涨跌额（元）
+    change_pct: Mapped[float | None] = mapped_column(Float)  # 涨跌幅（%）
+    volume: Mapped[float | None] = mapped_column(Float)  # 成交量（股）
+    amount: Mapped[float | None] = mapped_column(Float)  # 成交额（元）
+    turnover_ratio: Mapped[float | None] = mapped_column(Float)  # 换手率（%）
+    
+    # 估值指标
+    pe_ratio: Mapped[float | None] = mapped_column(Float)  # 市盈率
+    pb_ratio: Mapped[float | None] = mapped_column(Float)  # 市净率
+    
+    # 市值指标（万元）
+    market_cap: Mapped[float | None] = mapped_column(Float)  # 总市值（万元）
+    circulating_market_cap: Mapped[float | None] = mapped_column(Float)  # 流通市值（万元）
+    
+    # 财务报表数据
     revenue: Mapped[float | None] = mapped_column(Float)
     net_profit: Mapped[float | None] = mapped_column(Float)
     total_assets: Mapped[float | None] = mapped_column(Float)
     total_equity: Mapped[float | None] = mapped_column(Float)
     roe: Mapped[float | None] = mapped_column(Float)
-    pe_ratio: Mapped[float | None] = mapped_column(Float)
-    pb_ratio: Mapped[float | None] = mapped_column(Float)
-    market_cap: Mapped[float | None] = mapped_column(Float)
+    
+    # 衍生指标
     is_profitable: Mapped[bool | None] = mapped_column(Boolean)
     raw_data: Mapped[str | None] = mapped_column(Text)  # JSON
 

@@ -14,6 +14,7 @@ from app.models.stock import FinancialReport as FinancialReportModel
 from app.models.stock import Stock
 from app.models.system import DataAcquisitionLog
 from app.services.data.provider import DataProvider
+from app.services.data.validator import IndicatorValidator
 from app.services.task_manager import task_manager, TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -98,9 +99,14 @@ class DataAcquisitionEngine:
             
             logger.info(f"Fetched {len(all_indicators)} indicators")
 
-            # 4. Batch write indicators to database
+            # 4. Validate and batch write indicators to database
             processed = 0
             total_indicators = len(all_indicators)
+            
+            # Validate all indicators first
+            task_manager.update_progress(task_id, message="Validating data...")
+            validation_summary = IndicatorValidator.validate_batch(all_indicators)
+            logger.info(f"Validation complete: {validation_summary}")
             
             for i in range(0, total_indicators, batch_size):
                 # Check for pause/stop
@@ -124,21 +130,38 @@ class DataAcquisitionEngine:
                 )
 
                 for ind in batch:
+                    # Validate individual indicator
+                    validation_result = IndicatorValidator.validate(ind)
+                    if not validation_result.is_valid:
+                        logger.warning(f"Skipping invalid data for {ind.code}: {validation_result.errors}")
+                        continue  # Skip invalid data
+                    
                     # Check if record already exists
                     existing = await self.db.execute(
                         select(FinancialReportModel).where(
                             FinancialReportModel.stock_code == ind.code,
-                            FinancialReportModel.report_date == datetime.now().date()
+                            FinancialReportModel.report_date == datetime.now().date(),
+                            FinancialReportModel.report_type == "Latest"
                         )
                     )
                     report = existing.scalar_one_or_none()
                     
                     if report:
                         # Update existing record
-                        report.report_type = "Latest"
-                        report.market_cap = ind.market_cap
+                        report.price = ind.price
+                        report.open = ind.open
+                        report.high = ind.high
+                        report.low = ind.low
+                        report.settlement = ind.settlement
+                        report.change = ind.change
+                        report.change_pct = ind.change_pct
+                        report.volume = ind.volume
+                        report.amount = ind.amount
+                        report.turnover_ratio = ind.turnover_ratio
                         report.pe_ratio = ind.pe_ratio
                         report.pb_ratio = ind.pb_ratio
+                        report.market_cap = ind.market_cap
+                        report.circulating_market_cap = ind.circulating_market_cap
                         report.is_profitable = ind.is_profitable
                     else:
                         # Insert new record
@@ -146,9 +169,20 @@ class DataAcquisitionEngine:
                             stock_code=ind.code,
                             report_date=datetime.now().date(),
                             report_type="Latest",
-                            market_cap=ind.market_cap,
+                            price=ind.price,
+                            open=ind.open,
+                            high=ind.high,
+                            low=ind.low,
+                            settlement=ind.settlement,
+                            change=ind.change,
+                            change_pct=ind.change_pct,
+                            volume=ind.volume,
+                            amount=ind.amount,
+                            turnover_ratio=ind.turnover_ratio,
                             pe_ratio=ind.pe_ratio,
                             pb_ratio=ind.pb_ratio,
+                            market_cap=ind.market_cap,
+                            circulating_market_cap=ind.circulating_market_cap,
                             is_profitable=ind.is_profitable,
                         )
                         self.db.add(report)

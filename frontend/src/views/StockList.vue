@@ -156,7 +156,7 @@ const columns = [
   { 
     title: '市场', 
     key: 'market', 
-    width: 80,
+    width: 60,
     render: (row: Stock) => h(NTag, { 
       size: 'small',
       type: row.market === 'SH' ? 'success' : 'warning',
@@ -164,41 +164,65 @@ const columns = [
     }, { default: () => row.market })
   },
   { 
-    title: '行业', 
-    key: 'industry',
-    ellipsis: { tooltip: true },
+    title: '现价', 
+    key: 'price',
+    width: 80,
     render: (row: Stock) => h('span', { 
-      style: 'color: var(--text-secondary);'
-    }, row.industry || '-')
+      style: `color: ${row.change && row.change > 0 ? '#e74c3c' : row.change && row.change < 0 ? '#27ae60' : 'var(--text-primary)'}; font-weight: 600;`
+    }, row.price ? row.price.toFixed(2) : '-')
+  },
+  { 
+    title: '涨跌幅', 
+    key: 'change_pct',
+    width: 80,
+    render: (row: Stock) => h('span', { 
+      style: `color: ${row.change_pct && row.change_pct > 0 ? '#e74c3c' : row.change_pct && row.change_pct < 0 ? '#27ae60' : 'var(--text-secondary)'}; font-weight: 600;`
+    }, row.change_pct != null ? `${row.change_pct > 0 ? '+' : ''}${row.change_pct.toFixed(2)}%` : '-')
   },
   { 
     title: 'PE', 
     key: 'pe_ratio',
-    width: 80,
+    width: 70,
     render: (row: Stock) => h('span', { 
       style: `color: ${row.pe_ratio && row.pe_ratio > 0 ? 'var(--success-color)' : 'var(--text-secondary)'}; font-weight: 500;`
-    }, row.pe_ratio ? row.pe_ratio.toFixed(2) : '-')
+    }, row.pe_ratio ? row.pe_ratio.toFixed(1) : '-')
   },
   { 
     title: 'PB', 
     key: 'pb_ratio',
-    width: 80,
+    width: 70,
     render: (row: Stock) => h('span', { 
       style: `color: ${row.pb_ratio && row.pb_ratio > 0 ? 'var(--info-color)' : 'var(--text-secondary)'}; font-weight: 500;`
     }, row.pb_ratio ? row.pb_ratio.toFixed(2) : '-')
   },
   { 
-    title: '市值(亿)', 
+    title: '总市值(亿)', 
     key: 'market_cap',
     width: 100,
     render: (row: Stock) => h('span', { 
       style: 'color: var(--text-primary); font-weight: 500;'
-    }, row.market_cap ? (row.market_cap / 100000000).toFixed(2) : '-')
+    }, row.market_cap ? (row.market_cap / 10000).toFixed(2) : '-')
+  },
+  { 
+    title: '流通(亿)', 
+    key: 'circulating_market_cap',
+    width: 100,
+    render: (row: Stock) => h('span', { 
+      style: 'color: var(--text-secondary);'
+    }, row.circulating_market_cap ? (row.circulating_market_cap / 10000).toFixed(2) : '-')
+  },
+  { 
+    title: '换手率', 
+    key: 'turnover_ratio',
+    width: 80,
+    render: (row: Stock) => h('span', { 
+      style: 'color: var(--text-secondary);'
+    }, row.turnover_ratio ? `${row.turnover_ratio.toFixed(2)}%` : '-')
   },
   {
     title: '操作', 
     key: 'actions', 
-    width: 100,
+    width: 80,
     render: (row: Stock) => h(NButton, { 
       size: 'small',
       type: 'primary',
@@ -236,15 +260,30 @@ async function loadPortfolioDetail(portfolioId: number) {
     activePortfolio.value = res.data
     
     // 将持仓转换为 Stock 类型
-    stocks.value = res.data.holdings.map(holding => ({
+    stocks.value = res.data.holdings.map((holding: any) => ({
       code: holding.stock_code,
       name: holding.stock_name,
       market: holding.market,
       industry: holding.industry,
       is_active: true,
+      // 行情指标
+      price: holding.price,
+      open: holding.open,
+      high: holding.high,
+      low: holding.low,
+      settlement: holding.settlement,
+      change: holding.change,
+      change_pct: holding.change_pct,
+      volume: holding.volume,
+      amount: holding.amount,
+      turnover_ratio: holding.turnover_ratio,
+      // 估值指标
       pe_ratio: holding.pe_ratio,
       pb_ratio: holding.pb_ratio,
+      // 市值指标（万元）
       market_cap: holding.market_cap,
+      circulating_market_cap: holding.circulating_market_cap,
+      // 衍生指标
       is_profitable: holding.is_profitable,
     }))
   } catch (e) {

@@ -64,9 +64,24 @@ class PortfolioManager:
                 "shares": item.shares,
                 "avg_cost": item.avg_cost,
                 "added_at": str(item.added_at),
+                # 行情指标
+                "price": financial.price if financial else None,
+                "open": financial.open if financial else None,
+                "high": financial.high if financial else None,
+                "low": financial.low if financial else None,
+                "settlement": financial.settlement if financial else None,
+                "change": financial.change if financial else None,
+                "change_pct": financial.change_pct if financial else None,
+                "volume": financial.volume if financial else None,
+                "amount": financial.amount if financial else None,
+                "turnover_ratio": financial.turnover_ratio if financial else None,
+                # 估值指标
                 "pe_ratio": financial.pe_ratio if financial else None,
                 "pb_ratio": financial.pb_ratio if financial else None,
+                # 市值指标（万元）
                 "market_cap": financial.market_cap if financial else None,
+                "circulating_market_cap": financial.circulating_market_cap if financial else None,
+                # 衍生指标
                 "is_profitable": financial.is_profitable if financial else None,
             })
 

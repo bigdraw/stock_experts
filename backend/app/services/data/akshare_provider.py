@@ -201,16 +201,48 @@ class AkShareProvider(DataProvider):
                 # Convert to StockBasicIndicators
                 for item in all_data:
                     code = item['code']
-                    market_cap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
+                    
+                    # 提取行情指标
+                    price = float(item.get('trade', 0)) if item.get('trade') else None
+                    open_price = float(item.get('open', 0)) if item.get('open') else None
+                    high = float(item.get('high', 0)) if item.get('high') else None
+                    low = float(item.get('low', 0)) if item.get('low') else None
+                    settlement = float(item.get('settlement', 0)) if item.get('settlement') else None
+                    change = float(item.get('pricechange', 0)) if item.get('pricechange') else None
+                    change_pct = float(item.get('changepercent', 0)) if item.get('changepercent') else None
+                    volume = float(item.get('volume', 0)) if item.get('volume') else None
+                    amount = float(item.get('amount', 0)) if item.get('amount') else None
+                    turnover_ratio = float(item.get('turnoverratio', 0)) if item.get('turnoverratio') else None
+                    
+                    # 提取估值指标
                     pe_ratio = float(item.get('per', 0)) if item.get('per') else None
                     pb_ratio = float(item.get('pb', 0)) if item.get('pb') else None
+                    
+                    # 提取市值指标（单位：万元）
+                    market_cap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
+                    circulating_market_cap = float(item.get('nmc', 0)) if item.get('nmc') else None
                     
                     results.append(StockBasicIndicators(
                         code=code,
                         date=datetime.now().strftime("%Y-%m-%d"),
-                        market_cap=market_cap,
+                        # 行情指标
+                        price=price,
+                        open=open_price,
+                        high=high,
+                        low=low,
+                        settlement=settlement,
+                        change=change,
+                        change_pct=change_pct,
+                        volume=volume,
+                        amount=amount,
+                        turnover_ratio=turnover_ratio,
+                        # 估值指标
                         pe_ratio=pe_ratio,
                         pb_ratio=pb_ratio,
+                        # 市值指标（万元）
+                        market_cap=market_cap,
+                        circulating_market_cap=circulating_market_cap,
+                        # 衍生指标
                         is_profitable=pe_ratio is not None and pe_ratio > 0 if pe_ratio is not None else None,
                     ))
                 

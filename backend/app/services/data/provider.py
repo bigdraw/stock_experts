@@ -21,11 +21,25 @@ class StockBasicIndicators:
     """Basic financial indicators for a stock."""
     code: str
     date: str
-    market_cap: float | None = None  # Total market cap (CNY)
-    is_profitable: bool | None = None
-    pb_ratio: float | None = None  # Price-to-book
-    roe: float | None = None  # Return on equity
-    pe_ratio: float | None = None  # Price-to-earnings
+    # 行情指标
+    price: float | None = None  # 当前价格（元）
+    open: float | None = None  # 开盘价（元）
+    high: float | None = None  # 最高价（元）
+    low: float | None = None  # 最低价（元）
+    settlement: float | None = None  # 昨收价（元）
+    change: float | None = None  # 涨跌额（元）
+    change_pct: float | None = None  # 涨跌幅（%）
+    volume: float | None = None  # 成交量（股）
+    amount: float | None = None  # 成交额（元）
+    turnover_ratio: float | None = None  # 换手率（%）
+    # 估值指标
+    pe_ratio: float | None = None  # 市盈率
+    pb_ratio: float | None = None  # 市净率
+    # 市值指标（万元）
+    market_cap: float | None = None  # 总市值（万元）
+    circulating_market_cap: float | None = None  # 流通市值（万元）
+    # 衍生指标
+    is_profitable: bool | None = None  # 是否盈利
 
 
 @dataclass

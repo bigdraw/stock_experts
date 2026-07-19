@@ -76,19 +76,16 @@ async def list_stocks_with_indicators(
     current_user: User = Depends(get_current_user),
 ):
     """List stocks with their latest financial indicators."""
-    from sqlalchemy import and_, desc
+    from sqlalchemy import and_, desc, func
     
-    # Subquery to get the latest financial report for each stock
-    latest_reports_subq = (
+    # Subquery to get the most recent report date for each stock
+    latest_dates_subq = (
         select(
             FinancialReport.stock_code,
-            FinancialReport.pe_ratio,
-            FinancialReport.pb_ratio,
-            FinancialReport.market_cap,
-            FinancialReport.is_profitable,
-            FinancialReport.report_date,
+            func.max(FinancialReport.report_date).label('max_date')
         )
         .where(FinancialReport.report_type == "Latest")
+        .group_by(FinancialReport.stock_code)
         .subquery()
     )
     
@@ -101,14 +98,37 @@ async def list_stocks_with_indicators(
             Stock.industry,
             Stock.sector,
             Stock.is_active,
-            latest_reports_subq.c.pe_ratio,
-            latest_reports_subq.c.pb_ratio,
-            latest_reports_subq.c.market_cap,
-            latest_reports_subq.c.is_profitable,
+            # 行情指标
+            FinancialReport.price,
+            FinancialReport.open,
+            FinancialReport.high,
+            FinancialReport.low,
+            FinancialReport.settlement,
+            FinancialReport.change,
+            FinancialReport.change_pct,
+            FinancialReport.volume,
+            FinancialReport.amount,
+            FinancialReport.turnover_ratio,
+            # 估值指标
+            FinancialReport.pe_ratio,
+            FinancialReport.pb_ratio,
+            # 市值指标
+            FinancialReport.market_cap,
+            FinancialReport.circulating_market_cap,
+            # 衍生指标
+            FinancialReport.is_profitable,
         )
         .outerjoin(
-            latest_reports_subq,
-            Stock.code == latest_reports_subq.c.stock_code
+            latest_dates_subq,
+            Stock.code == latest_dates_subq.c.stock_code
+        )
+        .outerjoin(
+            FinancialReport,
+            and_(
+                Stock.code == FinancialReport.stock_code,
+                FinancialReport.report_date == latest_dates_subq.c.max_date,
+                FinancialReport.report_type == "Latest"
+            )
         )
         .where(Stock.is_active == True)
     )
@@ -131,9 +151,24 @@ async def list_stocks_with_indicators(
             "industry": row.industry,
             "sector": row.sector,
             "is_active": row.is_active,
+            # 行情指标
+            "price": row.price,
+            "open": row.open,
+            "high": row.high,
+            "low": row.low,
+            "settlement": row.settlement,
+            "change": row.change,
+            "change_pct": row.change_pct,
+            "volume": row.volume,
+            "amount": row.amount,
+            "turnover_ratio": row.turnover_ratio,
+            # 估值指标
             "pe_ratio": row.pe_ratio,
             "pb_ratio": row.pb_ratio,
+            # 市值指标（万元）
             "market_cap": row.market_cap,
+            "circulating_market_cap": row.circulating_market_cap,
+            # 衍生指标
             "is_profitable": row.is_profitable,
         }
         for row in rows
