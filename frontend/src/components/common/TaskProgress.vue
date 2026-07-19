@@ -98,7 +98,7 @@ const task = ref<TaskData | null>(null)
 const loading = ref(false)
 const connectionStatus = ref<'connecting' | 'connected' | 'polling'>('connecting')
 
-let eventSource: EventSource | null = null
+let abortController: AbortController | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let sseRetryCount = 0
 const MAX_SSE_RETRIES = 3
@@ -167,28 +167,37 @@ function emitTerminalEvent(status: string) {
   else if (status === 'stopped') emit('stopped')
 }
 
-function connectSSE() {
+async function connectSSE() {
   closeSSE()
   connectionStatus.value = 'connecting'
 
   const token = localStorage.getItem('token')
-  const url = `/api/v1/tasks/${props.taskId}/stream?token=${token}`
-
-  eventSource = new EventSource(url)
-
-  eventSource.onopen = () => {
-    connectionStatus.value = 'connected'
-    sseRetryCount = 0
+  if (!token) {
+    // No token to authenticate with — go straight to polling.
+    startPolling()
+    return
   }
+  // encodeURIComponent guards against task ids containing URL-special chars.
+  const url = `/api/v1/tasks/${encodeURIComponent(props.taskId)}/stream`
+  abortController = new AbortController()
 
-  eventSource.onmessage = (event) => {
+  // Parse the SSE text protocol manually over a fetch ReadableStream.
+  // EventSource cannot set custom headers, so the previous implementation put
+  // the token in the query string (?token=...) — which leaks it into browser
+  // history, proxy logs, and Referer. fetch + Authorization header avoids that.
+  let buffer = ''
+  const handleEvent = (raw: string) => {
+    // SSE event blocks are separated by blank lines; within a block, lines
+    // starting with ':' are comments (heartbeats), 'data:' carries payload.
+    const dataLines = raw
+      .split('\n')
+      .filter((l) => l.startsWith('data:'))
+      .map((l) => l.slice(5).replace(/^\s/, ''))
+    if (dataLines.length === 0) return // comment/heartbeat
+    const payload = dataLines.join('\n')
     try {
-      // Skip heartbeat comments
-      if (event.data.startsWith(':')) return
-
-      const data = JSON.parse(event.data)
+      const data = JSON.parse(payload)
       task.value = data
-
       if (isTerminalStatus(data.status)) {
         emitTerminalEvent(data.status)
         closeSSE()
@@ -199,23 +208,57 @@ function connectSSE() {
     }
   }
 
-  eventSource.onerror = () => {
+  try {
+    const resp = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+      signal: abortController.signal,
+    })
+    if (!resp.ok || !resp.body) {
+      throw new Error(`SSE HTTP ${resp.status}`)
+    }
+    connectionStatus.value = 'connected'
+    sseRetryCount = 0
+
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    // Loop until the server closes the stream or the component unmounts.
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      // SSE events are separated by a blank line (\n\n).
+      let sep = buffer.indexOf('\n\n')
+      while (sep !== -1) {
+        const block = buffer.slice(0, sep)
+        buffer = buffer.slice(sep + 2)
+        handleEvent(block)
+        sep = buffer.indexOf('\n\n')
+      }
+    }
+    // Server closed the stream cleanly — if task not terminal, fall back to polling.
+    if (task.value && !isTerminalStatus(task.value.status)) {
+      startPolling()
+    }
+  } catch (e: any) {
+    if (e?.name === 'AbortError') return // component unmounted / intentional close
     sseRetryCount++
+    console.warn(`SSE failed (attempt ${sseRetryCount}/${MAX_SSE_RETRIES})`, e)
     if (sseRetryCount >= MAX_SSE_RETRIES) {
-      console.warn('SSE failed after retries, falling back to polling')
       closeSSE()
       startPolling()
     } else {
-      // EventSource auto-reconnects, but we track the retry count
-      connectionStatus.value = 'connecting'
+      // Brief backoff then retry the authenticated SSE connection.
+      setTimeout(() => {
+        if (task.value && !isTerminalStatus(task.value.status)) connectSSE()
+      }, 1500 * sseRetryCount)
     }
   }
 }
 
 function closeSSE() {
-  if (eventSource) {
-    eventSource.close()
-    eventSource = null
+  if (abortController) {
+    abortController.abort()
+    abortController = null
   }
 }
 

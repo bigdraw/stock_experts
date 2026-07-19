@@ -40,7 +40,7 @@
         </n-breadcrumb>
         <n-space :size="16">
           <n-badge :value="notificationStore.unreadCount" :max="99">
-            <n-button quaternary circle @click="$router.push('/notifications')" style="transition: all 0.3s;">
+            <n-button quaternary circle @click="$router.push('/alerts')" style="transition: all 0.3s;">
               <template #icon>
                 <n-icon :size="20"><NotificationsOutline /></n-icon>
               </template>
@@ -72,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, ref, onMounted } from 'vue'
+import { computed, h, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NIcon } from 'naive-ui'
 import {
@@ -97,6 +97,7 @@ const route = useRoute()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
 const collapsed = ref(false)
+let notifTimer: ReturnType<typeof setInterval> | null = null
 
 const activeKey = computed(() => route.name as string)
 const currentRoute = computed(() => route.name as string)
@@ -149,6 +150,17 @@ onMounted(async () => {
   if (authStore.isLoggedIn) {
     await authStore.fetchUser()
     await notificationStore.fetchUnreadCount()
+    // Periodically refresh the unread badge so the bell stays current.
+    notifTimer = setInterval(() => {
+      notificationStore.fetchUnreadCount().catch(() => {})
+    }, 60000)
+  }
+})
+
+onUnmounted(() => {
+  if (notifTimer) {
+    clearInterval(notifTimer)
+    notifTimer = null
   }
 })
 </script>

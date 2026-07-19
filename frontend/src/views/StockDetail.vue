@@ -325,7 +325,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted, computed, watch } from 'vue'
+import { ref, h, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { NTag } from 'naive-ui'
 import VChart from 'vue-echarts'
@@ -566,7 +566,7 @@ async function loadData(stockCode: string) {
   quotes.value = []
   financials.value = []
   latestIndicators.value = null
-  
+
   const [stockRes, quotesRes, indicatorsRes] = await Promise.all([
     stocksApi.get(stockCode),
     stocksApi.getQuotes(stockCode, 120),
@@ -585,14 +585,59 @@ async function loadData(stockCode: string) {
   }
 }
 
+// Real-time refresh: only re-fetch the live indicators + the most recent quote
+// (the "实时行情" card) so the page lives up to its name, without refetching
+// the whole chart history / financials on every tick.
+let realtimeTimer: ReturnType<typeof setInterval> | null = null
+const REALTIME_INTERVAL_MS = 10000
+
+async function refreshRealtime(stockCode: string) {
+  try {
+    const [indicatorsRes, quotesRes] = await Promise.all([
+      stocksApi.getIndicators(stockCode),
+      stocksApi.getQuotes(stockCode, 1),
+    ])
+    if (indicatorsRes.data) latestIndicators.value = indicatorsRes.data
+    // Append the newest tick if the chart data changed.
+    if (quotesRes.data && quotesRes.data.length) {
+      const newest = quotesRes.data[quotesRes.data.length - 1]
+      const last = quotes.value[quotes.value.length - 1]
+      if (!last || new Date(newest.date).getTime() !== new Date(last.date).getTime()) {
+        quotes.value = [...quotes.value, newest]
+      }
+    }
+  } catch (e) {
+    // Silent — transient network blips shouldn't surface to the user.
+    console.debug('realtime refresh failed', e)
+  }
+}
+
+function startRealtime(stockCode: string) {
+  stopRealtime()
+  realtimeTimer = setInterval(() => refreshRealtime(stockCode), REALTIME_INTERVAL_MS)
+}
+
+function stopRealtime() {
+  if (realtimeTimer) {
+    clearInterval(realtimeTimer)
+    realtimeTimer = null
+  }
+}
+
 onMounted(() => {
   loadData(code.value)
+  startRealtime(code.value)
 })
 
 watch(code, (newCode) => {
   if (newCode) {
     loadData(newCode)
+    startRealtime(newCode)
   }
+})
+
+onUnmounted(() => {
+  stopRealtime()
 })
 </script>
 

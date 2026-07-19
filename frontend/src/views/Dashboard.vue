@@ -260,14 +260,14 @@ function onTaskStopped() {
 
 async function refreshStats() {
   try {
-    const [stocks, portfolios, filters, agents] = await Promise.all([
-      stocksApi.list({ limit: 1 }),
+    const [stockCount, portfolios, filters, agents] = await Promise.all([
+      stocksApi.count(),
       portfoliosApi.list(),
       filtersApi.list(),
       agentsApi.list(),
     ])
     stats.value = {
-      stockCount: stocks.data.length,
+      stockCount: stockCount.data.count,
       portfolioCount: portfolios.data.length,
       filterCount: filters.data.length,
       agentCount: agents.data.length,

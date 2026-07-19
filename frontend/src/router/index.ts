@@ -37,17 +37,26 @@ const router = createRouter({
   ],
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const authStore = useAuthStore()
-  
+
   // Check if route requires authentication
   if (to.meta.requiresAuth && !authStore.isLoggedIn) {
     return { name: 'Login' }
   }
-  
-  // Check if route requires admin role
-  if (to.meta.requiresAdmin && authStore.user?.role !== 'admin') {
-    return { name: 'Dashboard' }
+
+  // Check if route requires admin role.
+  // authStore.user may be null on a fresh page load (token present in
+  // localStorage but /auth/me not yet called). Resolve it before deciding,
+  // otherwise a direct-link to an admin route bounces to Dashboard even for
+  // admins. fetchUser() is a no-op once user is populated.
+  if (to.meta.requiresAdmin) {
+    if (!authStore.user && authStore.isLoggedIn) {
+      await authStore.fetchUser()
+    }
+    if (authStore.user?.role !== 'admin') {
+      return { name: 'Dashboard' }
+    }
   }
 })
 
