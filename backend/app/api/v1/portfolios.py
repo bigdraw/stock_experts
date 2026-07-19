@@ -8,7 +8,7 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas import PortfolioCreateRequest, PortfolioItemAddRequest, PortfolioResponse
 from app.services.portfolio.manager import PortfolioManager
-from app.utils.exceptions import NotFoundException
+from app.utils.exceptions import BadRequestException, NotFoundException
 
 router = APIRouter(prefix="/portfolios", tags=["portfolios"])
 
@@ -52,8 +52,12 @@ async def add_stocks(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Validate stock code is not empty
+    if not req.stock_code or not req.stock_code.strip():
+        raise BadRequestException("股票代码不能为空")
+    
     mgr = PortfolioManager(db)
-    await mgr.add_stocks(portfolio_id, [req.stock_code], req.shares, req.avg_cost)
+    await mgr.add_stocks(portfolio_id, [req.stock_code.strip()], req.shares, req.avg_cost)
     return {"status": "added"}
 
 

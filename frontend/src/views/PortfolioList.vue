@@ -50,7 +50,11 @@ async function load() {
 }
 
 async function handleCreate() {
-  await portfoliosApi.create(newName.value, newDesc.value)
+  if (!newName.value.trim()) {
+    message.warning('请输入组合名称')
+    return
+  }
+  await portfoliosApi.create(newName.value.trim(), newDesc.value)
   showCreate.value = false
   newName.value = ''
   newDesc.value = ''

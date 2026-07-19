@@ -1,13 +1,13 @@
 """Pydantic schemas for API request/response validation."""
 
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # --- Auth ---
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, description="用户名不能为空")
+    password: str = Field(..., min_length=1, description="密码不能为空")
 
 
 class TokenResponse(BaseModel):
@@ -26,8 +26,8 @@ class UserResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=50, description="用户名不能为空")
+    password: str = Field(..., min_length=6, description="密码长度至少6位")
 
 
 # --- Stock ---
@@ -59,8 +59,8 @@ class DailyQuoteResponse(BaseModel):
 
 # --- Portfolio ---
 class PortfolioCreateRequest(BaseModel):
-    name: str
-    description: str | None = None
+    name: str = Field(..., min_length=1, max_length=100, description="组合名称不能为空")
+    description: str | None = Field(None, max_length=500)
 
 
 class PortfolioResponse(BaseModel):
@@ -74,16 +74,16 @@ class PortfolioResponse(BaseModel):
 
 
 class PortfolioItemAddRequest(BaseModel):
-    stock_code: str
-    shares: float = 0
-    avg_cost: float = 0
+    stock_code: str = Field(..., min_length=1, description="股票代码不能为空")
+    shares: float = Field(0, ge=0, description="数量不能为负")
+    avg_cost: float = Field(0, ge=0, description="成本不能为负")
 
 
 # --- Agent ---
 class AgentCreateRequest(BaseModel):
-    name: str
-    description: str | None = None
-    nl_description: str  # natural language description for manual agent
+    name: str = Field(..., min_length=1, max_length=100, description="Agent名称不能为空")
+    description: str | None = Field(None, max_length=500)
+    nl_description: str = Field(..., min_length=1, description="描述不能为空")
 
 
 class AgentResponse(BaseModel):
@@ -100,8 +100,8 @@ class AgentResponse(BaseModel):
 
 # --- Filter ---
 class FilterGenerateRequest(BaseModel):
-    name: str
-    nl_description: str
+    name: str = Field(..., min_length=1, max_length=200, description="筛选名称不能为空")
+    nl_description: str = Field(..., min_length=1, description="描述不能为空")
 
 
 class FilterExecuteRequest(BaseModel):
@@ -122,16 +122,16 @@ class FilterResponse(BaseModel):
 
 # --- Backtest ---
 class BacktestGenerateRequest(BaseModel):
-    name: str
-    nl_description: str
+    name: str = Field(..., min_length=1, max_length=200, description="策略名称不能为空")
+    nl_description: str = Field(..., min_length=1, description="描述不能为空")
 
 
 class BacktestRunRequest(BaseModel):
-    strategy_id: int
+    strategy_id: int = Field(..., gt=0, description="策略ID必须大于0")
     stock_codes: list[str] | None = None
-    start_date: str
-    end_date: str
-    initial_capital: float = 1_000_000
+    start_date: str = Field(..., min_length=1, description="开始日期不能为空")
+    end_date: str = Field(..., min_length=1, description="结束日期不能为空")
+    initial_capital: float = Field(1_000_000, gt=0, description="初始资金必须大于0")
     friction_config: dict | None = None
 
 
@@ -153,10 +153,10 @@ class BacktestResultResponse(BaseModel):
 
 # --- Debate ---
 class DebateStartRequest(BaseModel):
-    agent_ids: list[int]
-    target_type: str  # stock / portfolio
-    target_id: str
-    rounds: int = 3
+    agent_ids: list[int] = Field(..., min_length=2, description="至少需要2个Agent")
+    target_type: str = Field(..., min_length=1, description="目标类型不能为空")
+    target_id: str = Field(..., min_length=1, description="目标ID不能为空")
+    rounds: int = Field(3, gt=0, le=10, description="轮数必须在1-10之间")
 
 
 # --- Book ---
@@ -180,8 +180,8 @@ class NotificationResponse(BaseModel):
 
 
 class AlertCreateRequest(BaseModel):
-    name: str
-    nl_condition: str
+    name: str = Field(..., min_length=1, max_length=200, description="告警名称不能为空")
+    nl_condition: str = Field(..., min_length=1, description="条件描述不能为空")
     target_type: str | None = None
     target_id: str | None = None
 

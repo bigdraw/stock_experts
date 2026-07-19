@@ -58,9 +58,17 @@ async function load() {
 }
 
 async function handleGenerate() {
+  if (!name.value.trim()) {
+    message.warning('请输入筛选名称')
+    return
+  }
+  if (!nlDesc.value.trim()) {
+    message.warning('请输入筛选条件描述')
+    return
+  }
   generating.value = true
   try {
-    await filtersApi.generate(name.value, nlDesc.value)
+    await filtersApi.generate(name.value.trim(), nlDesc.value.trim())
     message.success('筛选脚本已生成')
     name.value = ''
     nlDesc.value = ''

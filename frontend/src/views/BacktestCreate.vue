@@ -71,9 +71,17 @@ function formatDate(ts: number) {
 }
 
 async function handleGenerate() {
+  if (!name.value.trim()) {
+    message.warning('请输入策略名称')
+    return
+  }
+  if (!nlDesc.value.trim()) {
+    message.warning('请输入策略描述')
+    return
+  }
   generating.value = true
   try {
-    const res = await backtestApi.generate(name.value, nlDesc.value)
+    const res = await backtestApi.generate(name.value.trim(), nlDesc.value.trim())
     strategyId.value = res.data.id
     message.success('策略代码已生成')
   } catch (e: any) {
@@ -84,10 +92,17 @@ async function handleGenerate() {
 }
 
 async function handleRun() {
-  if (!strategyId.value) return
+  if (!strategyId.value) {
+    message.warning('请先生成策略代码')
+    return
+  }
+  if (!stockCodes.value.trim()) {
+    message.warning('请输入股票代码')
+    return
+  }
   running.value = true
   try {
-    const codes = stockCodes.value.split(',').map(s => s.trim())
+    const codes = stockCodes.value.split(',').map(s => s.trim()).filter(s => s)
     const res = await backtestApi.run(strategyId.value, codes, formatDate(startDate.value), formatDate(endDate.value), capital.value)
     result.value = res.data
     message.success('回测完成')

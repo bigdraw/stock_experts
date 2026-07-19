@@ -46,9 +46,17 @@ const regPassword = ref('')
 const loading = ref(false)
 
 async function handleLogin() {
+  if (!username.value.trim()) {
+    message.warning('请输入用户名')
+    return
+  }
+  if (!password.value) {
+    message.warning('请输入密码')
+    return
+  }
   loading.value = true
   try {
-    await authStore.login(username.value, password.value)
+    await authStore.login(username.value.trim(), password.value)
     router.push('/')
   } catch (e: any) {
     message.error(e.response?.data?.detail || '登录失败')
@@ -58,9 +66,17 @@ async function handleLogin() {
 }
 
 async function handleRegister() {
+  if (!regUsername.value.trim()) {
+    message.warning('请输入用户名')
+    return
+  }
+  if (!regPassword.value || regPassword.value.length < 6) {
+    message.warning('密码长度至少6位')
+    return
+  }
   loading.value = true
   try {
-    await authStore.register(regUsername.value, regPassword.value)
+    await authStore.register(regUsername.value.trim(), regPassword.value)
     router.push('/')
   } catch (e: any) {
     message.error(e.response?.data?.detail || '注册失败')

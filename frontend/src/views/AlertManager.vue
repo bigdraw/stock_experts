@@ -46,7 +46,15 @@ async function load() {
 }
 
 async function handleCreate() {
-  await alertsApi.create(name.value, condition.value)
+  if (!name.value.trim()) {
+    message.warning('请输入告警名称')
+    return
+  }
+  if (!condition.value.trim()) {
+    message.warning('请输入告警条件')
+    return
+  }
+  await alertsApi.create(name.value.trim(), condition.value.trim())
   message.success('告警创建成功')
   name.value = ''
   condition.value = ''

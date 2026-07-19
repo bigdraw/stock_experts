@@ -62,6 +62,10 @@ class PortfolioManager:
 
     async def add_stocks(self, portfolio_id: int, stock_codes: list[str], shares: float = 0, avg_cost: float = 0):
         for code in stock_codes:
+            # Skip empty codes
+            if not code or not code.strip():
+                continue
+            code = code.strip()
             existing = await self.db.execute(
                 select(PortfolioItem).where(
                     PortfolioItem.portfolio_id == portfolio_id,

@@ -41,7 +41,11 @@ async function load() {
 }
 
 async function handleAdd() {
-  await portfoliosApi.addStock(id, addCode.value, addShares.value)
+  if (!addCode.value.trim()) {
+    message.warning('请输入股票代码')
+    return
+  }
+  await portfoliosApi.addStock(id, addCode.value.trim(), addShares.value)
   message.success('已添加')
   addCode.value = ''
   await load()

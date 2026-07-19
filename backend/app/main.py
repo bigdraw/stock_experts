@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 import logging
+import sys
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -12,6 +13,12 @@ from app.config import settings
 from app.database import init_db
 from app.scheduler.jobs import alert_check, backup_reminder, daily_data_update
 from app.services.llm.manager import llm_manager
+
+# Force UTF-8 encoding for stdout/stderr to fix Chinese character display issues
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)

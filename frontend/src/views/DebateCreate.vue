@@ -56,10 +56,18 @@ onMounted(async () => {
 })
 
 async function handleStart() {
+  if (selectedAgents.value.length < 2) {
+    message.warning('请至少选择2个Agent')
+    return
+  }
+  if (!targetCode.value.trim()) {
+    message.warning('请输入目标股票代码')
+    return
+  }
   debating.value = true
   debateResult.value = null
   try {
-    const res = await debateApi.start(selectedAgents.value, 'stock', targetCode.value, rounds.value)
+    const res = await debateApi.start(selectedAgents.value, 'stock', targetCode.value.trim(), rounds.value)
     debateResult.value = res.data
     message.success('辩论完成')
   } catch (e: any) {
