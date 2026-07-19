@@ -1,22 +1,19 @@
 <template>
   <div class="page-container">
     <n-space vertical :size="20">
-      <n-auto-complete
-        v-model:value="search"
-        :options="searchOptions"
-        :loading="searching"
-        placeholder="搜索代码、名称、拼音或首字母..."
-        clearable
-        size="large"
+      <n-input 
+        v-model:value="search" 
+        placeholder="搜索代码、名称、拼音或首字母..." 
+        clearable 
         @update:value="handleSearch"
-        @select="handleSelect"
+        size="large"
       >
         <template #prefix>
           <n-icon :size="18" color="#64748b">
             <SearchOutline />
           </n-icon>
         </template>
-      </n-auto-complete>
+      </n-input>
       
       <n-card class="data-card">
         <n-data-table 
@@ -43,8 +40,6 @@ const router = useRouter()
 const stocks = ref<Stock[]>([])
 const loading = ref(false)
 const search = ref('')
-const searchOptions = ref<any[]>([])
-const searching = ref(false)
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const columns = [
@@ -115,34 +110,21 @@ function handleSearch(value: string) {
   }
 
   if (!value || !value.trim()) {
-    searchOptions.value = []
     loadStocks()
     return
   }
 
   searchTimeout = setTimeout(async () => {
-    searching.value = true
+    loading.value = true
     try {
-      const res = await stocksApi.search(value.trim(), 20)
-      // 更新下拉候选列表
-      searchOptions.value = res.data.map((stock: Stock) => ({
-        label: `${stock.code} ${stock.name}`,
-        value: stock.code
-      }))
-      // 同时更新表格
+      const res = await stocksApi.search(value.trim(), 500)
       stocks.value = res.data
     } catch (e) {
       console.error(e)
-      searchOptions.value = []
     } finally {
-      searching.value = false
+      loading.value = false
     }
   }, 300)
-}
-
-function handleSelect(value: string) {
-  // 选中后跳转到股票详情
-  router.push(`/stocks/${value}`)
 }
 
 onMounted(loadStocks)
@@ -153,8 +135,7 @@ onMounted(loadStocks)
   animation: fadeIn 0.3s ease-out;
 }
 
-.page-container :deep(.n-input),
-.page-container :deep(.n-base-selection .n-base-selection-input) {
+.page-container :deep(.n-input) {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
   border-radius: 12px !important;
@@ -162,15 +143,13 @@ onMounted(loadStocks)
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.page-container :deep(.n-input:hover),
-.page-container :deep(.n-base-selection:hover .n-base-selection-input) {
+.page-container :deep(.n-input:hover) {
   border-color: var(--primary) !important;
   background: var(--bg-elevated) !important;
   box-shadow: 0 4px 16px rgba(0, 212, 170, 0.15) !important;
 }
 
-.page-container :deep(.n-input--focus),
-.page-container :deep(.n-base-selection--focus .n-base-selection-input) {
+.page-container :deep(.n-input--focus) {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15) !important;
   background: var(--bg-elevated) !important;
