@@ -71,8 +71,8 @@ test.describe('股票列表页面', () => {
   test('侧边栏导航在股票详情页正常工作', async ({ page }) => {
     await ensurePortfolioWithStocks(page);
     
-    // 点击第一个股票的"查看详情"按钮
-    const firstStockButton = page.locator('tbody tr').first().locator('button:has-text("查看详情")');
+    // 点击第一个股票的"详情"按钮
+    const firstStockButton = page.locator('tbody tr').first().locator('button:has-text("详情")');
     await firstStockButton.click();
     await page.waitForURL(/\/stocks\/\d{6}/);
 

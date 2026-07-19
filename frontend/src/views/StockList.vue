@@ -138,7 +138,7 @@ const columns = [
   { 
     title: '代码', 
     key: 'code', 
-    width: 120,
+    width: 100,
     render: (row: Stock) => h(NTag, { 
       size: 'small',
       type: 'info',
@@ -147,8 +147,8 @@ const columns = [
   },
   { 
     title: '名称', 
-    key: 'name', 
-    width: 150,
+    key: 'name',
+    ellipsis: { tooltip: true },
     render: (row: Stock) => h('span', { 
       style: 'font-weight: 600; color: var(--text-primary);'
     }, row.name)
@@ -165,8 +165,8 @@ const columns = [
   },
   { 
     title: '行业', 
-    key: 'industry', 
-    width: 150,
+    key: 'industry',
+    ellipsis: { tooltip: true },
     render: (row: Stock) => h('span', { 
       style: 'color: var(--text-secondary);'
     }, row.industry || '-')
@@ -174,13 +174,13 @@ const columns = [
   {
     title: '操作', 
     key: 'actions', 
-    width: 120,
+    width: 100,
     render: (row: Stock) => h(NButton, { 
       size: 'small',
       type: 'primary',
       ghost: true,
       onClick: () => router.push(`/stocks/${row.code}`)
-    }, { default: () => '查看详情' }),
+    }, { default: () => '详情' }),
   },
 ]
 
@@ -258,17 +258,16 @@ function handleSearch(value: string) {
         // 自定义渲染
         render: () => {
           return h('div', { class: 'search-option-item' }, [
-            h('div', { class: 'search-option-main' }, [
+            h('div', { class: 'search-option-left' }, [
               h(NTag, { size: 'small', type: 'info', round: true }, { default: () => stock.code }),
               h('span', { class: 'search-option-name' }, stock.name),
               h(NTag, { 
                 size: 'tiny', 
                 type: stock.market === 'SH' ? 'success' : 'warning',
-                round: true,
-                style: 'margin-left: 8px;'
+                round: true
               }, { default: () => stock.market })
             ]),
-            h('div', { class: 'search-option-actions' }, [
+            h('div', { class: 'search-option-right' }, [
               h(NButton, {
                 size: 'tiny',
                 type: 'info',
@@ -377,47 +376,73 @@ onMounted(() => {
 
 <style scoped>
 .page-container {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   min-height: calc(100vh - 100px);
 }
 
 .empty-state {
-  margin-top: 100px;
+  margin-top: 120px;
+  animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.empty-state :deep(.n-empty__description) {
+  font-size: 18px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.empty-state :deep(.n-button) {
+  padding: 12px 32px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 212, 170, 0.3);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.empty-state :deep(.n-button:hover) {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4);
 }
 
 .content-container {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
+  animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 搜索区域 */
 .search-section {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  position: relative;
 }
 
 .search-autocomplete {
-  max-width: 600px;
+  width: 100%;
 }
 
 .search-autocomplete :deep(.n-input) {
   background: var(--bg-elevated) !important;
-  border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
-  transition: all 0.3s !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 2px solid var(--border-subtle) !important;
+  border-radius: 16px !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  font-size: 15px;
 }
 
 .search-autocomplete :deep(.n-input:hover) {
   border-color: var(--primary) !important;
   background: var(--bg-elevated) !important;
-  box-shadow: 0 4px 16px rgba(0, 212, 170, 0.15) !important;
+  box-shadow: 0 6px 20px rgba(0, 212, 170, 0.2) !important;
+  transform: translateY(-2px);
 }
 
 .search-autocomplete :deep(.n-input--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15) !important;
+  box-shadow: 0 0 0 4px rgba(0, 212, 170, 0.15), 0 8px 24px rgba(0, 212, 170, 0.25) !important;
   background: var(--bg-elevated) !important;
+  transform: translateY(-2px);
 }
 
 /* 搜索下拉选项样式 */
@@ -425,75 +450,90 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 14px;
   width: 100%;
+  gap: 12px;
+  transition: all 0.2s ease;
 }
 
-:deep(.search-option-main) {
+:deep(.search-option-item:hover) {
+  background: rgba(0, 212, 170, 0.08);
+  transform: translateX(4px);
+}
+
+:deep(.search-option-left) {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
+  min-width: 0;
 }
 
 :deep(.search-option-name) {
   font-weight: 600;
   color: var(--text-primary);
-  margin-left: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-:deep(.search-option-actions) {
+:deep(.search-option-right) {
   display: flex;
-  gap: 8px;
-  margin-left: 16px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 /* 标签页区域 */
 .tabs-section {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .portfolio-tabs :deep(.n-tabs-nav) {
   background: var(--bg-elevated);
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 20px;
+  border-radius: 16px;
+  padding: 14px;
+  margin-bottom: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .portfolio-tabs :deep(.n-tabs-tab) {
-  border-radius: 8px;
-  padding: 12px 24px;
+  border-radius: 10px;
+  padding: 12px 20px;
   font-size: 15px;
   font-weight: 500;
-  transition: all 0.3s;
-  min-width: 120px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   text-align: center;
+  white-space: nowrap;
 }
 
 .portfolio-tabs :deep(.n-tabs-tab--active) {
-  background: linear-gradient(135deg, rgba(0, 212, 170, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
+  background: linear-gradient(135deg, rgba(0, 212, 170, 0.18) 0%, rgba(99, 102, 241, 0.18) 100%);
   color: var(--primary);
   font-weight: 600;
-  box-shadow: 0 2px 8px rgba(0, 212, 170, 0.2);
+  box-shadow: 0 4px 12px rgba(0, 212, 170, 0.25);
+  transform: translateY(-2px);
 }
 
 .portfolio-tabs :deep(.n-tabs-tab:hover:not(.n-tabs-tab--active)) {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
 }
 
 .data-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
+  border-radius: 16px !important;
   overflow: hidden;
-  transition: all 0.3s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .data-card:hover {
   border-color: var(--border-medium) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
 }
 
 .data-card :deep(.n-data-table) {
@@ -511,15 +551,18 @@ onMounted(() => {
   text-transform: uppercase;
   font-size: 12px;
   letter-spacing: 0.5px;
+  padding: 14px 16px !important;
 }
 
 .data-card :deep(.n-data-table-td) {
   border-bottom: 1px solid var(--border-subtle) !important;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 14px 16px !important;
 }
 
 .data-card :deep(.n-data-table-tr:hover .n-data-table-td) {
-  background: rgba(0, 212, 170, 0.05) !important;
+  background: rgba(0, 212, 170, 0.06) !important;
+  transform: translateX(2px);
 }
 
 .data-card :deep(.n-data-table-tr:hover .n-data-table-td::before) {
@@ -528,40 +571,77 @@ onMounted(() => {
   left: 0;
   top: 0;
   bottom: 0;
-  width: 3px;
+  width: 4px;
   background: linear-gradient(180deg, #00d4aa 0%, #6366f1 100%);
-  animation: slideIn 0.2s ease-out;
+  animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px rgba(0, 212, 170, 0.4);
 }
 
 @keyframes slideIn {
   from {
     transform: scaleY(0);
+    opacity: 0;
   }
   to {
     transform: scaleY(1);
+    opacity: 1;
   }
 }
 
 .data-card :deep(.n-data-table-tr:nth-child(even) .n-data-table-td) {
-  background: rgba(30, 41, 59, 0.3);
+  background: rgba(30, 41, 59, 0.25);
 }
 
 .data-card :deep(.n-pagination) {
-  margin-top: 20px;
-  padding: 16px;
+  margin-top: 24px;
+  padding: 18px;
   background: rgba(30, 41, 59, 0.4);
-  border-radius: 8px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .create-portfolio-section {
-  margin-top: 20px;
+  margin-top: 24px;
   text-align: center;
+  padding: 20px;
+  background: rgba(30, 41, 59, 0.3);
+  border-radius: 16px;
+  border: 2px dashed var(--border-subtle);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.create-portfolio-section:hover {
+  border-color: var(--primary);
+  background: rgba(0, 212, 170, 0.05);
+  transform: translateY(-2px);
+}
+
+.create-portfolio-section :deep(.n-button) {
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.create-portfolio-section :deep(.n-button:hover) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 212, 170, 0.3);
 }
 
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
   }
   to {
     opacity: 1;
