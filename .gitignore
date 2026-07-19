@@ -5,16 +5,13 @@ node_modules/
 dist/
 build/
 *.log
+*.tsbuildinfo
 
 # Environment
 .env
-.env.local
-
-# AI development framework (local only, not part of the platform)
-.ai/
-.opencode/
-AGENTS.md
-opencode.json
+.env.*
+.envrc
+*.local
 
 # OS
 Thumbs.db
@@ -25,12 +22,21 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage/
 
 # Database files
 backend/data/*.db
 backend/data/*.db-journal
 backend/data/*.db-wal
 backend/data/*.db-shm
+backend/data/uploads/
+
+# Sensitive backend config (track config.example.yaml only)
+backend/config.yaml
 
 # Editor
 .vscode/
@@ -43,3 +49,16 @@ scripts/.service-pids.json
 frontend/test-results/
 frontend/playwright-report/
 frontend/playwright/.cache/
+frontend/node_modules/.tmp/
+
+# ----------------------------------------------------------------------------
+# long-dev framework
+# Framework definition files (agent / skills / commands / plugins / .ai docs)
+# ARE part of the product and MUST be version-controlled — otherwise the
+# Session Start Protocol and Context Switch commit steps are no-ops across
+# machines/clone.
+# Only runtime/cache state is ignored.
+# ----------------------------------------------------------------------------
+.opencode/node_modules/
+.ai/cache/
+.claude/
