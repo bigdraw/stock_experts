@@ -112,10 +112,19 @@ def check_status_md() -> tuple[bool, str]:
         # Advisory: STATUS.md now tracked; missing only on broken clones.
         return True, "STATUS.md 不存在（advisory，跳过）"
     content = f.read_text(encoding="utf-8")
-    required = ["current_phase", "current_task", "next_action", "last_commit", "updated"]
+    required = ["current_phase", "active_module", "current_task", "next_action", "last_commit", "updated"]
     missing = [x for x in required if x not in content]
     if missing:
         return False, f"STATUS.md 缺少字段: {', '.join(missing)}"
+    # Verify active_module points to a real module with a PROGRESS.md (the
+    # module-scoped state the framework promised). Catches the original
+    # "work funnels into global STATUS, module docs orphaned" failure mode.
+    am = re.search(r"(?im)^\s*active_module:\s*(\S+)", content)
+    if am:
+        mod = am.group(1)
+        prog = REPO_ROOT / ".ai" / "modules" / mod / "PROGRESS.md"
+        if not prog.exists():
+            return False, f"active_module='{mod}' 但 .ai/modules/{mod}/PROGRESS.md 不存在"
     today = datetime.now().strftime("%Y-%m-%d")
     if today not in content:
         # Stale STATUS is a soft failure: warn but don't block commits.
