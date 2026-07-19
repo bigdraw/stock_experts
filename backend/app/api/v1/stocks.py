@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
@@ -14,6 +14,21 @@ from app.schemas import DailyQuoteResponse, StockResponse
 from app.utils.exceptions import NotFoundException
 
 router = APIRouter(prefix="/stocks", tags=["stocks"])
+
+
+@router.get("/count")
+async def count_stocks(
+    market: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get total count of stocks."""
+    query = select(func.count()).select_from(Stock).where(Stock.is_active == True)
+    if market:
+        query = query.where(Stock.market == market)
+    result = await db.execute(query)
+    count = result.scalar()
+    return {"count": count}
 
 
 @router.get("", response_model=list[StockResponse])

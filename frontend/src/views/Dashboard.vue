@@ -180,15 +180,15 @@ const collectionActions = [
 
 onMounted(async () => {
   try {
-    const [stocks, portfolios, filters, agents, notifs] = await Promise.all([
-      stocksApi.list({ limit: 1 }),
+    const [stockCount, portfolios, filters, agents, notifs] = await Promise.all([
+      stocksApi.count(),
       portfoliosApi.list(),
       filtersApi.list(),
       agentsApi.list(),
       notificationsApi.list(),
     ])
     stats.value = {
-      stockCount: stocks.data.length,
+      stockCount: stockCount.data.count,
       portfolioCount: portfolios.data.length,
       filterCount: filters.data.length,
       agentCount: agents.data.length,

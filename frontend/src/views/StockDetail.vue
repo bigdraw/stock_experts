@@ -254,7 +254,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -279,7 +279,7 @@ import type { Stock, DailyQuote } from '../types'
 use([CandlestickChart, LineChart, BarChart, GridComponent, TooltipComponent, DataZoomComponent, LegendComponent, CanvasRenderer])
 
 const route = useRoute()
-const code = route.params.code as string
+const code = computed(() => route.params.code as string)
 const stock = ref<Stock | null>(null)
 const quotes = ref<DailyQuote[]>([])
 const financials = ref<any[]>([])
@@ -460,20 +460,34 @@ function calculateAmplitude(quote: DailyQuote): string {
   return amplitude.toFixed(2) + '%'
 }
 
-onMounted(async () => {
+async function loadData(stockCode: string) {
+  stock.value = null
+  quotes.value = []
+  financials.value = []
+  
   const [stockRes, quotesRes] = await Promise.all([
-    stocksApi.get(code),
-    stocksApi.getQuotes(code, 120),
+    stocksApi.get(stockCode),
+    stocksApi.getQuotes(stockCode, 120),
   ])
   stock.value = stockRes.data
   quotes.value = quotesRes.data
 
   finLoading.value = true
   try {
-    const finRes = await stocksApi.getFinancials(code)
+    const finRes = await stocksApi.getFinancials(stockCode)
     financials.value = finRes.data
   } finally {
     finLoading.value = false
+  }
+}
+
+onMounted(() => {
+  loadData(code.value)
+})
+
+watch(code, (newCode) => {
+  if (newCode) {
+    loadData(newCode)
   }
 })
 </script>

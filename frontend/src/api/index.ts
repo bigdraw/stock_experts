@@ -12,6 +12,8 @@ export const authApi = {
 export const stocksApi = {
   list: (params?: { market?: string; search?: string; limit?: number; offset?: number }) =>
     apiClient.get<Stock[]>('/stocks', { params }),
+  count: (params?: { market?: string }) =>
+    apiClient.get<{ count: number }>('/stocks/count', { params }),
   get: (code: string) => apiClient.get<Stock>(`/stocks/${code}`),
   getQuotes: (code: string, days: number = 120) =>
     apiClient.get<DailyQuote[]>(`/stocks/${code}/quotes`, { params: { days } }),
