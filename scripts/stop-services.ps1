@@ -37,8 +37,8 @@ if ($pids.frontend) {
     }
 }
 
-# Remove duplicates and nulls
-$allPids = $allPids | Where-Object { $_ } | Sort-Object -Unique
+# Remove duplicates and nulls, ensure integers
+$allPids = $allPids | Where-Object { $_ } | ForEach-Object { [int]$_ } | Sort-Object -Unique
 
 Write-Host "PIDs to stop: $($allPids -join ', ')" -ForegroundColor Gray
 
@@ -46,11 +46,11 @@ Write-Host "PIDs to stop: $($allPids -join ', ')" -ForegroundColor Gray
 $killed = 0
 $alreadyStopped = 0
 foreach ($procId in $allPids) {
-    $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
-    if ($proc) {
-        Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    try {
+        $proc = Get-Process -Id $procId -ErrorAction Stop
+        Stop-Process -Id $procId -Force -ErrorAction Stop
         $killed++
-    } else {
+    } catch {
         $alreadyStopped++
     }
 }

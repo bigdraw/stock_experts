@@ -256,6 +256,7 @@
 <script setup lang="ts">
 import { ref, h, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { NTag } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CandlestickChart, LineChart, BarChart } from 'echarts/charts'
@@ -366,7 +367,7 @@ const klineOption = computed(() => ({
       itemStyle: {
         color: (params: any) => {
           const quote = quotes.value[params.dataIndex]
-          return quote.close >= quote.open ? '#ef4444' : '#10b981'
+          return (quote.close ?? 0) >= (quote.open ?? 0) ? '#ef4444' : '#10b981'
         }
       }
     }

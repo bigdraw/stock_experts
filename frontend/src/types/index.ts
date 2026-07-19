@@ -11,6 +11,7 @@ export interface Stock {
   market: string
   industry?: string
   sector?: string
+  list_date?: string
   is_active: boolean
 }
 

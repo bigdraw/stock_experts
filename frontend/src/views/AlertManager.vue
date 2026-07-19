@@ -69,7 +69,7 @@
 
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
-import { NButton, NSwitch, NTag, useMessage } from 'naive-ui'
+import { NButton, NSwitch, NTag, NIcon, useMessage } from 'naive-ui'
 import { 
   NotificationsOutline, 
   AddOutline, 

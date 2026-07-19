@@ -68,7 +68,7 @@
 
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
-import { NButton, NTag, useMessage } from 'naive-ui'
+import { NButton, NTag, NIcon, useMessage } from 'naive-ui'
 import { 
   BookOutline, 
   CloudUploadOutline, 

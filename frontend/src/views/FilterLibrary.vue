@@ -63,7 +63,7 @@
 
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
-import { NButton, NSpace, NTag, useMessage } from 'naive-ui'
+import { NButton, NSpace, NTag, NIcon, useMessage } from 'naive-ui'
 import { 
   FunnelOutline, 
   CreateOutline, 
