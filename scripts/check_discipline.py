@@ -71,7 +71,7 @@ def staged_files() -> list[str]:
     code, out = run(["git", "diff", "--cached", "--name-only"])
     if code != 0:
         return []
-    return [l for l in out.strip().splitlines() if l]
+    return [line for line in out.strip().splitlines() if line]
 
 
 def check_staged_secrets() -> tuple[bool, str]:
@@ -100,7 +100,7 @@ def check_worktree_clean() -> tuple[bool, str]:
     code, out = run(["git", "status", "--short"])
     if code != 0:
         return False, "无法获取 git status"
-    lines = [l for l in out.strip().splitlines() if l]
+    lines = [line for line in out.strip().splitlines() if line]
     if not lines:
         return True, "工作区干净"
     return False, f"工作区有 {len(lines)} 个未提交改动:\n  " + "\n  ".join(lines[:8])
@@ -158,7 +158,7 @@ def check_last_commit() -> tuple[bool, str]:
 def check_commit_msg_file(path: str) -> tuple[bool, str]:
     msg = Path(path).read_text(encoding="utf-8").strip()
     # First non-comment, non-empty line is the subject.
-    subject = next((l for l in msg.splitlines() if l.strip() and not l.startswith("#")), "")
+    subject = next((line for line in msg.splitlines() if line.strip() and not line.startswith("#")), "")
     if not subject:
         return False, "commit message 为空"
     if not COMMIT_MSG_RE.match(subject):

@@ -19,8 +19,12 @@ _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BACKEND_ROOT not in sys.path:
     sys.path.insert(0, _BACKEND_ROOT)
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
@@ -124,3 +128,9 @@ async def main():
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
+
+
+# pytest entrypoint (asyncio_mode = "auto" runs this). The standalone
+# `python -m tests.test_authz` path above is kept for manual/ad-hoc runs.
+async def test_authz_gating():
+    assert await main() == 0

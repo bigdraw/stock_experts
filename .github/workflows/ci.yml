@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master, master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+      - name: Sync dependencies (incl. dev group)
+        run: uv sync
+      - name: Lint new code strictly (tests must be clean)
+        run: uv run ruff check tests
+      - name: Lint baseline (app/ — pre-existing debt, non-blocking)
+        continue-on-error: true
+        run: uv run ruff check app
+      - name: Import smoke
+        run: uv run python -c "import app.main; print('app.main OK')"
+      - name: Test (pytest)
+        run: uv run pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Type-check
+        run: npm run type-check
+      - name: Build
+        run: npm run build
+
+  discipline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: long-dev discipline (commit message + ISSUES enum)
+        run: python scripts/check_discipline.py --post-commit

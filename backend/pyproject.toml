@@ -8,7 +8,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "akshare>=1.18.64",
     "apscheduler>=3.11.3",
-    "bcrypt<5",
+    "bcrypt<6",
     "ebooklib>=0.20",
     "fastapi>=0.139.2",
     "httpx>=0.28.1",
@@ -25,4 +25,34 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.51",
     "uvicorn[standard]>=0.51.0",
     "websockets>=16.1.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# Keep the set intentionally small: real bugs + import hygiene. Avoid style
+# noise that would block CI on a large pre-existing codebase.
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]  # line length handled by formatter, not lint
+
+[tool.ruff.lint.per-file-ignores]
+# Test scripts legitimately use runtime __main__ patterns and broad imports.
+"tests/**" = ["B008"]
+"app/scripts/**" = []
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = [
+    "ignore::DeprecationWarning",
 ]

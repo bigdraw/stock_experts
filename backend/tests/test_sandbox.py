@@ -1,7 +1,6 @@
 """FilterSandbox hardening tests: legitimate filter works, introspection
 escapes are blocked. Run via ``python -m tests.test_sandbox`` or pytest."""
 
-import asyncio
 import os
 import sys
 
@@ -59,7 +58,7 @@ def filter_stocks(df, params):
         sb.execute(sneaky, _sample_df())
         # safer_getattr should have blocked it; if it ran, that's a FAIL.
         check("getattr(df,'__class__') blocked at runtime", False)
-    except (SandboxError, Exception) as e:
+    except (SandboxError, Exception):
         check("getattr(df,'__class__') blocked at runtime", True)
 
     # 6. Forbidden attribute on dunder blocked
@@ -72,3 +71,8 @@ def filter_stocks(df, params):
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# pytest entrypoint (asyncio_mode = "auto").
+def test_sandbox_hardening():
+    assert main() == 0
