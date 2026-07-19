@@ -45,9 +45,9 @@ async def run_tests():
                 all_passed = False
             
             # Check all indicator fields
-            required_fields = ['price', 'open', 'high', 'low', 'settlement', 'change', 'change_pct',
-                             'volume', 'amount', 'turnover_ratio', 'pe_ratio', 'pb_ratio',
-                             'market_cap', 'circulating_market_cap']
+            required_fields = ['price', 'open', 'high', 'low', 'settlement', 'pricechange', 'changepercent',
+                             'volume', 'amount', 'turnoverratio', 'per', 'pb',
+                             'mktcap', 'nmc']
             missing = [f for f in required_fields if f not in sample]
             if not missing:
                 print(f"[PASS] All indicator fields present")

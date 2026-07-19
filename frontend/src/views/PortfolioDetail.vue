@@ -156,16 +156,16 @@ const columns = [
     key: 'price',
     width: 80,
     render: (row: any) => h('span', { 
-      style: `color: ${row.change > 0 ? '#e74c3c' : row.change < 0 ? '#27ae60' : 'var(--text-primary)'}; font-weight: 600;`
+      style: `color: ${row.pricechange > 0 ? '#e74c3c' : row.pricechange < 0 ? '#27ae60' : 'var(--text-primary)'}; font-weight: 600;`
     }, row.price ? '¥' + row.price.toFixed(2) : '-')
   },
   { 
     title: '涨跌幅', 
-    key: 'change_pct',
+    key: 'changepercent',
     width: 80,
     render: (row: any) => h('span', { 
-      style: `color: ${row.change_pct > 0 ? '#e74c3c' : row.change_pct < 0 ? '#27ae60' : 'var(--text-secondary)'}; font-weight: 600;`
-    }, row.change_pct != null ? `${row.change_pct > 0 ? '+' : ''}${row.change_pct.toFixed(2)}%` : '-')
+      style: `color: ${row.changepercent > 0 ? '#e74c3c' : row.changepercent < 0 ? '#27ae60' : 'var(--text-secondary)'}; font-weight: 600;`
+    }, row.changepercent != null ? `${row.changepercent > 0 ? '+' : ''}${row.changepercent.toFixed(2)}%` : '-')
   },
   { 
     title: '数量', 
@@ -185,27 +185,27 @@ const columns = [
   },
   { 
     title: 'PE', 
-    key: 'pe_ratio',
+    key: 'per',
     width: 70,
     render: (row: any) => h('span', { 
-      style: `color: ${row.pe_ratio && row.pe_ratio > 0 ? '#10b981' : 'var(--text-secondary)'}; font-weight: 500;`
-    }, row.pe_ratio ? row.pe_ratio.toFixed(1) : '-')
+      style: `color: ${row.per && row.per > 0 ? '#10b981' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.per ? row.per.toFixed(1) : '-')
   },
   { 
     title: 'PB', 
-    key: 'pb_ratio',
+    key: 'pb',
     width: 70,
     render: (row: any) => h('span', { 
-      style: `color: ${row.pb_ratio && row.pb_ratio > 0 ? '#6366f1' : 'var(--text-secondary)'}; font-weight: 500;`
-    }, row.pb_ratio ? row.pb_ratio.toFixed(2) : '-')
+      style: `color: ${row.pb && row.pb > 0 ? '#6366f1' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.pb ? row.pb.toFixed(2) : '-')
   },
   { 
     title: '市值(亿)', 
-    key: 'market_cap',
+    key: 'mktcap',
     width: 100,
     render: (row: any) => h('span', { 
       style: 'color: var(--text-primary); font-weight: 500;'
-    }, row.market_cap ? (row.market_cap / 10000).toFixed(2) : '-')
+    }, row.mktcap ? (row.mktcap / 10000).toFixed(2) : '-')
   },
   {
     title: '操作', 

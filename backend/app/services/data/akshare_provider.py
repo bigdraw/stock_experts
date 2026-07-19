@@ -202,48 +202,54 @@ class AkShareProvider(DataProvider):
                 for item in all_data:
                     code = item['code']
                     
-                    # 提取行情指标
+                    # 提取全部 20 个行情指标
+                    symbol = item.get('symbol')
                     price = float(item.get('trade', 0)) if item.get('trade') else None
+                    pricechange = float(item.get('pricechange', 0)) if item.get('pricechange') else None
+                    changepercent = float(item.get('changepercent', 0)) if item.get('changepercent') else None
+                    buy = float(item.get('buy', 0)) if item.get('buy') else None
+                    sell = float(item.get('sell', 0)) if item.get('sell') else None
+                    settlement = float(item.get('settlement', 0)) if item.get('settlement') else None
                     open_price = float(item.get('open', 0)) if item.get('open') else None
                     high = float(item.get('high', 0)) if item.get('high') else None
                     low = float(item.get('low', 0)) if item.get('low') else None
-                    settlement = float(item.get('settlement', 0)) if item.get('settlement') else None
-                    change = float(item.get('pricechange', 0)) if item.get('pricechange') else None
-                    change_pct = float(item.get('changepercent', 0)) if item.get('changepercent') else None
                     volume = float(item.get('volume', 0)) if item.get('volume') else None
                     amount = float(item.get('amount', 0)) if item.get('amount') else None
-                    turnover_ratio = float(item.get('turnoverratio', 0)) if item.get('turnoverratio') else None
-                    
-                    # 提取估值指标
-                    pe_ratio = float(item.get('per', 0)) if item.get('per') else None
-                    pb_ratio = float(item.get('pb', 0)) if item.get('pb') else None
-                    
-                    # 提取市值指标（单位：万元）
-                    market_cap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
-                    circulating_market_cap = float(item.get('nmc', 0)) if item.get('nmc') else None
+                    ticktime = item.get('ticktime')
+                    per = float(item.get('per', 0)) if item.get('per') else None
+                    pb = float(item.get('pb', 0)) if item.get('pb') else None
+                    mktcap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
+                    nmc = float(item.get('nmc', 0)) if item.get('nmc') else None
+                    turnoverratio = float(item.get('turnoverratio', 0)) if item.get('turnoverratio') else None
                     
                     results.append(StockBasicIndicators(
                         code=code,
                         date=datetime.now().strftime("%Y-%m-%d"),
-                        # 行情指标
+                        # 20 个行情指标
+                        symbol=symbol,
                         price=price,
+                        pricechange=pricechange,
+                        changepercent=changepercent,
+                        buy=buy,
+                        sell=sell,
+                        settlement=settlement,
                         open=open_price,
                         high=high,
                         low=low,
-                        settlement=settlement,
-                        change=change,
-                        change_pct=change_pct,
                         volume=volume,
                         amount=amount,
-                        turnover_ratio=turnover_ratio,
-                        # 估值指标
-                        pe_ratio=pe_ratio,
-                        pb_ratio=pb_ratio,
-                        # 市值指标（万元）
-                        market_cap=market_cap,
-                        circulating_market_cap=circulating_market_cap,
-                        # 衍生指标
-                        is_profitable=pe_ratio is not None and pe_ratio > 0 if pe_ratio is not None else None,
+                        ticktime=ticktime,
+                        per=per,
+                        pb=pb,
+                        mktcap=mktcap,
+                        nmc=nmc,
+                        turnoverratio=turnoverratio,
+                        # Legacy fields for backward compatibility
+                        pe_ratio=per,
+                        pb_ratio=pb,
+                        market_cap=mktcap,
+                        circulating_market_cap=nmc,
+                        is_profitable=per is not None and per > 0 if per is not None else None,
                     ))
                 
                 logger.info(f"Fetched indicators for {len(results)} stocks (filtered by {code_prefixes if code_prefixes else 'all'})")

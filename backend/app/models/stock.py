@@ -46,23 +46,29 @@ class FinancialReport(Base):
     report_date: Mapped[date] = mapped_column(Date, nullable=False)
     report_type: Mapped[str | None] = mapped_column(String(10))  # Q1/H1/Q3/Annual/Latest
     
-    # 行情指标
+    # 行情指标 (20 fields from Sina API)
+    symbol: Mapped[str | None] = mapped_column(String(20))  # 股票代码（带市场前缀）
     price: Mapped[float | None] = mapped_column(Float)  # 当前价格（元）
+    pricechange: Mapped[float | None] = mapped_column(Float)  # 涨跌额（元）
+    changepercent: Mapped[float | None] = mapped_column(Float)  # 涨跌幅（%）
+    buy: Mapped[float | None] = mapped_column(Float)  # 买一价（元）
+    sell: Mapped[float | None] = mapped_column(Float)  # 卖一价（元）
+    settlement: Mapped[float | None] = mapped_column(Float)  # 昨收价（元）
     open: Mapped[float | None] = mapped_column(Float)  # 开盘价（元）
     high: Mapped[float | None] = mapped_column(Float)  # 最高价（元）
     low: Mapped[float | None] = mapped_column(Float)  # 最低价（元）
-    settlement: Mapped[float | None] = mapped_column(Float)  # 昨收价（元）
-    change: Mapped[float | None] = mapped_column(Float)  # 涨跌额（元）
-    change_pct: Mapped[float | None] = mapped_column(Float)  # 涨跌幅（%）
     volume: Mapped[float | None] = mapped_column(Float)  # 成交量（股）
     amount: Mapped[float | None] = mapped_column(Float)  # 成交额（元）
-    turnover_ratio: Mapped[float | None] = mapped_column(Float)  # 换手率（%）
+    ticktime: Mapped[str | None] = mapped_column(String(20))  # 时间戳
+    per: Mapped[float | None] = mapped_column(Float)  # 市盈率
+    pb: Mapped[float | None] = mapped_column(Float)  # 市净率
+    mktcap: Mapped[float | None] = mapped_column(Float)  # 总市值（万元）
+    nmc: Mapped[float | None] = mapped_column(Float)  # 流通市值（万元）
+    turnoverratio: Mapped[float | None] = mapped_column(Float)  # 换手率（%）
     
-    # 估值指标
+    # Legacy fields for backward compatibility
     pe_ratio: Mapped[float | None] = mapped_column(Float)  # 市盈率
     pb_ratio: Mapped[float | None] = mapped_column(Float)  # 市净率
-    
-    # 市值指标（万元）
     market_cap: Mapped[float | None] = mapped_column(Float)  # 总市值（万元）
     circulating_market_cap: Mapped[float | None] = mapped_column(Float)  # 流通市值（万元）
     
@@ -84,6 +90,8 @@ class FinancialReport(Base):
     
     # 衍生指标
     is_profitable: Mapped[bool | None] = mapped_column(Boolean)
+    
+    # 完整原始数据（JSON 格式，存储所有 196 个财务字段）
     raw_data: Mapped[str | None] = mapped_column(Text)  # JSON
 
 

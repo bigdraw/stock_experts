@@ -168,56 +168,56 @@ const columns = [
     key: 'price',
     width: 80,
     render: (row: Stock) => h('span', { 
-      style: `color: ${row.change && row.change > 0 ? '#e74c3c' : row.change && row.change < 0 ? '#27ae60' : 'var(--text-primary)'}; font-weight: 600;`
+      style: `color: ${row.pricechange && row.pricechange > 0 ? '#e74c3c' : row.pricechange && row.pricechange < 0 ? '#27ae60' : 'var(--text-primary)'}; font-weight: 600;`
     }, row.price ? row.price.toFixed(2) : '-')
   },
   { 
     title: '涨跌幅', 
-    key: 'change_pct',
+    key: 'changepercent',
     width: 80,
     render: (row: Stock) => h('span', { 
-      style: `color: ${row.change_pct && row.change_pct > 0 ? '#e74c3c' : row.change_pct && row.change_pct < 0 ? '#27ae60' : 'var(--text-secondary)'}; font-weight: 600;`
-    }, row.change_pct != null ? `${row.change_pct > 0 ? '+' : ''}${row.change_pct.toFixed(2)}%` : '-')
+      style: `color: ${row.changepercent && row.changepercent > 0 ? '#e74c3c' : row.changepercent && row.changepercent < 0 ? '#27ae60' : 'var(--text-secondary)'}; font-weight: 600;`
+    }, row.changepercent != null ? `${row.changepercent > 0 ? '+' : ''}${row.changepercent.toFixed(2)}%` : '-')
   },
   { 
     title: 'PE', 
-    key: 'pe_ratio',
+    key: 'per',
     width: 70,
     render: (row: Stock) => h('span', { 
-      style: `color: ${row.pe_ratio && row.pe_ratio > 0 ? 'var(--success-color)' : 'var(--text-secondary)'}; font-weight: 500;`
-    }, row.pe_ratio ? row.pe_ratio.toFixed(1) : '-')
+      style: `color: ${row.per && row.per > 0 ? 'var(--success-color)' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.per ? row.per.toFixed(1) : '-')
   },
   { 
     title: 'PB', 
-    key: 'pb_ratio',
+    key: 'pb',
     width: 70,
     render: (row: Stock) => h('span', { 
-      style: `color: ${row.pb_ratio && row.pb_ratio > 0 ? 'var(--info-color)' : 'var(--text-secondary)'}; font-weight: 500;`
-    }, row.pb_ratio ? row.pb_ratio.toFixed(2) : '-')
+      style: `color: ${row.pb && row.pb > 0 ? 'var(--info-color)' : 'var(--text-secondary)'}; font-weight: 500;`
+    }, row.pb ? row.pb.toFixed(2) : '-')
   },
   { 
     title: '总市值(亿)', 
-    key: 'market_cap',
+    key: 'mktcap',
     width: 100,
     render: (row: Stock) => h('span', { 
       style: 'color: var(--text-primary); font-weight: 500;'
-    }, row.market_cap ? (row.market_cap / 10000).toFixed(2) : '-')
+    }, row.mktcap ? (row.mktcap / 10000).toFixed(2) : '-')
   },
   { 
     title: '流通(亿)', 
-    key: 'circulating_market_cap',
+    key: 'nmc',
     width: 100,
     render: (row: Stock) => h('span', { 
       style: 'color: var(--text-secondary);'
-    }, row.circulating_market_cap ? (row.circulating_market_cap / 10000).toFixed(2) : '-')
+    }, row.nmc ? (row.nmc / 10000).toFixed(2) : '-')
   },
   { 
     title: '换手率', 
-    key: 'turnover_ratio',
+    key: 'turnoverratio',
     width: 80,
     render: (row: Stock) => h('span', { 
       style: 'color: var(--text-secondary);'
-    }, row.turnover_ratio ? `${row.turnover_ratio.toFixed(2)}%` : '-')
+    }, row.turnoverratio ? `${row.turnoverratio.toFixed(2)}%` : '-')
   },
   {
     title: '操作', 
@@ -266,21 +266,28 @@ async function loadPortfolioDetail(portfolioId: number) {
       market: holding.market,
       industry: holding.industry,
       is_active: true,
-      // 行情指标
+      // All 20 market fields from Sina API
+      symbol: holding.symbol,
       price: holding.price,
+      pricechange: holding.pricechange,
+      changepercent: holding.changepercent,
+      buy: holding.buy,
+      sell: holding.sell,
+      settlement: holding.settlement,
       open: holding.open,
       high: holding.high,
       low: holding.low,
-      settlement: holding.settlement,
-      change: holding.change,
-      change_pct: holding.change_pct,
       volume: holding.volume,
       amount: holding.amount,
-      turnover_ratio: holding.turnover_ratio,
-      // 估值指标
+      ticktime: holding.ticktime,
+      per: holding.per,
+      pb: holding.pb,
+      mktcap: holding.mktcap,
+      nmc: holding.nmc,
+      turnoverratio: holding.turnoverratio,
+      // Legacy fields for backward compatibility
       pe_ratio: holding.pe_ratio,
       pb_ratio: holding.pb_ratio,
-      // 市值指标（万元）
       market_cap: holding.market_cap,
       circulating_market_cap: holding.circulating_market_cap,
       // 衍生指标

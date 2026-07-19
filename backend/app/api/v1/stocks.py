@@ -98,21 +98,28 @@ async def list_stocks_with_indicators(
             Stock.industry,
             Stock.sector,
             Stock.is_active,
-            # 行情指标
+            # All 20 market fields from Sina API
+            FinancialReport.symbol,
             FinancialReport.price,
+            FinancialReport.pricechange,
+            FinancialReport.changepercent,
+            FinancialReport.buy,
+            FinancialReport.sell,
+            FinancialReport.settlement,
             FinancialReport.open,
             FinancialReport.high,
             FinancialReport.low,
-            FinancialReport.settlement,
-            FinancialReport.change,
-            FinancialReport.change_pct,
             FinancialReport.volume,
             FinancialReport.amount,
-            FinancialReport.turnover_ratio,
-            # 估值指标
+            FinancialReport.ticktime,
+            FinancialReport.per,
+            FinancialReport.pb,
+            FinancialReport.mktcap,
+            FinancialReport.nmc,
+            FinancialReport.turnoverratio,
+            # Legacy fields for backward compatibility
             FinancialReport.pe_ratio,
             FinancialReport.pb_ratio,
-            # 市值指标
             FinancialReport.market_cap,
             FinancialReport.circulating_market_cap,
             # 衍生指标
@@ -151,21 +158,28 @@ async def list_stocks_with_indicators(
             "industry": row.industry,
             "sector": row.sector,
             "is_active": row.is_active,
-            # 行情指标
+            # All 20 market fields from Sina API
+            "symbol": row.symbol,
             "price": row.price,
+            "pricechange": row.pricechange,
+            "changepercent": row.changepercent,
+            "buy": row.buy,
+            "sell": row.sell,
+            "settlement": row.settlement,
             "open": row.open,
             "high": row.high,
             "low": row.low,
-            "settlement": row.settlement,
-            "change": row.change,
-            "change_pct": row.change_pct,
             "volume": row.volume,
             "amount": row.amount,
-            "turnover_ratio": row.turnover_ratio,
-            # 估值指标
+            "ticktime": row.ticktime,
+            "per": row.per,
+            "pb": row.pb,
+            "mktcap": row.mktcap,
+            "nmc": row.nmc,
+            "turnoverratio": row.turnoverratio,
+            # Legacy fields for backward compatibility
             "pe_ratio": row.pe_ratio,
             "pb_ratio": row.pb_ratio,
-            # 市值指标（万元）
             "market_cap": row.market_cap,
             "circulating_market_cap": row.circulating_market_cap,
             # 衍生指标
@@ -291,21 +305,28 @@ async def get_financials(
         {
             "report_date": str(r.report_date),
             "report_type": r.report_type,
-            # 行情指标
+            # All 20 market fields from Sina API
+            "symbol": r.symbol,
             "price": r.price,
+            "pricechange": r.pricechange,
+            "changepercent": r.changepercent,
+            "buy": r.buy,
+            "sell": r.sell,
+            "settlement": r.settlement,
             "open": r.open,
             "high": r.high,
             "low": r.low,
-            "settlement": r.settlement,
-            "change": r.change,
-            "change_pct": r.change_pct,
             "volume": r.volume,
             "amount": r.amount,
-            "turnover_ratio": r.turnover_ratio,
-            # 估值指标
+            "ticktime": r.ticktime,
+            "per": r.per,
+            "pb": r.pb,
+            "mktcap": r.mktcap,
+            "nmc": r.nmc,
+            "turnoverratio": r.turnoverratio,
+            # Legacy fields for backward compatibility
             "pe_ratio": r.pe_ratio,
             "pb_ratio": r.pb_ratio,
-            # 市值指标（万元）
             "market_cap": r.market_cap,
             "circulating_market_cap": r.circulating_market_cap,
             # 财务报表数据
@@ -351,21 +372,28 @@ async def get_latest_indicators(
     
     return {
         "report_date": str(report.report_date),
-        # 行情指标
+        # All 20 market fields from Sina API
+        "symbol": report.symbol,
         "price": report.price,
+        "pricechange": report.pricechange,
+        "changepercent": report.changepercent,
+        "buy": report.buy,
+        "sell": report.sell,
+        "settlement": report.settlement,
         "open": report.open,
         "high": report.high,
         "low": report.low,
-        "settlement": report.settlement,
-        "change": report.change,
-        "change_pct": report.change_pct,
         "volume": report.volume,
         "amount": report.amount,
-        "turnover_ratio": report.turnover_ratio,
-        # 估值指标
+        "ticktime": report.ticktime,
+        "per": report.per,
+        "pb": report.pb,
+        "mktcap": report.mktcap,
+        "nmc": report.nmc,
+        "turnoverratio": report.turnoverratio,
+        # Legacy fields for backward compatibility
         "pe_ratio": report.pe_ratio,
         "pb_ratio": report.pb_ratio,
-        # 市值指标（万元）
         "market_cap": report.market_cap,
         "circulating_market_cap": report.circulating_market_cap,
         # 衍生指标

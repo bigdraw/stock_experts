@@ -96,8 +96,8 @@
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">涨跌幅</div>
-            <div class="metric-value" :class="latestIndicators.change_pct > 0 ? 'metric-value-error' : latestIndicators.change_pct < 0 ? 'metric-value-success' : ''">
-              {{ latestIndicators.change_pct != null ? (latestIndicators.change_pct > 0 ? '+' : '') + latestIndicators.change_pct.toFixed(2) + '%' : '-' }}
+            <div class="metric-value" :class="latestIndicators.changepercent > 0 ? 'metric-value-error' : latestIndicators.changepercent < 0 ? 'metric-value-success' : ''">
+              {{ latestIndicators.changepercent != null ? (latestIndicators.changepercent > 0 ? '+' : '') + latestIndicators.changepercent.toFixed(2) + '%' : '-' }}
             </div>
           </div>
         </n-gi>
@@ -142,19 +142,19 @@
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">换手率</div>
-            <div class="metric-value">{{ latestIndicators.turnover_ratio ? latestIndicators.turnover_ratio.toFixed(2) + '%' : '-' }}</div>
+            <div class="metric-value">{{ latestIndicators.turnoverratio ? latestIndicators.turnoverratio.toFixed(2) + '%' : '-' }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">总市值</div>
-            <div class="metric-value">{{ formatMarketCap(latestIndicators.market_cap) }}</div>
+            <div class="metric-value">{{ formatMarketCap(latestIndicators.mktcap) }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box">
             <div class="metric-label">流通市值</div>
-            <div class="metric-value">{{ formatMarketCap(latestIndicators.circulating_market_cap) }}</div>
+            <div class="metric-value">{{ formatMarketCap(latestIndicators.nmc) }}</div>
           </div>
         </n-gi>
         <n-gi>
@@ -187,25 +187,25 @@
         <n-gi>
           <div class="metric-box metric-box-large">
             <div class="metric-label">市盈率 (PE)</div>
-            <div class="metric-value">{{ latestIndicators.pe_ratio ? latestIndicators.pe_ratio.toFixed(2) : '-' }}</div>
+            <div class="metric-value">{{ latestIndicators.per ? latestIndicators.per.toFixed(2) : '-' }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box metric-box-large">
             <div class="metric-label">市净率 (PB)</div>
-            <div class="metric-value">{{ latestIndicators.pb_ratio ? latestIndicators.pb_ratio.toFixed(2) : '-' }}</div>
+            <div class="metric-value">{{ latestIndicators.pb ? latestIndicators.pb.toFixed(2) : '-' }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box metric-box-large">
             <div class="metric-label">总市值</div>
-            <div class="metric-value metric-value-primary">{{ formatMarketCap(latestIndicators.market_cap) }}</div>
+            <div class="metric-value metric-value-primary">{{ formatMarketCap(latestIndicators.mktcap) }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="metric-box metric-box-large">
             <div class="metric-label">流通市值</div>
-            <div class="metric-value">{{ formatMarketCap(latestIndicators.circulating_market_cap) }}</div>
+            <div class="metric-value">{{ formatMarketCap(latestIndicators.nmc) }}</div>
           </div>
         </n-gi>
       </n-grid>
@@ -511,21 +511,21 @@ const finColumns = [
   },
   { 
     title: 'PE', 
-    key: 'pe_ratio',
+    key: 'per',
     width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.pe_ratio ? row.pe_ratio.toFixed(2) : '-')
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.per ? row.per.toFixed(2) : '-')
   },
   { 
     title: 'PB', 
-    key: 'pb_ratio',
+    key: 'pb',
     width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.pb_ratio ? row.pb_ratio.toFixed(2) : '-')
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.pb ? row.pb.toFixed(2) : '-')
   },
   { 
     title: '市值', 
-    key: 'market_cap',
+    key: 'mktcap',
     width: 120,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.market_cap))
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.mktcap))
   },
 ]
 

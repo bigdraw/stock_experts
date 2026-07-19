@@ -147,38 +147,57 @@ class DataAcquisitionEngine:
                     report = existing.scalar_one_or_none()
                     
                     if report:
-                        # Update existing record
+                        # Update existing record with all 20 market fields
+                        report.symbol = ind.symbol
                         report.price = ind.price
+                        report.pricechange = ind.pricechange
+                        report.changepercent = ind.changepercent
+                        report.buy = ind.buy
+                        report.sell = ind.sell
+                        report.settlement = ind.settlement
                         report.open = ind.open
                         report.high = ind.high
                         report.low = ind.low
-                        report.settlement = ind.settlement
-                        report.change = ind.change
-                        report.change_pct = ind.change_pct
                         report.volume = ind.volume
                         report.amount = ind.amount
-                        report.turnover_ratio = ind.turnover_ratio
+                        report.ticktime = ind.ticktime
+                        report.per = ind.per
+                        report.pb = ind.pb
+                        report.mktcap = ind.mktcap
+                        report.nmc = ind.nmc
+                        report.turnoverratio = ind.turnoverratio
+                        # Legacy fields
                         report.pe_ratio = ind.pe_ratio
                         report.pb_ratio = ind.pb_ratio
                         report.market_cap = ind.market_cap
                         report.circulating_market_cap = ind.circulating_market_cap
                         report.is_profitable = ind.is_profitable
                     else:
-                        # Insert new record
+                        # Insert new record with all 20 market fields
                         report = FinancialReportModel(
                             stock_code=ind.code,
                             report_date=datetime.now().date(),
                             report_type="Latest",
+                            # All 20 market fields
+                            symbol=ind.symbol,
                             price=ind.price,
+                            pricechange=ind.pricechange,
+                            changepercent=ind.changepercent,
+                            buy=ind.buy,
+                            sell=ind.sell,
+                            settlement=ind.settlement,
                             open=ind.open,
                             high=ind.high,
                             low=ind.low,
-                            settlement=ind.settlement,
-                            change=ind.change,
-                            change_pct=ind.change_pct,
                             volume=ind.volume,
                             amount=ind.amount,
-                            turnover_ratio=ind.turnover_ratio,
+                            ticktime=ind.ticktime,
+                            per=ind.per,
+                            pb=ind.pb,
+                            mktcap=ind.mktcap,
+                            nmc=ind.nmc,
+                            turnoverratio=ind.turnoverratio,
+                            # Legacy fields
                             pe_ratio=ind.pe_ratio,
                             pb_ratio=ind.pb_ratio,
                             market_cap=ind.market_cap,

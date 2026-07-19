@@ -13,21 +13,28 @@ export interface Stock {
   sector?: string
   list_date?: string
   is_active: boolean
-  // 行情指标
+  // All 20 market fields from Sina API
+  symbol?: string
   price?: number
+  pricechange?: number
+  changepercent?: number
+  buy?: number
+  sell?: number
+  settlement?: number
   open?: number
   high?: number
   low?: number
-  settlement?: number
-  change?: number
-  change_pct?: number
   volume?: number
   amount?: number
-  turnover_ratio?: number
-  // 估值指标
+  ticktime?: string
+  per?: number
+  pb?: number
+  mktcap?: number
+  nmc?: number
+  turnoverratio?: number
+  // Legacy fields for backward compatibility
   pe_ratio?: number
   pb_ratio?: number
-  // 市值指标（万元）
   market_cap?: number
   circulating_market_cap?: number
   // 衍生指标
@@ -65,21 +72,28 @@ export interface PortfolioHolding {
   shares: number
   avg_cost: number
   added_at: string
-  // 行情指标
+  // All 20 market fields from Sina API
+  symbol?: string
   price?: number
+  pricechange?: number
+  changepercent?: number
+  buy?: number
+  sell?: number
+  settlement?: number
   open?: number
   high?: number
   low?: number
-  settlement?: number
-  change?: number
-  change_pct?: number
   volume?: number
   amount?: number
-  turnover_ratio?: number
-  // 估值指标
+  ticktime?: string
+  per?: number
+  pb?: number
+  mktcap?: number
+  nmc?: number
+  turnoverratio?: number
+  // Legacy fields for backward compatibility
   pe_ratio?: number
   pb_ratio?: number
-  // 市值指标（万元）
   market_cap?: number
   circulating_market_cap?: number
   // 衍生指标

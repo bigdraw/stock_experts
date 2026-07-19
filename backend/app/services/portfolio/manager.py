@@ -64,21 +64,28 @@ class PortfolioManager:
                 "shares": item.shares,
                 "avg_cost": item.avg_cost,
                 "added_at": str(item.added_at),
-                # 行情指标
+                # All 20 market fields from Sina API
+                "symbol": financial.symbol if financial else None,
                 "price": financial.price if financial else None,
+                "pricechange": financial.pricechange if financial else None,
+                "changepercent": financial.changepercent if financial else None,
+                "buy": financial.buy if financial else None,
+                "sell": financial.sell if financial else None,
+                "settlement": financial.settlement if financial else None,
                 "open": financial.open if financial else None,
                 "high": financial.high if financial else None,
                 "low": financial.low if financial else None,
-                "settlement": financial.settlement if financial else None,
-                "change": financial.change if financial else None,
-                "change_pct": financial.change_pct if financial else None,
                 "volume": financial.volume if financial else None,
                 "amount": financial.amount if financial else None,
-                "turnover_ratio": financial.turnover_ratio if financial else None,
-                # 估值指标
+                "ticktime": financial.ticktime if financial else None,
+                "per": financial.per if financial else None,
+                "pb": financial.pb if financial else None,
+                "mktcap": financial.mktcap if financial else None,
+                "nmc": financial.nmc if financial else None,
+                "turnoverratio": financial.turnoverratio if financial else None,
+                # Legacy fields for backward compatibility
                 "pe_ratio": financial.pe_ratio if financial else None,
                 "pb_ratio": financial.pb_ratio if financial else None,
-                # 市值指标（万元）
                 "market_cap": financial.market_cap if financial else None,
                 "circulating_market_cap": financial.circulating_market_cap if financial else None,
                 # 衍生指标
