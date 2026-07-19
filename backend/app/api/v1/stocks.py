@@ -50,7 +50,7 @@ async def count_stocks(
 async def list_stocks(
     market: str | None = None,
     search: str | None = None,
-    limit: int = Query(default=100, le=1000),
+    limit: int = Query(default=100, le=10000),
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -74,12 +74,15 @@ async def search_stocks(
     current_user: User = Depends(get_current_user),
 ):
     """Search stocks by code, name, pinyin, or first letter."""
-    q_lower = q.lower()
+    # Normalize query: remove spaces for fuzzy matching
+    q_normalized = q.replace(" ", "").replace(" ", "")
+    q_lower = q_normalized.lower()
+    q_original = q  # Keep original for exact name matching
     
     # First, try database filtering by code and name (fast)
     query = select(Stock).where(
         Stock.is_active == True,
-        (Stock.code.contains(q_lower)) | (Stock.name.contains(q))
+        (Stock.code.contains(q_lower)) | (Stock.name.contains(q_original)) | (Stock.name.contains(q_normalized))
     ).limit(limit)
     result = await db.execute(query)
     matched_stocks = list(result.scalars().all())

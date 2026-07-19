@@ -448,25 +448,26 @@ onMounted(() => {
 /* 搜索下拉选项样式 */
 :deep(.search-option-item) {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 10px 14px;
+  padding: 8px 12px;
   width: 100%;
-  gap: 12px;
+  gap: 8px;
   transition: all 0.2s ease;
+  flex-wrap: nowrap;
 }
 
 :deep(.search-option-item:hover) {
   background: rgba(0, 212, 170, 0.08);
-  transform: translateX(4px);
+  transform: translateX(2px);
 }
 
 :deep(.search-option-left) {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: 1;
   min-width: 0;
+  flex-wrap: nowrap;
 }
 
 :deep(.search-option-name) {
@@ -475,12 +476,14 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 1;
 }
 
 :deep(.search-option-right) {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 
 /* 标签页区域 */

@@ -368,26 +368,20 @@ class DataAcquisitionEngine:
             logger.error(f"Deep data fetch failed: {e}")
             raise
 
-    async def full_financial_update(self, task_id: str = None, code_prefixes: list[str] = None) -> str:
+    async def full_financial_update(self, task_id: str = None) -> str:
         """Full update of financial analysis indicators for all stocks.
         
         This method fetches comprehensive financial data including ROE, EPS, profit margins,
-        growth rates, and other key financial ratios for all stocks matching the code prefixes.
+        growth rates, and other key financial ratios for all active stocks.
         
         Args:
             task_id: Optional task ID for progress tracking
-            code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
-                          If None, uses DEFAULT_CODE_PREFIXES.
         
         Returns:
             task_id: The task ID for tracking progress
         """
         if task_id is None:
             task_id = f"financial_{uuid.uuid4().hex[:8]}"
-        
-        # Use default prefixes if not specified
-        if code_prefixes is None:
-            code_prefixes = self.DEFAULT_CODE_PREFIXES
         
         task_manager.create_task(task_id, "financial", total=0)
         task_manager.update_progress(task_id, message="Initializing financial data update...")
@@ -401,13 +395,10 @@ class DataAcquisitionEngine:
         await self.db.flush()
 
         try:
-            # Get all active stocks matching the code prefixes
+            # Get all active stocks (no prefix filtering for financial updates)
             task_manager.update_progress(task_id, message="Loading stock list...")
             result = await self.db.execute(select(Stock).where(Stock.is_active == True))
-            all_stocks = result.scalars().all()
-            
-            # Filter by code prefixes
-            stocks = [s for s in all_stocks if any(s.code.startswith(prefix) for prefix in code_prefixes)]
+            stocks = result.scalars().all()
             total = len(stocks)
             
             task = task_manager.get_task(task_id)
