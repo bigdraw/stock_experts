@@ -99,6 +99,8 @@ async def get_financials(
             "report_type": r.report_type,
             "revenue": r.revenue,
             "net_profit": r.net_profit,
+            "total_assets": r.total_assets,
+            "total_equity": r.total_equity,
             "roe": r.roe,
             "pe_ratio": r.pe_ratio,
             "pb_ratio": r.pb_ratio,
