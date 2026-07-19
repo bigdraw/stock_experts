@@ -1,42 +1,92 @@
 <template>
   <n-layout has-sider style="height: 100vh">
-    <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="220" show-trigger>
-      <div style="padding: 16px; text-align: center; font-weight: bold; font-size: 18px">
-        股票分析平台
+    <n-layout-sider
+      bordered
+      collapse-mode="width"
+      :collapsed-width="64"
+      :width="240"
+      show-trigger
+      :collapsed="collapsed"
+      @collapse="collapsed = true"
+      @expand="collapsed = false"
+      :native-scrollbar="false"
+      style="background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 14, 26, 0.95) 100%); backdrop-filter: blur(12px);"
+    >
+      <div class="logo-container">
+        <div class="logo-glow"></div>
+        <h1 class="logo-text">
+          <span class="gradient-text">股票分析</span>
+          <span class="logo-subtitle">智能投资平台</span>
+        </h1>
       </div>
-      <n-menu :options="menuOptions" :value="activeKey" @update:value="handleMenuClick" />
+      <n-menu
+        :collapsed="collapsed"
+        :collapsed-width="64"
+        :collapsed-icon-size="22"
+        :options="menuOptions"
+        :value="activeKey"
+        @update:value="handleMenuClick"
+      />
     </n-layout-sider>
     <n-layout>
-      <n-layout-header bordered style="padding: 12px 24px; display: flex; justify-content: space-between; align-items: center">
+      <n-layout-header 
+        bordered 
+        style="padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px);"
+      >
         <n-breadcrumb>
-          <n-breadcrumb-item>{{ currentRoute }}</n-breadcrumb-item>
+          <n-breadcrumb-item>
+            <span style="font-weight: 600; color: var(--text-primary);">{{ currentRoute }}</span>
+          </n-breadcrumb-item>
         </n-breadcrumb>
-        <n-space>
+        <n-space :size="16">
           <n-badge :value="notificationStore.unreadCount" :max="99">
-            <n-button quaternary @click="$router.push('/notifications')">
-              <template #icon><n-icon><NotificationsOutline /></n-icon></template>
+            <n-button quaternary circle @click="$router.push('/notifications')" style="transition: all 0.3s;">
+              <template #icon>
+                <n-icon :size="20"><NotificationsOutline /></n-icon>
+              </template>
             </n-button>
           </n-badge>
           <n-dropdown :options="userMenuOptions" @select="handleUserMenu">
-            <n-button quaternary>{{ authStore.user?.username || 'User' }}</n-button>
+            <n-button quaternary style="transition: all 0.3s;">
+              <template #icon>
+                <n-icon :size="20"><PersonCircleOutline /></n-icon>
+              </template>
+              <span style="font-weight: 500;">{{ authStore.user?.username || 'User' }}</span>
+            </n-button>
           </n-dropdown>
         </n-space>
       </n-layout-header>
-      <n-layout-content content-style="padding: 24px;">
-        <router-view />
+      <n-layout-content 
+        content-style="padding: 32px;" 
+        :native-scrollbar="false"
+        style="background: var(--bg-base);"
+      >
+        <router-view v-slot="{ Component }">
+          <transition name="fade-in" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </n-layout-content>
     </n-layout>
   </n-layout>
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted } from 'vue'
+import { computed, h, ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { NIcon } from 'naive-ui'
 import {
-  HomeOutline, TrendingUpOutline, BriefcaseOutline, FunnelOutline,
-  BarChartOutline, ChatbubblesOutline, BookOutline, NotificationsOutline,
-  SettingsOutline, LogOutOutline,
+  HomeOutline,
+  TrendingUpOutline,
+  BriefcaseOutline,
+  FunnelOutline,
+  BarChartOutline,
+  ChatbubblesOutline,
+  BookOutline,
+  NotificationsOutline,
+  SettingsOutline,
+  LogOutOutline,
+  PersonCircleOutline
 } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
 import { useNotificationStore } from '../../stores/notifications'
@@ -45,6 +95,7 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
+const collapsed = ref(false)
 
 const activeKey = computed(() => route.name as string)
 const currentRoute = computed(() => route.name as string)
@@ -87,3 +138,57 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.logo-container {
+  position: relative;
+  padding: 28px 20px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.logo-glow {
+  position: absolute;
+  top: -50%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
+  opacity: 0.6;
+  pointer-events: none;
+  animation: pulse 4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translateX(-50%) scale(1.1);
+  }
+}
+
+.logo-text {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+}
+
+.logo-subtitle {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+</style>
