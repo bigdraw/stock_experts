@@ -24,8 +24,11 @@ logger = logging.getLogger(__name__)
 class DataAcquisitionEngine:
     """Orchestrates data collection with self-healing and task management."""
 
-    # Default stock code prefixes to collect (includes all A-share prefixes)
-    DEFAULT_CODE_PREFIXES = ['000', '001', '002', '003', '300', '600', '601', '603', '605']
+    # Default stock code prefixes to collect. Covers main board (600/601/603/605),
+    # SZ main + SME (000/001/002/003), ChiNext (300) and STAR/科创板 (688).
+    # Note: 北交所 (920-prefix) is NOT served by Sina's 'hs_a' node and needs a
+    # separate 'bj_a' fetch — currently a known gap; those rows stay null.
+    DEFAULT_CODE_PREFIXES = ['000', '001', '002', '003', '300', '600', '601', '603', '605', '688']
 
     def __init__(self, provider: DataProvider, db: AsyncSession):
         self.provider = provider

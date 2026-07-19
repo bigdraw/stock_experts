@@ -360,9 +360,12 @@ const finLoading = ref(false)
 
 const latestQuote = computed(() => quotes.value.length > 0 ? quotes.value[quotes.value.length - 1] : null)
 const latestFinancial = computed(() => {
-  // Find the most recent non-Latest financial report (actual quarterly/annual report)
-  const report = financials.value.find(f => f.report_type !== 'Latest')
-  return report || null
+  // Pick the most recent non-'Latest' (actual quarterly/annual) report by date.
+  // Previously used .find() which returned the first array element regardless of
+  // ordering, so a stale report could be shown.
+  const periodic = financials.value.filter(f => f.report_type && f.report_type !== 'Latest')
+  if (periodic.length === 0) return null
+  return periodic.reduce((a, b) => (a.report_date > b.report_date ? a : b))
 })
 
 const klineOption = computed(() => ({
@@ -503,29 +506,53 @@ const finColumns = [
       style: `color: ${row.net_profit_growth > 0 ? '#10b981' : row.net_profit_growth < 0 ? '#ef4444' : 'var(--text-secondary)'};`
     }, row.net_profit_growth ? (row.net_profit_growth > 0 ? '+' : '') + row.net_profit_growth.toFixed(2) + '%' : '-')
   },
-  { 
-    title: '毛利率', 
+  {
+    title: '毛利率',
     key: 'gross_margin',
     width: 80,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.gross_margin ? row.gross_margin.toFixed(2) + '%' : '-')
   },
-  { 
-    title: 'PE', 
+  {
+    title: '净利率',
+    key: 'net_margin',
+    width: 80,
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.net_margin ? row.net_margin.toFixed(2) + '%' : '-')
+  },
+  {
+    title: 'BPS',
+    key: 'bps',
+    width: 80,
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.bps ? '¥' + row.bps.toFixed(2) : '-')
+  },
+  {
+    title: '资产负债率',
+    key: 'debt_ratio',
+    width: 100,
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.debt_ratio ? row.debt_ratio.toFixed(2) + '%' : '-')
+  },
+  {
+    title: 'PE',
     key: 'per',
     width: 80,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.per ? row.per.toFixed(2) : '-')
   },
-  { 
-    title: 'PB', 
+  {
+    title: 'PB',
     key: 'pb',
     width: 80,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.pb ? row.pb.toFixed(2) : '-')
   },
-  { 
-    title: '市值', 
+  {
+    title: '市值',
     key: 'mktcap',
     width: 120,
     render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.mktcap))
+  },
+  {
+    title: '流通市值',
+    key: 'nmc',
+    width: 120,
+    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.nmc))
   },
 ]
 
