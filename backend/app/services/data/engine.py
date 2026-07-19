@@ -109,16 +109,34 @@ class DataAcquisitionEngine:
                 )
 
                 for ind in batch:
-                    report = FinancialReportModel(
-                        stock_code=ind.code,
-                        report_date=datetime.now().date(),
-                        report_type="Latest",
-                        market_cap=ind.market_cap,
-                        pe_ratio=ind.pe_ratio,
-                        pb_ratio=ind.pb_ratio,
-                        is_profitable=ind.is_profitable,
+                    # Check if record already exists
+                    existing = await self.db.execute(
+                        select(FinancialReportModel).where(
+                            FinancialReportModel.stock_code == ind.code,
+                            FinancialReportModel.report_date == datetime.now().date()
+                        )
                     )
-                    self.db.add(report)
+                    report = existing.scalar_one_or_none()
+                    
+                    if report:
+                        # Update existing record
+                        report.report_type = "Latest"
+                        report.market_cap = ind.market_cap
+                        report.pe_ratio = ind.pe_ratio
+                        report.pb_ratio = ind.pb_ratio
+                        report.is_profitable = ind.is_profitable
+                    else:
+                        # Insert new record
+                        report = FinancialReportModel(
+                            stock_code=ind.code,
+                            report_date=datetime.now().date(),
+                            report_type="Latest",
+                            market_cap=ind.market_cap,
+                            pe_ratio=ind.pe_ratio,
+                            pb_ratio=ind.pb_ratio,
+                            is_profitable=ind.is_profitable,
+                        )
+                        self.db.add(report)
                 
                 processed += len(batch)
                 log.stocks_processed = processed
@@ -138,6 +156,7 @@ class DataAcquisitionEngine:
             log.status = "failed"
             log.error_message = str(e)
             log.completed_at = datetime.now()
+            await self.db.rollback()
             await self.db.commit()
             logger.error(f"Full collection failed: {e}")
             raise
@@ -232,6 +251,7 @@ class DataAcquisitionEngine:
             log.status = "failed"
             log.error_message = str(e)
             log.completed_at = datetime.now()
+            await self.db.rollback()
             await self.db.commit()
             logger.error(f"Incremental update failed: {e}")
             raise
@@ -274,18 +294,41 @@ class DataAcquisitionEngine:
                 try:
                     reports = await self.provider.get_financial_reports(code)
                     for r in reports:
-                        self.db.add(FinancialReportModel(
-                            stock_code=r.code,
-                            report_date=datetime.strptime(r.report_date, "%Y-%m-%d").date() if r.report_date else datetime.now().date(),
-                            report_type=r.report_type,
-                            revenue=r.revenue,
-                            net_profit=r.net_profit,
-                            roe=r.roe,
-                            pe_ratio=r.pe_ratio,
-                            pb_ratio=r.pb_ratio,
-                            market_cap=r.market_cap,
-                            raw_data=json.dumps(r.raw_data) if r.raw_data else None,
-                        ))
+                        report_date = datetime.strptime(r.report_date, "%Y-%m-%d").date() if r.report_date else datetime.now().date()
+                        
+                        # Check if record already exists
+                        existing = await self.db.execute(
+                            select(FinancialReportModel).where(
+                                FinancialReportModel.stock_code == r.code,
+                                FinancialReportModel.report_date == report_date
+                            )
+                        )
+                        report = existing.scalar_one_or_none()
+                        
+                        if report:
+                            # Update existing record
+                            report.report_type = r.report_type
+                            report.revenue = r.revenue
+                            report.net_profit = r.net_profit
+                            report.roe = r.roe
+                            report.pe_ratio = r.pe_ratio
+                            report.pb_ratio = r.pb_ratio
+                            report.market_cap = r.market_cap
+                            report.raw_data = json.dumps(r.raw_data) if r.raw_data else None
+                        else:
+                            # Insert new record
+                            self.db.add(FinancialReportModel(
+                                stock_code=r.code,
+                                report_date=report_date,
+                                report_type=r.report_type,
+                                revenue=r.revenue,
+                                net_profit=r.net_profit,
+                                roe=r.roe,
+                                pe_ratio=r.pe_ratio,
+                                pb_ratio=r.pb_ratio,
+                                market_cap=r.market_cap,
+                                raw_data=json.dumps(r.raw_data) if r.raw_data else None,
+                            ))
                     processed += 1
                     await self.db.flush()
                 except Exception as e:
@@ -305,6 +348,7 @@ class DataAcquisitionEngine:
             log.status = "failed"
             log.error_message = str(e)
             log.completed_at = datetime.now()
+            await self.db.rollback()
             await self.db.commit()
             logger.error(f"Deep data fetch failed: {e}")
             raise
