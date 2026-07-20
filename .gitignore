@@ -62,3 +62,6 @@ frontend/node_modules/.tmp/
 .opencode/node_modules/
 .ai/cache/
 .claude/
+
+# Pre-scrub git backup (contains old history w/ secrets) — never track
+.git.backup-pre-scrub/
