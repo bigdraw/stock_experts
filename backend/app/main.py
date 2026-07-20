@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -9,10 +10,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.admin import router as admin_router
+from app.api.agent import router as agent_router
 from app.api.v1 import api_router
 from app.config import settings
 from app.database import init_db
-from app.scheduler.jobs import alert_check, backup_reminder, daily_data_update
+from app.scheduler.jobs import (
+    alert_check,
+    backup_reminder,
+    daily_data_update,
+    monthly_financial_update,
+    startup_check,
+)
 from app.services.llm.manager import llm_manager
 
 # Force UTF-8 encoding for stdout/stderr to fix Chinese character display issues
@@ -62,7 +70,14 @@ async def lifespan(app: FastAPI):
         hour=9,
         id="backup_reminder",
     )
+    # 月底跑财报刷新（每月最后一个 23:00）
+    scheduler.add_job(
+        monthly_financial_update, "cron", day="28", hour=23, minute=0, id="monthly_financial_update"
+    )
     scheduler.start()
+
+    # 启动自决策：比对上次拉取时间，过期则后台触发 full_basic（不阻塞启动）
+    asyncio.create_task(startup_check())
     logger.info("Scheduler started.")
 
     yield
@@ -92,6 +107,7 @@ app.add_middleware(
 # Routes
 app.include_router(api_router)
 app.include_router(admin_router)
+app.include_router(agent_router)
 
 
 @app.get("/health")

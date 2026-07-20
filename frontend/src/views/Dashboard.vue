@@ -77,7 +77,7 @@
         </div>
       </n-card>
 
-      <n-card title="数据采集" class="action-card">
+      <n-card v-if="authStore.user?.role === 'admin'" title="数据采集" class="action-card">
         <template #header-extra>
           <n-icon :size="20" color="#00d4aa">
             <CloudDownloadOutline />
@@ -156,10 +156,12 @@ import {
 } from '@vicons/ionicons5'
 import { stocksApi, portfoliosApi, filtersApi, agentsApi, dataApi, notificationsApi, tasksApi } from '../api'
 import { useTaskStore } from '../stores/taskStore'
+import { useAuthStore } from '../stores/auth'
 import TaskProgress from '../components/common/TaskProgress.vue'
 
 const message = useMessage()
 const taskStore = useTaskStore()
+const authStore = useAuthStore()
 const stats = ref({ stockCount: 0, portfolioCount: 0, filterCount: 0, agentCount: 0 })
 const notifications = ref<any[]>([])
 const collecting = ref(false)
@@ -376,7 +378,7 @@ async function refreshStats() {
 /* 操作区域网格 */
 .action-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 20px;
 }
 

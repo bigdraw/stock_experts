@@ -101,13 +101,17 @@ async def ensure_financial_reports(
     与 get_financial_analysis_indicators。首次访问 StockDetail 时按需拉取该股财报。
     """
     provider = provider or AkShareProvider()
-    # 已有周期财报就跳过
+    # 已有且新鲜的周期财报就跳过（最新周期报告 < 100 天 → 本季已拉过）。
+    # 否则（无周期报告，或最新周期报告 >100 天 → 新报告季到了）→ 拉取。
+    # 这样月度调度能对到期的新季报告刷新，而非"有过就永远跳过"。
     existing = await db.execute(
-        select(FinancialReport.id)
+        select(FinancialReport.report_date)
         .where(FinancialReport.stock_code == code, FinancialReport.report_type != "Latest")
+        .order_by(FinancialReport.report_date.desc())
         .limit(1)
     )
-    if existing.first() is not None:
+    latest_periodic = existing.scalar_one_or_none()
+    if latest_periodic is not None and (date.today() - latest_periodic).days < 100:
         return 0
 
     added = 0

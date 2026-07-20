@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -63,6 +64,45 @@ async def generate_agent_from_book(
         name=agent_def.get("name", content.title),
         type="book_generated",
         description=agent_def.get("description", ""),
+        system_prompt=agent_def.get("system_prompt", ""),
+        config=json.dumps(agent_def.get("config", {})),
+    )
+    db.add(agent)
+    await db.flush()
+    await db.refresh(agent)
+    return agent
+
+
+class AgentFromTextRequest(BaseModel):
+    """用户自定义文本（投资理念/公式/一大段认可的投资逻辑）→ 构造 agent（idea4）。"""
+
+    title: str
+    text: str = Field(..., min_length=20, description="投资理念/公式/逻辑文本")
+    description: str | None = None
+
+
+@router.post("/books/generate-agent-from-text", response_model=AgentResponse)
+async def generate_agent_from_text(
+    req: AgentFromTextRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从用户粘贴的文本构造投资 agent（不依赖书籍文件）。
+
+    复用 BookAnalyzer.analyze——把用户文本包成 BookContent（format='text'），
+    走同一套分块+综合逻辑。适合用户直接写一段认可的投资理念/公式来造 agent。
+    """
+    from app.services.book.parser import BookContent
+
+    llm = llm_manager.get()
+    analyzer = BookAnalyzer(llm)
+    content = BookContent(title=req.title, text=req.text, format="text")
+    agent_def = await analyzer.analyze(content)
+
+    agent = Agent(
+        name=req.title,
+        type="text_generated",
+        description=req.description or agent_def.get("description", ""),
         system_prompt=agent_def.get("system_prompt", ""),
         config=json.dumps(agent_def.get("config", {})),
     )
