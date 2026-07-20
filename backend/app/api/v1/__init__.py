@@ -10,6 +10,7 @@ from app.api.v1.debate import router as debate_router
 from app.api.v1.filters import router as filters_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.portfolios import router as portfolios_router
+from app.api.v1.quant import router as quant_router
 from app.api.v1.settings import router as settings_router
 from app.api.v1.stocks import router as stocks_router
 from app.api.v1.tasks import router as tasks_router
@@ -26,3 +27,4 @@ api_router.include_router(debate_router)
 api_router.include_router(notifications_router)
 api_router.include_router(tasks_router)
 api_router.include_router(settings_router)
+api_router.include_router(quant_router)
