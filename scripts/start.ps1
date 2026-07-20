@@ -15,17 +15,22 @@ if (-not (Test-Path ".venv")) {
     Write-Host "   Creating venv..."
     uv sync
 }
-$backend = Start-Process -FilePath "uv" -ArgumentList "run","uvicorn","app.main:app","--reload","--host","0.0.0.0","--port","8000" -PassThru
+# 用 cmd /c 包裹，避免 Start-Process 找到 .ps1 而非 .cmd
+$backend = Start-Process -FilePath "cmd" -ArgumentList "/c","uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000" -PassThru -WindowStyle Minimized
 Write-Host "   PID: $($backend.Id)"
+
+Start-Sleep -Seconds 2
 
 # ---- Frontend ----
 Write-Host "🖥️  Frontend (vite :5173)..."
 Set-Location "$Root\frontend"
 if (-not (Test-Path "node_modules")) {
     Write-Host "   Installing deps..."
-    npm install
+    # npm.cmd 而非 npm（避免 PowerShell 找到 .ps1）
+    cmd /c "npm install"
 }
-$frontend = Start-Process -FilePath "npm" -ArgumentList "run","dev" -PassThru
+# 同样用 cmd /c 包裹 npm run dev
+$frontend = Start-Process -FilePath "cmd" -ArgumentList "/c","npm run dev" -PassThru -WindowStyle Minimized
 Write-Host "   PID: $($frontend.Id)"
 
 # ---- Save PIDs ----
@@ -39,5 +44,5 @@ Write-Host "   Frontend: http://localhost:5173"
 Write-Host ""
 Write-Host "   Stop: powershell -File scripts\stop.ps1  (or close this window)"
 
-# 等待子进程退出（Ctrl+C 或 stop.ps1 会终止它们）
+# 等待 backend 进程退出
 $backend.WaitForExit()
