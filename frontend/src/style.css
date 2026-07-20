@@ -1,21 +1,23 @@
 /* ============================================
-   UI Design System
-   参考: ChatGPT · 豆包 · Apple
+   UI Design System — LobeChat 风格
+   参考: LobeChat · 通义千问 · Apple
    气质: 干净 · 温馨 · 亲和
-   文档: docs/ui-design.md
    ============================================ */
 
 :root {
-  /* 配色 — 暖灰深色（非纯黑） */
-  --bg-base: #1a1a2e;
-  --bg-elevated: #16213e;
-  --bg-surface: #0f3460;
-  --bg-glass: rgba(26, 26, 46, 0.85);
+  /* 背景 — LobeChat 深色：微暖灰，非纯黑 */
+  --bg-base: #0d0d0d;
+  --bg-elevated: #1a1a1a;
+  --bg-surface: #2d2d2d;
+  --bg-glass: rgba(13, 13, 13, 0.85);
 
-  /* 语义色 — 暖调 */
+  /* 气泡 */
+  --bubble-user: rgba(255, 255, 255, 0.08);
+  --bubble-assistant: transparent;
+
+  /* 语义色 */
   --primary: #e94560;
   --primary-hover: #f05670;
-  --primary-pressed: #c83450;
   --primary-glow: rgba(233, 69, 96, 0.12);
   --accent: #533483;
   --success: #0f9b8e;
@@ -28,17 +30,27 @@
   --border-strong: rgba(255, 255, 255, 0.18);
 
   /* 文字 */
-  --text-primary: #f5f5f7;
-  --text-secondary: rgba(245, 245, 247, 0.75);
-  --text-tertiary: rgba(245, 245, 247, 0.45);
-  --text-disabled: rgba(245, 245, 247, 0.25);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.75);
+  --text-tertiary: rgba(255, 255, 255, 0.45);
+  --text-disabled: rgba(255, 255, 255, 0.25);
 
   /* 圆角 */
-  --radius-sm: 10px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
   --radius-lg: 14px;
 
   /* 过渡 */
   --transition: 0.2s ease;
+
+  /* 间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+
+  /* 消息列宽（LobeChat 960px） */
+  --chat-max-width: 960px;
 
   /* 渐变 — 仅 Logo */
   --gradient-logo: linear-gradient(135deg, #e94560, #533483);
@@ -76,7 +88,6 @@ h1 { font-size: 24px; } h2 { font-size: 20px; } h3 { font-size: 17px; } h4 { fon
 }
 .n-button--primary-type { background: var(--primary) !important; border: none !important; box-shadow: none !important; }
 .n-button--primary-type:hover { background: var(--primary) !important; opacity: 0.85; }
-.n-button--primary-type:active { opacity: 0.75; }
 .n-button--default-type { background: var(--bg-surface) !important; border: 1px solid var(--border-medium) !important; color: var(--text-primary) !important; }
 .n-button--default-type:hover { opacity: 0.85; }
 
@@ -97,17 +108,15 @@ h1 { font-size: 24px; } h2 { font-size: 20px; } h3 { font-size: 17px; } h4 { fon
 .n-data-table-tr:hover .n-data-table-td { background: rgba(255,255,255,0.02) !important; }
 
 .n-layout { background: var(--bg-base) !important; }
-.n-layout-sider { background: var(--bg-elevated) !important; }
-.n-layout-header { background: var(--bg-glass) !important; backdrop-filter: blur(20px) saturate(180%); }
+.n-layout-sider { background: var(--bg-elevated) !important; border-right: 1px solid var(--border-subtle) !important; }
+.n-layout-header { background: var(--bg-glass) !important; backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid var(--border-subtle) !important; }
+.n-layout-content { background: var(--bg-base) !important; }
 
 /* 工具类 */
 .gradient-text { background: var(--gradient-logo); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .fade-in { animation: fadeIn 0.3s ease; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-.slide-down { animation: slideDown 0.25s ease; }
-@keyframes slideDown { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
 
-/* 滚动条 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }

@@ -61,10 +61,10 @@
           </n-dropdown>
         </n-space>
       </n-layout-header>
-      <n-layout-content 
-        content-style="padding: 32px;" 
+      <n-layout-content
+        content-style="height: 100%; padding: 0;"
         :native-scrollbar="false"
-        style="background: var(--bg-base);"
+        style="background: var(--bg-base); height: calc(100vh - 57px);"
       >
         <router-view v-slot="{ Component }">
           <transition name="fade-in" mode="out-in">
