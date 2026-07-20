@@ -15,7 +15,7 @@ if (-not (Test-Path ".venv")) {
     Write-Host "   Creating venv..."
     uv sync
 }
-$backend = Start-Process -FilePath "uv" -ArgumentList "run","uvicorn","app.main:app","--reload","--host","0.0.0.0","--port","8000" -PassThru -NoNewWindow
+$backend = Start-Process -FilePath "uv" -ArgumentList "run","uvicorn","app.main:app","--reload","--host","0.0.0.0","--port","8000" -PassThru
 Write-Host "   PID: $($backend.Id)"
 
 # ---- Frontend ----
@@ -25,7 +25,7 @@ if (-not (Test-Path "node_modules")) {
     Write-Host "   Installing deps..."
     npm install
 }
-$frontend = Start-Process -FilePath "npm" -ArgumentList "run","dev" -PassThru -NoNewWindow
+$frontend = Start-Process -FilePath "npm" -ArgumentList "run","dev" -PassThru
 Write-Host "   PID: $($frontend.Id)"
 
 # ---- Save PIDs ----
@@ -37,12 +37,7 @@ Write-Host "✅ Running:" -ForegroundColor Green
 Write-Host "   Backend:  http://localhost:8000  (docs: /docs)"
 Write-Host "   Frontend: http://localhost:5173"
 Write-Host ""
-Write-Host "   Stop: powershell -File scripts\stop.ps1  (or Ctrl+C)"
+Write-Host "   Stop: powershell -File scripts\stop.ps1  (or close this window)"
 
-# 等待子进程
-try {
-    while ($true) { Start-Sleep -Seconds 1 }
-} catch {
-    Stop-Process -Id $backend.Id -Force -ErrorAction SilentlyContinue
-    Stop-Process -Id $frontend.Id -Force -ErrorAction SilentlyContinue
-}
+# 等待子进程退出（Ctrl+C 或 stop.ps1 会终止它们）
+$backend.WaitForExit()
