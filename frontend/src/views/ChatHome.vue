@@ -71,6 +71,34 @@
         </n-button>
       </n-input-group>
 
+      <!-- 快捷操作按钮（idea25：参考豆包设计） -->
+      <div class="quick-actions-bar">
+        <n-button size="tiny" quaternary @click="quickFill('分析个股 600519 的估值和盈利能力')">
+          个股分析
+        </n-button>
+        <n-button size="tiny" quaternary @click="$router.push('/portfolios')">
+          组合管理
+        </n-button>
+        <n-button size="tiny" quaternary @click="quickFill('分析我的投资组合风险')">
+          组合分析
+        </n-button>
+        <n-button size="tiny" quaternary @click="$router.push('/backtest')">
+          策略回测
+        </n-button>
+        <n-button size="tiny" quaternary @click="$router.push('/debate')">
+          辩论分析
+        </n-button>
+        <n-button size="tiny" quaternary @click="$router.push('/filters')">
+          筛选工具
+        </n-button>
+        <n-button size="tiny" quaternary @click="$router.push('/stocks')">
+          股票列表
+        </n-button>
+        <n-button size="tiny" quaternary @click="$router.push('/dashboard')">
+          仪表盘
+        </n-button>
+      </div>
+
       <!-- /技能 下拉 -->
       <div v-if="showSkills" class="mention-dropdown">
         <div class="dropdown-title">可用技能</div>
@@ -154,6 +182,10 @@ function selectAgent(a: Agent) {
 
 function removeAgent(id: number) {
   selectedAgents.value = selectedAgents.value.filter(a => a.id !== id)
+}
+
+function quickFill(text: string) {
+  input.value = text
 }
 
 async function handleSend() {
