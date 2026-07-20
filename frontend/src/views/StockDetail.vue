@@ -185,7 +185,9 @@
           </n-icon>
         </n-space>
       </template>
-      <v-chart :option="klineOption" style="height: 500px" autoresize />
+      <n-spin :show="klineLoading" description="加载K线…">
+        <v-chart :option="klineOption" style="height: 500px" autoresize />
+      </n-spin>
     </n-card>
 
     <!-- 估值指标 -->
@@ -318,16 +320,66 @@
       </n-grid>
     </n-card>
 
-    <!-- 财务报表历史 -->
-    <n-card title="财务报表历史" class="data-card">
+    <!-- 财务趋势分析 -->
+    <n-card v-if="periodicSorted.length > 0" class="data-card">
+      <template #header>
+        <span style="font-weight: 600; color: var(--text-primary);">财务趋势分析</span>
+      </template>
       <template #header-extra>
-        <n-icon :size="20" color="#f59e0b">
-          <DocumentTextOutline />
+        <n-icon :size="20" color="#00d4aa">
+          <AnalyticsOutline />
         </n-icon>
       </template>
-      <n-data-table 
-        :columns="finColumns" 
-        :data="financials" 
+      <n-grid :cols="2" :x-gap="16" :y-gap="16">
+        <n-gi>
+          <div class="trend-block">
+            <div class="trend-title">ROE 趋势</div>
+            <v-chart :option="roeTrendOption" style="height: 280px" autoresize />
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="trend-block">
+            <div class="trend-title">营收与净利润</div>
+            <v-chart :option="revenueProfitTrendOption" style="height: 280px" autoresize />
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="trend-block">
+            <div class="trend-title">利润率趋势</div>
+            <v-chart :option="marginTrendOption" style="height: 280px" autoresize />
+          </div>
+        </n-gi>
+        <n-gi>
+          <div class="trend-block">
+            <div class="trend-title">P/E 估值带（均值黄虚线 · 30/70 分位）</div>
+            <v-chart :option="peBandOption" style="height: 280px" autoresize />
+          </div>
+        </n-gi>
+      </n-grid>
+    </n-card>
+
+    <!-- 财务报表历史 -->
+    <n-card class="data-card">
+      <template #header>
+        <span style="font-weight: 600; color: var(--text-primary);">财务报表历史</span>
+      </template>
+      <template #header-extra>
+        <n-space align="center" :size="12">
+          <n-radio-group v-model:value="finFilter" size="small">
+            <n-radio-button value="all">全部</n-radio-button>
+            <n-radio-button value="Annual">年报</n-radio-button>
+            <n-radio-button value="H1">中报</n-radio-button>
+            <n-radio-button value="Q1">一季</n-radio-button>
+            <n-radio-button value="Q3">三季</n-radio-button>
+          </n-radio-group>
+          <n-icon :size="20" color="#f59e0b">
+            <DocumentTextOutline />
+          </n-icon>
+        </n-space>
+      </template>
+      <n-data-table
+        :columns="finColumns"
+        :data="filteredFinancials"
         :loading="finLoading"
         :bordered="false"
         :pagination="{ pageSize: 10 }"
@@ -369,7 +421,9 @@ const quotes = ref<DailyQuote[]>([])
 const financials = ref<any[]>([])
 const latestIndicators = ref<any>(null)
 const finLoading = ref(false)
+const klineLoading = ref(false)
 const klinePeriod = ref<string>('daily')
+const finFilter = ref<string>('all') // all | Annual | H1 | Q1 | Q3
 
 const latestQuote = computed(() => quotes.value.length > 0 ? quotes.value[quotes.value.length - 1] : null)
 const latestFinancial = computed(() => {
@@ -379,6 +433,110 @@ const latestFinancial = computed(() => {
   const periodic = financials.value.filter(f => f.report_type && f.report_type !== 'Latest')
   if (periodic.length === 0) return null
   return periodic.reduce((a, b) => (a.report_date > b.report_date ? a : b))
+})
+
+// 财报表按报告类型过滤
+const filteredFinancials = computed(() => {
+  if (finFilter.value === 'all') return financials.value
+  return financials.value.filter(f => f.report_type === finFilter.value)
+})
+
+// 周期财报按日期升序（趋势图用）
+const periodicSorted = computed(() => {
+  return financials.value
+    .filter(f => f.report_type && f.report_type !== 'Latest')
+    .slice()
+    .sort((a, b) => (a.report_date > b.report_date ? 1 : -1))
+})
+
+// ROE 趋势线
+const roeTrendOption = computed(() => {
+  const data = periodicSorted.value
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: '8%', right: '5%', top: '15%', bottom: '18%' },
+    xAxis: { type: 'category', data: data.map(d => d.report_date), axisLabel: { rotate: 40, color: '#94a3b8' } },
+    yAxis: { type: 'value', name: 'ROE %', axisLabel: { color: '#94a3b8', formatter: (v: number) => (v * 100).toFixed(1) + '%' } },
+    series: [{
+      name: 'ROE', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6,
+      data: data.map(d => d.roe),
+      itemStyle: { color: '#00d4aa' }, areaStyle: { color: 'rgba(0,212,170,0.12)' },
+    }],
+  }
+})
+
+// 营收 + 净利 趋势（双柱+双轴）
+const revenueProfitTrendOption = computed(() => {
+  const data = periodicSorted.value
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['营业收入', '净利润'], textStyle: { color: '#94a3b8' }, top: 5 },
+    grid: { left: '8%', right: '8%', top: '18%', bottom: '18%' },
+    xAxis: { type: 'category', data: data.map(d => d.report_date), axisLabel: { rotate: 40, color: '#94a3b8' } },
+    yAxis: [
+      { type: 'value', name: '营收', axisLabel: { color: '#94a3b8', formatter: (v: number) => (v >= 1e8 ? (v / 1e8).toFixed(1) + '亿' : v.toFixed(0)) } },
+      { type: 'value', name: '净利', axisLabel: { color: '#94a3b8', formatter: (v: number) => (v >= 1e8 ? (v / 1e8).toFixed(1) + '亿' : v.toFixed(0)) } },
+    ],
+    series: [
+      { name: '营业收入', type: 'bar', data: data.map(d => d.revenue), itemStyle: { color: '#6366f1' } },
+      { name: '净利润', type: 'bar', data: data.map(d => d.net_profit), itemStyle: { color: '#00d4aa' }, yAxisIndex: 1 },
+    ],
+  }
+})
+
+// 毛利率 + 净利率 趋势线
+const marginTrendOption = computed(() => {
+  const data = periodicSorted.value
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['销售毛利率', '销售净利率'], textStyle: { color: '#94a3b8' }, top: 5 },
+    grid: { left: '8%', right: '5%', top: '18%', bottom: '18%' },
+    xAxis: { type: 'category', data: data.map(d => d.report_date), axisLabel: { rotate: 40, color: '#94a3b8' } },
+    yAxis: { type: 'value', axisLabel: { color: '#94a3b8', formatter: (v: number) => (v * 100).toFixed(0) + '%' } },
+    series: [
+      { name: '销售毛利率', type: 'line', smooth: true, data: data.map(d => d.gross_margin), itemStyle: { color: '#f59e0b' } },
+      { name: '销售净利率', type: 'line', smooth: true, data: data.map(d => d.net_margin), itemStyle: { color: '#10b981' } },
+    ],
+  }
+})
+
+// P/E 估值带：日K收盘 / 年化EPS，叠加均值 + 30/70 分位带
+const peBandOption = computed(() => {
+  const q = quotes.value
+  if (!q || q.length < 30) return {}
+  // 年化 EPS（用最新一期财报 eps；季报×4、中报×2、三季报×4/3、年报原值）
+  const lf = latestFinancial.value
+  if (!lf || !lf.eps) return {}
+  const annual = lf.report_type === 'Annual' ? lf.eps
+    : lf.report_type === 'H1' ? lf.eps * 2
+    : lf.report_type === 'Q3' ? lf.eps * 4 / 3
+    : lf.eps * 4 // Q1
+  if (annual <= 0) return {}
+  const peSeries = q.map(bar => [bar.date, bar.close / annual])
+  const peVals = peSeries.map(p => p[1]).filter(v => v > 0).sort((a, b) => a - b)
+  if (peVals.length < 30) return {}
+  const pct = (p: number) => peVals[Math.floor(p * peVals.length)] || peVals[peVals.length - 1]
+  const avg = peVals.reduce((s, v) => s + v, 0) / peVals.length
+  return {
+    tooltip: { trigger: 'axis', formatter: (params: any) => {
+      const d = params[0]
+      return `${d.axisValue}<br/>PE: ${d.value != null ? d.value.toFixed(2) : '-'}<br/>均值: ${avg.toFixed(2)}`
+    } },
+    legend: { data: ['P/E', '均值'], textStyle: { color: '#94a3b8' }, top: 5 },
+    grid: { left: '8%', right: '5%', top: '18%', bottom: '18%' },
+    xAxis: { type: 'category', data: peSeries.map(p => p[0]), axisLabel: { color: '#94a3b8' } },
+    yAxis: { type: 'value', name: 'PE', axisLabel: { color: '#94a3b8' } },
+    dataZoom: [{ type: 'inside' }],
+    series: [
+      {
+        name: 'P/E', type: 'line', smooth: true, symbol: 'none',
+        data: peSeries.map(p => p[1]),
+        itemStyle: { color: '#6366f1' }, lineStyle: { width: 1.2 },
+        markLine: { silent: true, symbol: 'none', lineStyle: { color: '#f59e0b', type: 'dashed' },
+          data: [{ yAxis: avg }, { yAxis: pct(0.3), lineStyle: { color: '#10b981' } }, { yAxis: pct(0.7), lineStyle: { color: '#ef4444' } }] },
+      },
+    ],
+  }
 })
 
 const klineOption = computed(() => ({
@@ -606,23 +764,31 @@ async function loadData(stockCode: string) {
   quotes.value = []
   financials.value = []
   latestIndicators.value = null
+  klineLoading.value = true
+  finLoading.value = true
 
-  const [stockRes, quotesRes, indicatorsRes] = await Promise.all([
+  // 2阶段加载：阶段1 立即返回（股票信息 + 实时指标，纯 DB 读），页面头部即时渲染；
+  // 阶段2 重数据（K线全量历史 + 财报，首次需 akshare 拉取）异步加载，不阻塞首屏。
+  const [stockRes, indicatorsRes] = await Promise.all([
     stocksApi.get(stockCode),
-    stocksApi.getQuotes(stockCode, { period: klinePeriod.value, limit: 1000 }),
     stocksApi.getIndicators(stockCode),
   ])
   stock.value = stockRes.data
-  quotes.value = quotesRes.data
   latestIndicators.value = indicatorsRes.data || null
 
-  finLoading.value = true
-  try {
-    const finRes = await stocksApi.getFinancials(stockCode)
+  // 阶段2：异步，不 await（页面已可交互）
+  Promise.all([
+    stocksApi.getQuotes(stockCode, { period: klinePeriod.value, limit: 1000 }),
+    stocksApi.getFinancials(stockCode),
+  ]).then(([quotesRes, finRes]) => {
+    quotes.value = quotesRes.data
     financials.value = finRes.data
-  } finally {
+  }).catch((e) => {
+    console.error('Failed to load K-line/financials:', e)
+  }).finally(() => {
+    klineLoading.value = false
     finLoading.value = false
-  }
+  })
 }
 
 // Real-time refresh: only re-fetch the live indicators + the most recent quote
@@ -927,5 +1093,19 @@ onUnmounted(() => {
 
 .data-card :deep(.n-data-table-tr:nth-child(even) .n-data-table-td) {
   background: rgba(30, 41, 59, 0.3);
+}
+
+.trend-block {
+  background: rgba(30, 41, 59, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.trend-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
 }
 </style>
