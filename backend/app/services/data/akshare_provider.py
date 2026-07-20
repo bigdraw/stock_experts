@@ -107,6 +107,39 @@ def _restore_proxy(original_settings: dict):
             del os.environ[key]
 
 
+def _parse_cn_number(v) -> float | None:
+    """解析 akshare 财务数值字符串（中文量级）为 float。
+
+    akshare 的 stock_financial_abstract_ths 返回 '6.28亿' / '3.2万亿' /
+    '12.5万' / '0.5' / '5.2%' / '-' / '--' 等。裸 float() 在 '6.28亿' 上崩溃，
+    导致整条财报拉取报错（财务历史表无数据根因）。
+    """
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s or s in ("-", "--", "nan", "None", "null"):
+        return None
+    pct = False
+    if s.endswith("%"):
+        pct = True
+        s = s[:-1].strip()
+    mult = 1.0
+    if s.endswith("万亿"):
+        mult = 1e12
+        s = s[:-2]
+    elif s.endswith("亿"):
+        mult = 1e8
+        s = s[:-1]
+    elif s.endswith("万"):
+        mult = 1e4
+        s = s[:-1]
+    try:
+        f = float(s) * mult
+        return f / 100 if pct else f
+    except ValueError:
+        return None
+
+
 class AkShareProvider(DataProvider):
     """Free data provider using AkShare."""
 
@@ -419,41 +452,17 @@ class AkShareProvider(DataProvider):
 
                 reports = []
                 for _, row in df.iterrows():
-                    # Extract all available financial metrics
-                    revenue = (
-                        float(row.get("营业总收入")) if pd.notna(row.get("营业总收入")) else None
-                    )
-                    net_profit = float(row.get("净利润")) if pd.notna(row.get("净利润")) else None
-                    roe = (
-                        float(row.get("净资产收益率"))
-                        if pd.notna(row.get("净资产收益率"))
-                        else None
-                    )
-                    eps = (
-                        float(row.get("基本每股收益"))
-                        if pd.notna(row.get("基本每股收益"))
-                        else None
-                    )
-                    bps = float(row.get("每股净资产")) if pd.notna(row.get("每股净资产")) else None
-                    revenue_growth = (
-                        float(row.get("营业总收入同比增长率"))
-                        if pd.notna(row.get("营业总收入同比增长率"))
-                        else None
-                    )
-                    net_profit_growth = (
-                        float(row.get("净利润同比增长率"))
-                        if pd.notna(row.get("净利润同比增长率"))
-                        else None
-                    )
-                    gross_margin = (
-                        float(row.get("销售毛利率")) if pd.notna(row.get("销售毛利率")) else None
-                    )
-                    net_margin = (
-                        float(row.get("销售净利率")) if pd.notna(row.get("销售净利率")) else None
-                    )
-                    debt_ratio = (
-                        float(row.get("资产负债率")) if pd.notna(row.get("资产负债率")) else None
-                    )
+                    # akshare 财务值常带中文量级（'6.28亿'），用 _parse_cn_number 解析
+                    revenue = _parse_cn_number(row.get("营业总收入"))
+                    net_profit = _parse_cn_number(row.get("净利润"))
+                    roe = _parse_cn_number(row.get("净资产收益率"))
+                    eps = _parse_cn_number(row.get("基本每股收益"))
+                    bps = _parse_cn_number(row.get("每股净资产"))
+                    revenue_growth = _parse_cn_number(row.get("营业总收入同比增长率"))
+                    net_profit_growth = _parse_cn_number(row.get("净利润同比增长率"))
+                    gross_margin = _parse_cn_number(row.get("销售毛利率"))
+                    net_margin = _parse_cn_number(row.get("销售净利率"))
+                    debt_ratio = _parse_cn_number(row.get("资产负债率"))
 
                     reports.append(
                         FinancialReport(

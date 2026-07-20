@@ -111,6 +111,8 @@ async def ensure_financial_reports(
         return 0
 
     added = 0
+    # 财报历史截止到 2010 年（不回到更早），与 K线全量起点一致
+    cutoff = date(2010, 1, 1)
     # 1. get_financial_reports（revenue/net_profit/roe/pe/pb/market_cap）
     try:
         reports = await provider.get_financial_reports(code)
@@ -118,7 +120,7 @@ async def ensure_financial_reports(
         logger.warning(f"get_financial_reports failed for {code}: {e}")
         reports = []
     for r in reports:
-        added += await _upsert_financial(db, r)
+        added += await _upsert_financial(db, r, cutoff)
 
     # 2. get_financial_analysis_indicators（eps/bps/gross_margin/net_margin/growth/debt_ratio）
     try:
@@ -127,7 +129,7 @@ async def ensure_financial_reports(
         logger.warning(f"get_financial_analysis_indicators failed for {code}: {e}")
         analysis = []
     for r in analysis:
-        added += await _upsert_financial(db, r)
+        added += await _upsert_financial(db, r, cutoff)
 
     if added:
         await db.flush()
@@ -135,13 +137,16 @@ async def ensure_financial_reports(
     return added
 
 
-async def _upsert_financial(db: AsyncSession, r: FR) -> int:
+async def _upsert_financial(db: AsyncSession, r: FR, cutoff: date | None = None) -> int:
     """upsert 一条 FinancialReport（按 stock_code+report_date+report_type 去重）。
 
     已存在则合并字段（保留已有非空值，补充新字段），否则插入。返回 1=新增/更新。
+    cutoff：report_date 早于此的跳过（财报历史不回到更早）。
     """
     from datetime import datetime
     rd = _parse_date(r.report_date) or datetime.now().date()
+    if cutoff is not None and rd < cutoff:
+        return 0
     existing = await db.execute(
         select(FinancialReport).where(
             FinancialReport.stock_code == r.code,
