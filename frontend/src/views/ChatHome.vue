@@ -21,18 +21,18 @@
           <div v-else class="bubble assistant-bubble">
             <div v-if="msg.agents_used?.length" class="msg-agents">{{ msg.agents_used.map(a => '@'+a).join(' ') }}</div>
             <MarkdownRenderer v-if="msg.content" :content="msg.content" />
-            <span v-if="msg.streaming" class="cursor">▋</span>
+            <span v-if="msg.streaming" class="typing-cursor">▋</span>
           </div>
         </div>
       </div>
       <div class="input-bar">
         <div v-if="selectedAgents.length" class="agent-tags">
-          <n-tag v-for="a in selectedAgents" :key="a.id" closable size="small" @close="removeAgent(a.id)" type="info" round>{{ '@'+a.name }}</n-tag>
+          <n-tag v-for="a in selectedAgents" :key="a.id" closable size="small" @close="removeAgent(a.id)" type="info">{{ '@'+a.name }}</n-tag>
         </div>
         <div class="input-row">
           <n-input v-model:value="input" type="textarea" :autosize="{ minRows:1, maxRows:5 }" placeholder="输入消息…  @ 指定 Agent" @keydown.enter.exact.prevent="handleSend" :bordered="false" class="chat-input" />
-          <n-button v-if="!chatStore.streaming" type="primary" circle @click="handleSend" :disabled="!input.trim()">↑</n-button>
-          <n-button v-else type="error" circle @click="chatStore.stopStreaming()">■</n-button>
+          <n-button v-if="!chatStore.streaming" type="primary" @click="handleSend" :disabled="!input.trim()">发送</n-button>
+          <n-button v-else type="error" @click="chatStore.stopStreaming()">停止</n-button>
         </div>
       </div>
     </div>
@@ -83,26 +83,44 @@ async function scrollToBottom() {
 <style scoped>
 .chat-home { display: flex; height: calc(100vh - 1px); background: var(--bg-base); }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
 .message-list { flex: 1; overflow-y: auto; padding: 24px 0; }
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; }
-.empty-icon { font-size: 48px; margin-bottom: 8px; }
-.empty-title { font-size: 22px; font-weight: 600; }
+.empty-icon { font-size: 40px; margin-bottom: 4px; }
+.empty-title { font-size: 20px; font-weight: 600; color: var(--text-primary); }
 .empty-hint { font-size: 14px; color: var(--text-tertiary); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; max-width: 500px; justify-content: center; margin: 12px 0; }
-.chip { padding: 8px 16px; border-radius: 9999px; background: var(--bg-surface); border: 1px solid var(--border-medium); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.2s; }
-.chip:hover { background: var(--bg-elevated); border-color: var(--primary); color: var(--primary); }
+.chip {
+  padding: 8px 14px; border-radius: var(--radius-sm); background: var(--bg-elevated);
+  border: 1px solid var(--border-medium); color: var(--text-secondary); font-size: 13px;
+  cursor: pointer; transition: opacity var(--transition);
+}
+.chip:hover { opacity: 0.85; border-color: var(--primary); color: var(--primary); }
 .quick-nav { display: flex; gap: 8px; margin-top: 16px; }
+
 .msg-row { padding: 4px 24px; }
 .msg-row.user { display: flex; justify-content: flex-end; }
-.bubble { max-width: 75%; padding: 12px 16px; border-radius: 18px; font-size: 15px; line-height: 1.6; word-wrap: break-word; }
-.user-bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
-.assistant-bubble { background: var(--bg-elevated); color: var(--text-primary); border: 1px solid var(--border-subtle); border-bottom-left-radius: 4px; }
+.bubble {
+  max-width: 75%; padding: 12px 16px; font-size: 15px; line-height: 1.6; word-wrap: break-word;
+}
+.user-bubble {
+  background: var(--primary); color: #fff;
+  border-radius: var(--radius-lg) var(--radius-lg) 4px var(--radius-lg);
+}
+.assistant-bubble {
+  background: var(--bg-elevated); color: var(--text-primary);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) 4px;
+}
 .msg-agents { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
-.cursor { color: var(--primary); animation: blink 1s infinite; }
+.typing-cursor { color: var(--primary); animation: blink 1s infinite; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+
 .input-bar { border-top: 1px solid var(--border-subtle); padding: 12px 24px 20px; }
 .agent-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .input-row { display: flex; align-items: flex-end; gap: 8px; }
-.chat-input { background: var(--bg-surface) !important; border-radius: 18px !important; padding: 8px 16px !important; }
+.chat-input {
+  background: var(--bg-surface) !important; border-radius: var(--radius-sm) !important; padding: 10px 16px !important;
+  border: 1px solid var(--border-medium) !important;
+}
 .chat-input :deep(.n-input__textarea-el) { color: var(--text-primary) !important; }
 </style>
