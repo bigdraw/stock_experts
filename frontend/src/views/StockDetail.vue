@@ -219,6 +219,17 @@
           </div>
         </n-gi>
       </n-grid>
+
+      <!-- 关键指标历史均值（近3年/近10年，不满10年标*） -->
+      <div v-if="Object.keys(metricStats).length" class="stats-bar">
+        <span class="stats-label">历史均值：</span>
+        <span class="stats-item" v-for="(s, k) in metricStats" :key="k">
+          {{ k === 'eps' ? 'EPS' : k === 'roe' ? 'ROE' : k === 'gross_margin' ? '毛利率' : k === 'net_margin' ? '净利率' : '负债率' }}：
+          <b>3y {{ s.avg3 !== null ? fmtStat(s.avg3) : '-' }}</b>
+          <b>10y {{ s.avg10 !== null ? fmtStat(s.avg10) : '-' }}{{ s.has10y ? '' : '*' }}</b>
+        </span>
+      </div>
+
       <n-grid :cols="3" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
         <!-- 成长性 -->
         <n-gi>
@@ -268,136 +279,6 @@
       <n-spin :show="klineLoading" description="加载K线…">
         <v-chart :option="klineOption" style="height: 500px" autoresize />
       </n-spin>
-    </n-card>
-
-    <!-- 估值指标 -->
-    <n-card title="估值指标" class="data-card" v-if="latestIndicators">
-      <template #header-extra>
-        <n-icon :size="20" color="#6366f1">
-          <AnalyticsOutline />
-        </n-icon>
-      </template>
-      <n-grid :cols="4" :x-gap="16" :y-gap="16">
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">市盈率 (PE)</div>
-            <div class="metric-value">{{ latestIndicators.per ? latestIndicators.per.toFixed(2) : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">市净率 (PB)</div>
-            <div class="metric-value">{{ latestIndicators.pb ? latestIndicators.pb.toFixed(2) : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">总市值</div>
-            <div class="metric-value metric-value-primary">{{ formatMarketCap(latestIndicators.mktcap) }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">流通市值</div>
-            <div class="metric-value">{{ formatMarketCap(latestIndicators.nmc) }}</div>
-          </div>
-        </n-gi>
-      </n-grid>
-    </n-card>
-
-    <!-- 财务指标概览 -->
-    <n-card title="财务指标概览" class="data-card" v-if="latestFinancial">
-      <template #header-extra>
-        <n-icon :size="20" color="#10b981">
-          <AnalyticsOutline />
-        </n-icon>
-      </template>
-      <n-grid :cols="4" :x-gap="16" :y-gap="16">
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">净资产收益率 (ROE)</div>
-            <div class="metric-value">{{ latestFinancial.roe ? latestFinancial.roe.toFixed(2) + '%' : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">每股收益 (EPS)</div>
-            <div class="metric-value">{{ latestFinancial.eps ? '¥' + latestFinancial.eps.toFixed(2) : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">每股净资产 (BPS)</div>
-            <div class="metric-value">{{ latestFinancial.bps ? '¥' + latestFinancial.bps.toFixed(2) : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box metric-box-large">
-            <div class="metric-label">资产负债率</div>
-            <div class="metric-value">{{ latestFinancial.debt_ratio ? latestFinancial.debt_ratio.toFixed(2) + '%' : '-' }}</div>
-          </div>
-        </n-gi>
-      </n-grid>
-      <n-grid :cols="4" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">营业收入</div>
-            <div class="metric-value">{{ formatAmount(latestFinancial.revenue) }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">净利润</div>
-            <div class="metric-value">{{ formatAmount(latestFinancial.net_profit) }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">营收同比增长</div>
-            <div class="metric-value" :class="latestFinancial.revenue_growth > 0 ? 'metric-value-success' : latestFinancial.revenue_growth < 0 ? 'metric-value-error' : ''">
-              {{ latestFinancial.revenue_growth ? (latestFinancial.revenue_growth > 0 ? '+' : '') + latestFinancial.revenue_growth.toFixed(2) + '%' : '-' }}
-            </div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">净利润同比增长</div>
-            <div class="metric-value" :class="latestFinancial.net_profit_growth > 0 ? 'metric-value-success' : latestFinancial.net_profit_growth < 0 ? 'metric-value-error' : ''">
-              {{ latestFinancial.net_profit_growth ? (latestFinancial.net_profit_growth > 0 ? '+' : '') + latestFinancial.net_profit_growth.toFixed(2) + '%' : '-' }}
-            </div>
-          </div>
-        </n-gi>
-      </n-grid>
-      <n-grid :cols="4" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">销售毛利率</div>
-            <div class="metric-value">{{ latestFinancial.gross_margin ? latestFinancial.gross_margin.toFixed(2) + '%' : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">销售净利率</div>
-            <div class="metric-value">{{ latestFinancial.net_margin ? latestFinancial.net_margin.toFixed(2) + '%' : '-' }}</div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">是否盈利</div>
-            <div class="metric-value">
-              <n-tag :type="latestFinancial.is_profitable ? 'success' : 'error'" round>
-                {{ latestFinancial.is_profitable ? '是' : '否' }}
-              </n-tag>
-            </div>
-          </div>
-        </n-gi>
-        <n-gi>
-          <div class="metric-box">
-            <div class="metric-label">报告期</div>
-            <div class="metric-value">{{ latestFinancial.report_date }} ({{ latestFinancial.report_type }})</div>
-          </div>
-        </n-gi>
-      </n-grid>
     </n-card>
 
     <!-- 财务趋势分析 -->
@@ -505,6 +386,31 @@ const klineLoading = ref(false)
 const klinePeriod = ref<string>('daily')
 const finFilter = ref<string>('all') // all | Annual | H1 | Q1 | Q3
 const valueAnalysis = ref<any>(null)
+
+// 关键指标的 近3年/近10年 均值（从年报计算，不满10年标注 *）
+const metricStats = computed(() => {
+  const annuals = financials.value
+    .filter(f => f.report_type === 'Annual')
+    .slice()
+    .sort((a, b) => (a.report_date > b.report_date ? -1 : 1)) // 降序
+  const stats: Record<string, { avg3: number | null; avg10: number | null; has10y: boolean }> = {}
+  const fields = ['roe', 'gross_margin', 'net_margin', 'debt_ratio', 'eps']
+  for (const f of fields) {
+    const vals3 = annuals.slice(0, 3).map(r => r[f]).filter(v => v != null)
+    const vals10 = annuals.slice(0, 10).map(r => r[f]).filter(v => v != null)
+    stats[f] = {
+      avg3: vals3.length >= 3 ? vals3.reduce((s, v) => s + v, 0) / vals3.length : null,
+      avg10: vals10.length >= 3 ? vals10.reduce((s, v) => s + v, 0) / vals10.length : null,
+      has10y: vals10.length >= 10,
+    }
+  }
+  return stats
+})
+
+function fmtStat(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '-'
+  return (v * 100).toFixed(1) + '%'
+}
 
 const latestQuote = computed(() => quotes.value.length > 0 ? quotes.value[quotes.value.length - 1] : null)
 const latestFinancial = computed(() => {
@@ -1209,4 +1115,18 @@ onUnmounted(() => {
 }
 .value-row span { color: var(--text-tertiary); }
 .value-row b { color: var(--text-primary); font-weight: 600; }
+
+.stats-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 10px 14px;
+  margin-top: 12px;
+  background: rgba(30, 41, 59, 0.2);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.stats-label { color: var(--text-tertiary); font-weight: 600; }
+.stats-item { color: var(--text-secondary); }
+.stats-item b { color: var(--text-primary); margin-right: 4px; }
 </style>
