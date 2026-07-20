@@ -215,6 +215,20 @@ class DataAcquisitionEngine:
                 # stocks instead of 5000).
                 today = datetime.now().date()
                 batch_codes = [ind.code for ind in batch]
+
+                # Self-clean: delete stale 'Latest' snapshots for this batch
+                # (report_date < today). full_basic runs daily and would otherwise
+                # accumulate one Latest row per day per stock — the dirty rows the
+                # user saw. Keep only today's (upserted below). 批量一条 DELETE。
+                from sqlalchemy import delete as _delete
+                await self.db.execute(
+                    _delete(FinancialReportModel).where(
+                        FinancialReportModel.stock_code.in_(batch_codes),
+                        FinancialReportModel.report_type == "Latest",
+                        FinancialReportModel.report_date < today,
+                    )
+                )
+
                 existing_res = await self.db.execute(
                     select(FinancialReportModel).where(
                         FinancialReportModel.stock_code.in_(batch_codes),

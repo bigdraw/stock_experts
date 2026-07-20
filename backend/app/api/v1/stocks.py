@@ -333,11 +333,13 @@ async def get_financials(
     await ensure_financial_reports(db, code)
     await db.commit()
 
+    # 财报历史只返回周期报告（Q1/H1/Q3/Annual），不含 'Latest' 行情快照
+    # （快照是另一回事，混在历史表里就是用户看到的脏数据）。
     result = await db.execute(
         select(FinancialReport)
-        .where(FinancialReport.stock_code == code)
+        .where(FinancialReport.stock_code == code, FinancialReport.report_type != "Latest")
         .order_by(FinancialReport.report_date.desc())
-        .limit(20)
+        .limit(30)
     )
     reports = result.scalars().all()
     return [

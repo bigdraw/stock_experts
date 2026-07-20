@@ -435,11 +435,53 @@ const latestFinancial = computed(() => {
   return periodic.reduce((a, b) => (a.report_date > b.report_date ? a : b))
 })
 
-// 财报表按报告类型过滤
+// 财报表按报告类型过滤（并排除 'Latest' 快照脏行）
 const filteredFinancials = computed(() => {
-  if (finFilter.value === 'all') return financials.value
-  return financials.value.filter(f => f.report_type === finFilter.value)
+  const periodic = financials.value.filter(f => f.report_type && f.report_type !== 'Latest')
+  if (finFilter.value === 'all') return periodic
+  return periodic.filter(f => f.report_type === finFilter.value)
 })
+
+// 同比 (YoY) 查找：按 report_date 取该期一年前同期（同 report_type）算各指标同比 %
+const yoyLookup = computed(() => {
+  const periodic = financials.value.filter(f => f.report_type && f.report_type !== 'Latest')
+  // key: report_type + year -> row
+  const byTypeYear = new Map<string, any>()
+  for (const r of periodic) {
+    const y = (r.report_date || '').slice(0, 4)
+    if (y) byTypeYear.set(`${r.report_type}_${y}`, r)
+  }
+  const out: Record<string, Record<string, number | null>> = {}
+  for (const r of periodic) {
+    const y = parseInt((r.report_date || '').slice(0, 4), 10)
+    if (!y) continue
+    const prior = byTypeYear.get(`${r.report_type}_${y - 1}`)
+    if (!prior) { out[r.report_date] = {}; continue }
+    const yoy = (k: string) => {
+      const c = r[k], p = prior[k]
+      if (c == null || p == null || p === 0) return null
+      return (c - p) / Math.abs(p)
+    }
+    out[r.report_date] = {
+      revenue: yoy('revenue'), net_profit: yoy('net_profit'), roe: yoy('roe'),
+      eps: yoy('eps'), gross_margin: yoy('gross_margin'), net_margin: yoy('net_margin'),
+      bps: yoy('bps'), debt_ratio: yoy('debt_ratio'),
+    }
+  }
+  return out
+})
+
+// 指标单元格：值 + 同比（小字、绿涨红跌）
+function metricCell(row: any, key: string, fmt: (v: number) => string) {
+  const yoyMap = yoyLookup.value[row.report_date] || {}
+  const yoy = yoyMap[key]
+  const color = yoy == null ? 'var(--text-tertiary)' : yoy > 0 ? '#10b981' : yoy < 0 ? '#ef4444' : 'var(--text-tertiary)'
+  const yoyStr = yoy == null ? '' : (yoy > 0 ? '+' : '') + (yoy * 100).toFixed(1) + '% 同比'
+  return h('div', { style: 'line-height: 1.3;' }, [
+    h('div', { style: 'color: var(--text-secondary);' }, fmt(row[key])),
+    h('div', { style: `font-size: 11px; color: ${color};` }, yoyStr),
+  ])
+}
 
 // 周期财报按日期升序（趋势图用）
 const periodicSorted = computed(() => {
@@ -504,14 +546,22 @@ const marginTrendOption = computed(() => {
 const peBandOption = computed(() => {
   const q = quotes.value
   if (!q || q.length < 30) return {}
-  // 年化 EPS（用最新一期财报 eps；季报×4、中报×2、三季报×4/3、年报原值）
+
+  // 年化 EPS：优先用最新周期财报 eps（按报告类型年化）；
+  // 无则用实时指标 per(当前PE)+price 反推 EPS = price/per（当前 PE 已是年化口径），
+  // 这样即使周期财报缺 eps 也能用"当前 EPS 锚"生成历史 PE 带。
   const lf = latestFinancial.value
-  if (!lf || !lf.eps) return {}
-  const annual = lf.report_type === 'Annual' ? lf.eps
-    : lf.report_type === 'H1' ? lf.eps * 2
-    : lf.report_type === 'Q3' ? lf.eps * 4 / 3
-    : lf.eps * 4 // Q1
+  let annual = 0
+  if (lf && lf.eps) {
+    annual = lf.report_type === 'Annual' ? lf.eps
+      : lf.report_type === 'H1' ? lf.eps * 2
+      : lf.report_type === 'Q3' ? lf.eps * 4 / 3
+      : lf.eps * 4
+  } else if (latestIndicators.value && latestIndicators.value.per && latestIndicators.value.price) {
+    annual = latestIndicators.value.price / latestIndicators.value.per
+  }
   if (annual <= 0) return {}
+
   const peSeries = q.map(bar => [bar.date, bar.close / annual])
   const peVals = peSeries.map(p => p[1]).filter(v => v > 0).sort((a, b) => a - b)
   if (peVals.length < 30) return {}
@@ -625,106 +675,29 @@ const klineOption = computed(() => ({
 }))
 
 const finColumns = [
-  { 
-    title: '报告期', 
+  {
+    title: '报告期',
     key: 'report_date',
-    width: 120,
-    render: (row: any) => h('span', { style: 'font-weight: 600; color: var(--text-primary);' }, row.report_date)
+    width: 110,
+    fixed: 'left' as const,
+    render: (row: any) => h('span', { style: 'font-weight: 600; color: var(--text-primary);' }, row.report_date),
   },
-  { 
-    title: '类型', 
+  {
+    title: '类型',
     key: 'report_type',
-    width: 80,
-    render: (row: any) => h(NTag, { size: 'small', type: 'info', round: true }, { default: () => row.report_type })
+    width: 70,
+    render: (row: any) => h(NTag, { size: 'small', type: 'info', round: true }, { default: () => row.report_type }),
   },
-  { 
-    title: '营收', 
-    key: 'revenue',
-    width: 120,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatAmount(row.revenue))
-  },
-  { 
-    title: '净利润', 
-    key: 'net_profit',
-    width: 120,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatAmount(row.net_profit))
-  },
-  { 
-    title: 'ROE', 
-    key: 'roe',
-    width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.roe ? row.roe.toFixed(2) + '%' : '-')
-  },
-  { 
-    title: 'EPS', 
-    key: 'eps',
-    width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.eps ? '¥' + row.eps.toFixed(2) : '-')
-  },
-  { 
-    title: '营收增长', 
-    key: 'revenue_growth',
-    width: 100,
-    render: (row: any) => h('span', { 
-      style: `color: ${row.revenue_growth > 0 ? '#10b981' : row.revenue_growth < 0 ? '#ef4444' : 'var(--text-secondary)'};`
-    }, row.revenue_growth ? (row.revenue_growth > 0 ? '+' : '') + row.revenue_growth.toFixed(2) + '%' : '-')
-  },
-  { 
-    title: '净利润增长', 
-    key: 'net_profit_growth',
-    width: 100,
-    render: (row: any) => h('span', { 
-      style: `color: ${row.net_profit_growth > 0 ? '#10b981' : row.net_profit_growth < 0 ? '#ef4444' : 'var(--text-secondary)'};`
-    }, row.net_profit_growth ? (row.net_profit_growth > 0 ? '+' : '') + row.net_profit_growth.toFixed(2) + '%' : '-')
-  },
-  {
-    title: '毛利率',
-    key: 'gross_margin',
-    width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.gross_margin ? row.gross_margin.toFixed(2) + '%' : '-')
-  },
-  {
-    title: '净利率',
-    key: 'net_margin',
-    width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.net_margin ? row.net_margin.toFixed(2) + '%' : '-')
-  },
-  {
-    title: 'BPS',
-    key: 'bps',
-    width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.bps ? '¥' + row.bps.toFixed(2) : '-')
-  },
-  {
-    title: '资产负债率',
-    key: 'debt_ratio',
-    width: 100,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.debt_ratio ? row.debt_ratio.toFixed(2) + '%' : '-')
-  },
-  {
-    title: 'PE',
-    key: 'per',
-    width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.per ? row.per.toFixed(2) : '-')
-  },
-  {
-    title: 'PB',
-    key: 'pb',
-    width: 80,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, row.pb ? row.pb.toFixed(2) : '-')
-  },
-  {
-    title: '市值',
-    key: 'mktcap',
-    width: 120,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.mktcap))
-  },
-  {
-    title: '流通市值',
-    key: 'nmc',
-    width: 120,
-    render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.nmc))
-  },
+  { title: '营收', key: 'revenue', width: 130, render: (row: any) => metricCell(row, 'revenue', formatAmount) },
+  { title: '净利润', key: 'net_profit', width: 130, render: (row: any) => metricCell(row, 'net_profit', formatAmount) },
+  { title: 'ROE', key: 'roe', width: 110, render: (row: any) => metricCell(row, 'roe', (v: number) => v != null ? (v * 100).toFixed(2) + '%' : '-') },
+  { title: 'EPS', key: 'eps', width: 110, render: (row: any) => metricCell(row, 'eps', (v: number) => v != null ? '¥' + v.toFixed(2) : '-') },
+  { title: 'BPS', key: 'bps', width: 110, render: (row: any) => metricCell(row, 'bps', (v: number) => v != null ? '¥' + v.toFixed(2) : '-') },
+  { title: '毛利率', key: 'gross_margin', width: 110, render: (row: any) => metricCell(row, 'gross_margin', (v: number) => v != null ? (v * 100).toFixed(2) + '%' : '-') },
+  { title: '净利率', key: 'net_margin', width: 110, render: (row: any) => metricCell(row, 'net_margin', (v: number) => v != null ? (v * 100).toFixed(2) + '%' : '-') },
+  { title: '资产负债率', key: 'debt_ratio', width: 110, render: (row: any) => metricCell(row, 'debt_ratio', (v: number) => v != null ? (v * 100).toFixed(2) + '%' : '-') },
+  { title: '市值', key: 'mktcap', width: 120, render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.mktcap)) },
+  { title: '流通市值', key: 'nmc', width: 120, render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.nmc)) },
 ]
 
 function formatNumber(num: number | null | undefined): string {
