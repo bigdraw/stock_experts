@@ -23,35 +23,58 @@ logger = logging.getLogger(__name__)
 async def ensure_daily_quotes(
     db: AsyncSession, code: str, days: int = 120, provider: AkShareProvider | None = None
 ) -> int:
-    """确保 DB 有 code 最近 `days` 个交易日的日K；不足则从 akshare 拉取并缓存。
+    """确保 DB 有 code 最近 `days` 个交易日的日K；不足或过期则从 akshare 拉取并缓存。
+
+    本地优先策略（不每次都打数据源）：
+    1. DB 已有 >= days 根且**最新 bar 是今天/上一交易日**→直接返回缓存，不拉取。
+    2. DB 已有 >= days 根但**最新 bar 过期**（如今天开盘后看昨天数据）→只拉
+       最新 bar 之后的增量（delta，通常 1-2 根），不重拉全量。
+    3. DB 不足 days 根→拉取最近 days*1.6 天的全量并 upsert（首次填充）。
 
     返回该股票在 DB 中的日K条数。upsert 按 (stock_code, date) 唯一约束去重。
     """
     provider = provider or AkShareProvider()
-    # 先查 DB 已有量
+    # 先查 DB 已有量 + 最新日期
     existing = await db.execute(
         select(DailyQuote.date)
         .where(DailyQuote.stock_code == code)
         .order_by(DailyQuote.date.desc())
         .limit(days)
     )
-    have = {row[0] for row in existing.all()}
-    if len(have) >= days:
-        return len(have)
+    have_dates = [row[0] for row in existing.all()]
+    have_set = set(have_dates)
+    latest = have_dates[0] if have_dates else None
+    today = date.today()
+    days_behind = (today - latest).days if latest else 999
+    is_weekend = today.weekday() >= 5  # Sat=5, Sun=6
 
-    # 不足→拉取（多拉 50% 余量覆盖非交易日）
-    end = date.today().strftime("%Y-%m-%d")
-    start = (date.today() - timedelta(days=int(days * 1.6))).strftime("%Y-%m-%d")
+    # 缓存命中（不拉取）：充足 且 最新 bar 是今天；或周末且最新是周五（市场休市）
+    fresh = days_behind == 0 or (is_weekend and days_behind <= 2)
+    if len(have_set) >= days and fresh:
+        return len(have_set)
+
+    # 确定拉取区间
+    if latest is not None and len(have_set) >= days:
+        # 情况2：缓存足但过期→只拉 latest 之后的增量（从 latest 次日起）
+        start = (latest + timedelta(days=1)).strftime("%Y-%m-%d")
+    else:
+        # 情况3：不足→拉最近 days*1.6 天全量
+        start = (today - timedelta(days=int(days * 1.6))).strftime("%Y-%m-%d")
+    end = today.strftime("%Y-%m-%d")
+
+    if start > end:
+        return len(have_set)  # latest 已是今天，无需拉
+
     try:
         quotes = await provider.get_daily_quotes(code, start, end)
     except Exception as e:
-        logger.warning(f"ensure_daily_quotes fetch failed for {code}: {e}")
-        return len(have)
+        logger.warning(f"ensure_daily_quotes fetch failed for {code} [{start}~{end}]: {e}")
+        return len(have_set)
 
     added = 0
     for q in quotes:
         qd = _parse_date(q.date)
-        if qd is None or qd in have:
+        if qd is None or qd in have_set:
             continue
         db.add(
             DailyQuote(
@@ -61,12 +84,12 @@ async def ensure_daily_quotes(
                 volume=q.volume, amount=q.amount, turnover_rate=q.turnover_rate,
             )
         )
-        have.add(qd)
+        have_set.add(qd)
         added += 1
     if added:
         await db.flush()
-        logger.info(f"ensure_daily_quotes: cached {added} bars for {code}")
-    return len(have)
+        logger.info(f"ensure_daily_quotes: cached {added} bars for {code} [{start}~{end}]")
+    return len(have_set)
 
 
 async def ensure_financial_reports(
