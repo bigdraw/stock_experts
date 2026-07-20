@@ -62,10 +62,15 @@ class IndicatorValidator:
             if ind.pe_ratio < cls.RANGES['pe_ratio'][0] or ind.pe_ratio > cls.RANGES['pe_ratio'][1]:
                 warnings.append(f"PE ratio out of range: {ind.pe_ratio}")
         
-        # Validate PB ratio
+        # Validate PB ratio. Negative PB is LEGITIMATE — it means negative book
+        # value (insolvent / negative net assets), which is a real market signal,
+        # not bad data. Flag as a warning so the record is still stored; only an
+        # implausibly large positive PB is treated as a range warning. Previously
+        # negative PB was a hard error, causing the engine to skip the whole
+        # stock (data loss for negative-book-value names).
         if ind.pb_ratio is not None:
             if ind.pb_ratio < 0:
-                errors.append(f"Invalid PB ratio: {ind.pb_ratio} (must be >= 0)")
+                warnings.append(f"Negative PB ratio: {ind.pb_ratio} (negative book value)")
             elif ind.pb_ratio > cls.RANGES['pb_ratio'][1]:
                 warnings.append(f"PB ratio out of range: {ind.pb_ratio}")
         
