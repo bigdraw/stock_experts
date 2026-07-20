@@ -33,6 +33,7 @@ class BacktestMetrics:
     profit_factor: float
     final_equity: float
     n_bars: int
+    equity_curve: list  # [(date_str, equity), ...] 供前端画权益曲线
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +48,7 @@ class BacktestMetrics:
             "profit_factor": round(self.profit_factor, 4),
             "final_equity": round(self.final_equity, 4),
             "n_bars": self.n_bars,
+            "equity_curve": self.equity_curve,
         }
 
 
@@ -138,6 +140,22 @@ def run_backtest(
     )
     profit_factor = 1e9 if profit_factor == float("inf") else profit_factor
 
+    # 权益曲线供前端绘制（date, equity）；长序列降采样到 ~200 点避免 payload 过大
+    eq_index = equity.index
+    eq_values = equity.tolist()
+    if len(eq_values) > 200:
+        step = max(1, len(eq_values) // 200)
+        idxs = list(range(0, len(eq_values), step)) + [len(eq_values) - 1]
+        eq_pairs = [
+            (str(eq_index[i].date()) if hasattr(eq_index[i], "date") else str(eq_index[i]), round(eq_values[i], 2))
+            for i in idxs
+        ]
+    else:
+        eq_pairs = [
+            (str(t.date()) if hasattr(t, "date") else str(t), round(v, 2))
+            for t, v in zip(eq_index, eq_values, strict=False)
+        ]
+
     return BacktestMetrics(
         total_return=total_return,
         annualized_return=annualized_return,
@@ -150,4 +168,5 @@ def run_backtest(
         profit_factor=profit_factor,
         final_equity=final_equity,
         n_bars=n,
+        equity_curve=eq_pairs,
     )

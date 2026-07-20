@@ -137,6 +137,76 @@ async def backtest(
     return {"metrics": m.to_dict(), "n_entries": int(entries.sum()), "n_exits": int(exits.sum())}
 
 
+class BacktestRunRequest(BaseModel):
+    """服务端取数回测：只需股票代码 + 区间 + 策略，后端拉历史K线并跑。"""
+
+    strategy_type: str
+    parameters: dict[str, Any] | None = None
+    stock_code: str
+    days: int = 365  # 回测窗口长度（交易日）
+    initial_capital: float = 100_000.0
+    fees: float = 0.001
+
+
+@router.post("/backtest/run")
+async def backtest_run(
+    req: BacktestRunRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """平台回测能力：选策略+股票+区间 → 后端按需拉历史日K（缓存）→ 跑移植的纯 pandas 回测。
+
+    用移植模块构造端到端回测：generate_signals(策略模板) + run_backtest(纯 pandas 引擎)，
+    返回 total_return/sharpe/max_drawdown/win_rate + equity_curve（前端可直接画权益曲线）。
+    """
+    from sqlalchemy import select
+
+    from app.models.stock import DailyQuote
+    from app.services.data.cache import ensure_daily_quotes
+
+    # 1. 确保该股有足够历史日K（DB 不足则从 akshare 拉取并缓存）
+    have = await ensure_daily_quotes(db, req.stock_code, days=req.days)
+    await db.commit()
+    if have < max(req.days, 30):
+        return {"error": f"{req.stock_code} 日K不足（{have}/{req.days}），可能新股或数据源失败"}
+
+    # 2. 取该股最近 days 个交易日 OHLCV
+    rows = (
+        await db.execute(
+            select(DailyQuote)
+            .where(DailyQuote.stock_code == req.stock_code)
+            .order_by(DailyQuote.date.desc())
+            .limit(req.days)
+        )
+    ).scalars().all()
+    rows = list(reversed(rows))  # 时间升序
+    df = pd.DataFrame(
+        [
+            {
+                "date": str(r.date),
+                "close": r.close,
+                "high": r.high if r.high is not None else r.close,
+                "low": r.low if r.low is not None else r.close,
+                "volume": r.volume if r.volume is not None else 0.0,
+            }
+            for r in rows
+        ]
+    )
+    df.index = pd.to_datetime(df["date"], format="mixed", errors="coerce")
+
+    # 3. 生成信号 + 跑回测
+    entries, exits = generate_signals(req.strategy_type, req.parameters, df)
+    metrics = run_backtest(df, entries, exits, req.initial_capital, req.fees)
+    return {
+        "strategy_type": req.strategy_type,
+        "stock_code": req.stock_code,
+        "n_bars": len(rows),
+        "metrics": metrics.to_dict(),
+        "n_entries": int(entries.sum()),
+        "n_exits": int(exits.sum()),
+    }
+
+
 class WalkForwardRequest(BaseModel):
     strategy_type: str
     parameters: dict[str, Any] | None = None

@@ -261,7 +261,16 @@ async def get_quotes(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get daily quotes for a stock."""
+    """Get daily quotes for a stock (fetch-on-demand: cache from akshare if DB lacks).
+
+    解决"K线无数据"：DB 日K不足时按需从 akshare 拉取该股最近 `days` 个交易日
+    并缓存到 daily_quotes，后续直接读 DB。首次访问即有K线，无需预跑采集。
+    """
+    from app.services.data.cache import ensure_daily_quotes
+
+    await ensure_daily_quotes(db, code, days=days)
+    await db.commit()
+
     result = await db.execute(
         select(DailyQuote)
         .where(DailyQuote.stock_code == code)
@@ -290,7 +299,16 @@ async def get_financials(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get financial reports for a stock."""
+    """Get financial reports for a stock (fetch-on-demand: cache periodic reports if DB lacks).
+
+    解决"财报历史表无数据"：full_basic_collection 只存 'Latest' 快照；首次访问时
+    按需从 akshare 拉取该股的周期财报（Q1/H1/Q3/Annual）并缓存到 financial_reports。
+    """
+    from app.services.data.cache import ensure_financial_reports
+
+    await ensure_financial_reports(db, code)
+    await db.commit()
+
     result = await db.execute(
         select(FinancialReport)
         .where(FinancialReport.stock_code == code)
