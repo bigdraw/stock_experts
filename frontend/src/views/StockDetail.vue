@@ -79,6 +79,24 @@
       </n-gi>
     </n-grid>
 
+    <!-- 公司信息（idea19：同花顺爬虫） -->
+    <n-card v-if="companyInfo && (companyInfo.industry || companyInfo.brief)" class="data-card" size="small">
+      <template #header>
+        <span style="font-weight: 600; color: var(--text-primary); font-size: 15px;">公司信息</span>
+      </template>
+      <n-space vertical :size="8">
+        <div v-if="companyInfo.industry" style="font-size: 13px;">
+          <span style="color: var(--text-tertiary);">行业：</span>
+          <span style="color: var(--text-secondary);">{{ companyInfo.industry }}</span>
+          <span v-if="companyInfo.seector" style="color: var(--text-tertiary); margin-left: 16px;">板块：</span>
+          <span v-if="companyInfo.sector" style="color: var(--text-secondary);">{{ companyInfo.sector }}</span>
+        </div>
+        <div v-if="companyInfo.brief" style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+          {{ companyInfo.brief }}
+        </div>
+      </n-space>
+    </n-card>
+
     <!-- 实时行情指标 -->
     <n-card title="实时行情" class="data-card" v-if="latestIndicators">
       <template #header-extra>
@@ -394,6 +412,7 @@ const klinePeriod = ref<string>('daily')
 const finFilter = ref<string>('all') // all | Annual | H1 | Q1 | Q3
 const valueAnalysis = ref<any>(null)
 const bandType = ref<'pe' | 'pb' | 'ps'>('pe')
+const companyInfo = ref<any>(null)
 
 // 关键指标的 近3年/近10年 均值（从年报计算，不满10年标注 *）
 const metricStats = computed(() => {
@@ -796,6 +815,11 @@ async function loadData(stockCode: string) {
   stocksApi.getValueAnalysis(stockCode).then((res) => {
     valueAnalysis.value = res.data
   }).catch((e) => console.error('value analysis failed', e))
+
+  // 阶段3b：公司信息（同花顺爬虫，轻量）
+  stocksApi.getCompanyInfo(stockCode).then((res) => {
+    companyInfo.value = res.data
+  }).catch(() => {})
 }
 
 // Real-time refresh: only re-fetch the live indicators + the most recent quote

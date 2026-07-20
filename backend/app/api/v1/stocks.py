@@ -459,3 +459,14 @@ async def value_analysis(
     await ensure_financial_reports(db, code)
     await db.commit()
     return await analyze(db, code)
+
+
+@router.get("/{code}/company-info")
+async def get_company_info(
+    code: str,
+    current_user: User = Depends(get_current_user),
+):
+    """公司信息（简介/行业/板块，同花顺+新浪爬虫，idea19）。"""
+    from app.services.data.company_info import fetch_company_info
+
+    return await fetch_company_info(code)
