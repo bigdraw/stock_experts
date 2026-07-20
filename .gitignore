@@ -52,16 +52,22 @@ frontend/playwright/.cache/
 frontend/node_modules/.tmp/
 
 # ----------------------------------------------------------------------------
-# long-dev framework
-# Framework definition files (agent / skills / commands / plugins / .ai docs)
-# ARE part of the product and MUST be version-controlled — otherwise the
-# Session Start Protocol and Context Switch commit steps are no-ops across
-# machines/clone.
-# Only runtime/cache state is ignored.
+# long-dev / AI-assisted-development scaffolding (NOT part of the open-source
+# platform). These are local-only dev tooling — agent/skill/command/design
+# docs, framework state, watcher caches. They are intentionally NOT tracked:
+# the open-source release ships the platform only, not the AI-dev scaffolding.
+# Cross-machine consistency of these is maintained separately (or treated as
+# single-machine); see AGENTS.md / .opencode/skills/long-dev/SKILL.md.
 # ----------------------------------------------------------------------------
-.opencode/node_modules/
-.ai/cache/
+.ai/
+.opencode/
+AGENTS.md
+opencode.json
 .claude/
+
+# AI-session fix/summary logs (dev scaffolding, not platform docs)
+REVIEW-FIXES.md
+docs/SESSION-SUMMARY.md
 
 # Pre-scrub git backup (contains old history w/ secrets) — never track
 .git.backup-pre-scrub/
