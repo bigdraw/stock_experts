@@ -696,8 +696,6 @@ const finColumns = [
   { title: '毛利率', key: 'gross_margin', width: 110, render: (row: any) => metricCell(row, 'gross_margin', (v: number) => v != null ? (v * 100).toFixed(2) + '%' : '-') },
   { title: '净利率', key: 'net_margin', width: 110, render: (row: any) => metricCell(row, 'net_margin', (v: number) => v != null ? (v * 100).toFixed(2) + '%' : '-') },
   { title: '资产负债率', key: 'debt_ratio', width: 110, render: (row: any) => metricCell(row, 'debt_ratio', (v: number) => v != null ? (v * 100).toFixed(2) + '%' : '-') },
-  { title: '市值', key: 'mktcap', width: 120, render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.mktcap)) },
-  { title: '流通市值', key: 'nmc', width: 120, render: (row: any) => h('span', { style: 'color: var(--text-secondary);' }, formatMarketCap(row.nmc)) },
 ]
 
 function formatNumber(num: number | null | undefined): string {
