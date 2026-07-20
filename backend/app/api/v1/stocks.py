@@ -437,3 +437,25 @@ async def get_latest_indicators(
         # 衍生指标
         "is_profitable": report.is_profitable,
     }
+
+
+@router.get("/{code}/value-analysis")
+async def value_analysis(
+    code: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """价值投资分析：复用已缓存财报 + provider 三大报表，组合输出价值投资指标。
+
+    估值(PE/PB/PS/PCF/Graham/股息率) / 盈利能力(ROE/ROA/ROIC/毛利率/净利率) /
+    财务安全(资产负债率/流动比率/现金比率/利息保障) / 现金流(OCF/FCF/FCF yield/盈利质量) /
+    成长性(营收/净利/净资产 CAGR) / 股东回报(分红)。
+    按需拉取三大报表（provider 方法），读已缓存 financial_reports 不重算。
+    """
+    from app.services.data.cache import ensure_financial_reports
+    from app.services.data.value_analysis import analyze
+
+    # 先确保该股有缓存的周期财报（复用 ensure 逻辑）
+    await ensure_financial_reports(db, code)
+    await db.commit()
+    return await analyze(db, code)

@@ -591,6 +591,104 @@ class AkShareProvider(DataProvider):
         finally:
             _restore_proxy(original_proxy)
 
+    async def get_financial_statements(self, code: str) -> list[dict]:
+        """取三大报表（资产负债表/利润表/现金流量表）的关键字段，按报告期返回。
+
+        复用 _bypass_proxy/_parse_cn_number。code 须为 'sh600519'/'sz000001' 形式。
+        返回每期 dict：report_date(YYYYMMDD) + total_assets/current_assets/
+        current_liab/total_liab/equity/cash/revenue/cost/op_profit/net_profit/
+        interest_exp/ocf/capex/div_paid（无法解析的为 None）。
+        用于价值投资指标（ROIC/OCF/FCF/流动比率/利息保障等）—— 这些字段
+        不在 financial_reports 缓存的 abstract 里，需从三大报表取。
+        """
+        import pandas as _pd
+
+        async with self._semaphore:
+            try:
+                b, i, c = await asyncio.to_thread(self._fetch_statements_sync, code)
+            except Exception as e:
+                logger.error(f"Failed to fetch financial statements for {code}: {e}")
+                return []
+
+            def _row(df: _pd.DataFrame, rd: str) -> _pd.Series:
+                m = df[df["报告日"] == rd]
+                return m.iloc[0] if len(m) else _pd.Series(dtype=object)
+
+            # 以利润表报告日为基准（最全）
+            dates = sorted(i["报告日"].unique().tolist())
+            out = []
+            for rd in dates:
+                irow, brow, crow = i[i["报告日"] == rd].iloc[0], _row(b, rd), _row(c, rd)
+                out.append({
+                    "report_date": str(rd),
+                    "total_assets": _parse_cn_number(brow.get("资产总计")),
+                    "current_assets": _parse_cn_number(brow.get("流动资产合计")),
+                    "current_liab": _parse_cn_number(brow.get("流动负债合计")),
+                    "total_liab": _parse_cn_number(brow.get("负债合计")),
+                    "equity": _parse_cn_number(
+                        brow.get("归属于母公司股东权益合计")
+                        or brow.get("所有者权益(或股东权益)合计")
+                        or brow.get("所有者权益合计")
+                    ),
+                    "cash": _parse_cn_number(brow.get("货币资金")),
+                    "revenue": _parse_cn_number(irow.get("营业总收入") or irow.get("营业收入")),
+                    "cost": _parse_cn_number(irow.get("营业成本")),
+                    "op_profit": _parse_cn_number(irow.get("营业利润")),
+                    "net_profit": _parse_cn_number(
+                        irow.get("归属于母公司所有者的净利润") or irow.get("净利润")
+                    ),
+                    "interest_exp": _parse_cn_number(irow.get("利息费用") or irow.get("财务费用")),
+                    "ocf": _parse_cn_number(crow.get("经营活动产生的现金流量净额")),
+                    "capex": _parse_cn_number(
+                        crow.get("购建固定资产、无形资产和其他长期资产所支付的现金")
+                    ),
+                    "div_paid": _parse_cn_number(
+                        crow.get("分配股利、利润或偿付利息所支付的现金")
+                    ),
+                })
+            return out
+
+    def _fetch_statements_sync(self, code: str):
+        """Synchronous wrapper: fetch the three Sina statements."""
+        original_proxy = _bypass_proxy()
+        try:
+            b = ak.stock_financial_report_sina(stock=code, symbol="资产负债表")
+            i = ak.stock_financial_report_sina(stock=code, symbol="利润表")
+            c = ak.stock_financial_report_sina(stock=code, symbol="现金流量表")
+            return b, i, c
+        finally:
+            _restore_proxy(original_proxy)
+
+    async def get_dividends(self, code: str) -> list[dict]:
+        """取分红历史（派息比例等）。code 为 '600519' 形式。"""
+        async with self._semaphore:
+            try:
+                df = await asyncio.to_thread(self._fetch_dividends_sync, code)
+            except Exception as e:
+                logger.error(f"Failed to fetch dividends for {code}: {e}")
+                return []
+            if len(df) == 0:
+                return []
+            out = []
+            for _, row in df.iterrows():
+                payout = _parse_cn_number(row.get("派息比例"))
+                per_share = payout / 10 if (payout and payout >= 1) else payout
+                out.append({
+                    "announce_date": str(row.get("实施方案公告日期", "")),
+                    "dividend_per_share": per_share,
+                    "stock_div_ratio": _parse_cn_number(row.get("送股比例")),
+                    "convert_ratio": _parse_cn_number(row.get("转增比例")),
+                    "ex_date": str(row.get("除权日", "")),
+                })
+            return out
+
+    def _fetch_dividends_sync(self, code: str):
+        original_proxy = _bypass_proxy()
+        try:
+            return ak.stock_dividend_cninfo(symbol=code)
+        finally:
+            _restore_proxy(original_proxy)
+
     async def get_research_reports(self, code: str) -> list[dict]:
         """Get research reports for a stock (placeholder)."""
         # AkShare has limited research report data; this is a placeholder

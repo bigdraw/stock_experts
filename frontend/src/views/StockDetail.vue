@@ -166,6 +166,86 @@
       </n-grid>
     </n-card>
 
+    <!-- 价值投资分析（复用缓存财报 + 三大报表） -->
+    <n-card v-if="valueAnalysis && !valueAnalysis.error" class="data-card">
+      <template #header>
+        <span style="font-weight: 600; color: var(--text-primary);">价值投资分析</span>
+        <span style="font-size: 11px; color: var(--text-tertiary); margin-left: 8px;">
+          最新期 {{ valueAnalysis.latest?.report_date }}
+        </span>
+      </template>
+      <n-grid :cols="4" :x-gap="16" :y-gap="16">
+        <!-- 估值 -->
+        <n-gi>
+          <div class="value-section">
+            <div class="value-section-title">估值</div>
+            <div class="value-row"><span>PE</span><b>{{ fmtNum(valueAnalysis.valuation?.pe) }}</b></div>
+            <div class="value-row"><span>PB</span><b>{{ fmtNum(valueAnalysis.valuation?.pb) }}</b></div>
+            <div class="value-row"><span>PS</span><b>{{ fmtNum(valueAnalysis.valuation?.ps) }}</b></div>
+            <div class="value-row"><span>PCF</span><b>{{ fmtNum(valueAnalysis.valuation?.pcf) }}</b></div>
+            <div class="value-row"><span>Graham估值</span><b>¥{{ fmtNum(valueAnalysis.valuation?.graham_number) }}</b></div>
+            <div class="value-row"><span>股息率</span><b>{{ fmtPct(valueAnalysis.valuation?.dividend_yield) }}</b></div>
+          </div>
+        </n-gi>
+        <!-- 盈利能力 -->
+        <n-gi>
+          <div class="value-section">
+            <div class="value-section-title">盈利能力</div>
+            <div class="value-row"><span>ROE</span><b>{{ fmtPct(valueAnalysis.latest?.roe) }}</b></div>
+            <div class="value-row"><span>ROA</span><b>{{ fmtPct(valueAnalysis.latest?.roa) }}</b></div>
+            <div class="value-row"><span>ROIC</span><b>{{ fmtPct(valueAnalysis.latest?.roic) }}</b></div>
+            <div class="value-row"><span>毛利率</span><b>{{ fmtPct(valueAnalysis.latest?.gross_margin) }}</b></div>
+            <div class="value-row"><span>净利率</span><b>{{ fmtPct(valueAnalysis.latest?.net_margin) }}</b></div>
+          </div>
+        </n-gi>
+        <!-- 财务安全 -->
+        <n-gi>
+          <div class="value-section">
+            <div class="value-section-title">财务安全</div>
+            <div class="value-row"><span>资产负债率</span><b>{{ fmtPct(valueAnalysis.latest?.debt_ratio) }}</b></div>
+            <div class="value-row"><span>流动比率</span><b>{{ fmtNum(valueAnalysis.latest?.current_ratio, 2) }}</b></div>
+            <div class="value-row"><span>现金比率</span><b>{{ fmtNum(valueAnalysis.latest?.cash_ratio, 2) }}</b></div>
+            <div class="value-row"><span>利息保障</span><b>{{ fmtNum(valueAnalysis.latest?.interest_coverage, 1) }}</b></div>
+          </div>
+        </n-gi>
+        <!-- 现金流 -->
+        <n-gi>
+          <div class="value-section">
+            <div class="value-section-title">现金流</div>
+            <div class="value-row"><span>经营现金流</span><b>{{ formatAmount(valueAnalysis.latest?.ocf) }}</b></div>
+            <div class="value-row"><span>自由现金流</span><b>{{ formatAmount(valueAnalysis.latest?.fcf) }}</b></div>
+            <div class="value-row"><span>FCF收益率</span><b>{{ fmtPct(valueAnalysis.valuation?.fcf_yield) }}</b></div>
+            <div class="value-row"><span>盈利质量(OCF/净利)</span><b>{{ fmtNum(valueAnalysis.latest?.earnings_quality, 2) }}</b></div>
+          </div>
+        </n-gi>
+      </n-grid>
+      <n-grid :cols="3" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
+        <!-- 成长性 -->
+        <n-gi>
+          <div class="value-section">
+            <div class="value-section-title">成长性 (CAGR)</div>
+            <div class="value-row"><span>营收 3年/5年</span><b>{{ fmtPct(valueAnalysis.growth?.revenue?.cagr_3y) }} / {{ fmtPct(valueAnalysis.growth?.revenue?.cagr_5y) }}</b></div>
+            <div class="value-row"><span>净利 3年/5年</span><b>{{ fmtPct(valueAnalysis.growth?.net_profit?.cagr_3y) }} / {{ fmtPct(valueAnalysis.growth?.net_profit?.cagr_5y) }}</b></div>
+            <div class="value-row"><span>净资产 3年/5年</span><b>{{ fmtPct(valueAnalysis.growth?.equity?.cagr_3y) }} / {{ fmtPct(valueAnalysis.growth?.equity?.cagr_5y) }}</b></div>
+            <div class="value-row"><span>年报数</span><b>{{ valueAnalysis.annual_count }}</b></div>
+          </div>
+        </n-gi>
+        <!-- 分红记录 -->
+        <n-gi :span="2">
+          <div class="value-section">
+            <div class="value-section-title">分红记录 (近 {{ valueAnalysis.dividends?.length || 0 }} 次)</div>
+            <n-data-table
+              :columns="dividendColumns"
+              :data="valueAnalysis.dividends || []"
+              :bordered="false"
+              :pagination="{ pageSize: 5 }"
+              size="small"
+            />
+          </div>
+        </n-gi>
+      </n-grid>
+    </n-card>
+
     <!-- K线图 -->
     <n-card class="chart-card">
       <template #header>
@@ -424,6 +504,7 @@ const finLoading = ref(false)
 const klineLoading = ref(false)
 const klinePeriod = ref<string>('daily')
 const finFilter = ref<string>('all') // all | Annual | H1 | Q1 | Q3
+const valueAnalysis = ref<any>(null)
 
 const latestQuote = computed(() => quotes.value.length > 0 ? quotes.value[quotes.value.length - 1] : null)
 const latestFinancial = computed(() => {
@@ -724,6 +805,23 @@ function formatMarketCap(cap: number | null | undefined): string {
   return '¥' + cap.toFixed(2) + '万'
 }
 
+function fmtNum(v: number | null | undefined, digits = 2): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return '-'
+  return Number(v).toFixed(digits)
+}
+function fmtPct(v: number | null | undefined): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return '-'
+  return (Number(v) * 100).toFixed(2) + '%'
+}
+
+const dividendColumns = [
+  { title: '公告日', key: 'announce_date', width: 110 },
+  { title: '每股派息(元)', key: 'dividend_per_share', width: 110, render: (r: any) => fmtNum(r.dividend_per_share, 4) },
+  { title: '送股', key: 'stock_div_ratio', width: 80, render: (r: any) => fmtNum(r.stock_div_ratio) },
+  { title: '转增', key: 'convert_ratio', width: 80, render: (r: any) => fmtNum(r.convert_ratio) },
+  { title: '除权日', key: 'ex_date', width: 110 },
+]
+
 function calculateAmplitude(quote: DailyQuote): string {
   if (!quote.high || !quote.low || !quote.open) return '-'
   const amplitude = ((quote.high - quote.low) / quote.open) * 100
@@ -760,6 +858,11 @@ async function loadData(stockCode: string) {
     klineLoading.value = false
     finLoading.value = false
   })
+
+  // 阶段3：价值投资分析（读缓存+三大报表，最重，最后异步拉，不阻塞）
+  stocksApi.getValueAnalysis(stockCode).then((res) => {
+    valueAnalysis.value = res.data
+  }).catch((e) => console.error('value analysis failed', e))
 }
 
 // Real-time refresh: only re-fetch the live indicators + the most recent quote
@@ -1079,4 +1182,31 @@ onUnmounted(() => {
   color: var(--text-secondary);
   margin-bottom: 8px;
 }
+
+/* 价值投资分析 */
+.value-section {
+  background: rgba(30, 41, 59, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.value-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6366f1;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.value-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.value-row span { color: var(--text-tertiary); }
+.value-row b { color: var(--text-primary); font-weight: 600; }
 </style>

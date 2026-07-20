@@ -25,6 +25,7 @@ export const stocksApi = {
     }),
   getFinancials: (code: string) => apiClient.get(`/stocks/${code}/financials`),
   getIndicators: (code: string) => apiClient.get(`/stocks/${code}/indicators`),
+  getValueAnalysis: (code: string) => apiClient.get(`/stocks/${code}/value-analysis`),
 }
 
 // Portfolios
