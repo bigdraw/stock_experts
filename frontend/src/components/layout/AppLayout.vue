@@ -122,6 +122,7 @@ function renderIcon(icon: any) {
 
 const menuOptions = computed(() => {
   const baseMenu = [
+    { label: '对话', key: 'ChatHome', icon: renderIcon(ChatbubblesOutline) },
     { label: '仪表盘', key: 'Dashboard', icon: renderIcon(HomeOutline) },
     { label: '股票列表', key: 'StockList', icon: renderIcon(TrendingUpOutline) },
     { label: '投资组合', key: 'PortfolioList', icon: renderIcon(BriefcaseOutline) },

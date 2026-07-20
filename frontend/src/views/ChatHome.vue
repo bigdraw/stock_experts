@@ -11,6 +11,29 @@
         <p>输入你的问题，如"分析 600519 的估值和盈利能力"</p>
         <p style="font-size: 12px; color: var(--text-tertiary);">@巴菲特 @格雷厄姆 分析 600519（指定多个 Agent 对话）</p>
         <p style="font-size: 12px; color: var(--text-tertiary);">/value_analysis 查看可用技能</p>
+        <!-- 快捷入口（关联现有能力）idea25/27 -->
+        <n-space :size="12" style="margin-top: 20px;" justify="center">
+          <n-button size="small" secondary @click="$router.push('/stocks')">
+            <template #icon><n-icon><TrendingUpOutline /></n-icon></template>
+            个股分析
+          </n-button>
+          <n-button size="small" secondary @click="$router.push('/portfolios')">
+            <template #icon><n-icon><BriefcaseOutline /></n-icon></template>
+            组合管理
+          </n-button>
+          <n-button size="small" secondary @click="$router.push('/backtest')">
+            <template #icon><n-icon><BarChartOutline /></n-icon></template>
+            策略回测
+          </n-button>
+          <n-button size="small" secondary @click="$router.push('/debate')">
+            <template #icon><n-icon><ChatbubblesOutline /></n-icon></template>
+            辩论分析
+          </n-button>
+          <n-button size="small" secondary @click="$router.push('/filters')">
+            <template #icon><n-icon><FunnelOutline /></n-icon></template>
+            筛选工具
+          </n-button>
+        </n-space>
       </div>
       <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
         <div v-if="msg.role === 'user'" class="msg-bubble user-bubble">{{ msg.content }}</div>
@@ -69,8 +92,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
+import { ChatbubbleEllipsesOutline, TrendingUpOutline, BriefcaseOutline, BarChartOutline, FunnelOutline } from '@vicons/ionicons5'
 import { useMessage } from 'naive-ui'
-import { ChatbubbleEllipsesOutline } from '@vicons/ionicons5'
+import { ChatbubblesOutline } from '@vicons/ionicons5'
 import apiClient from '../api/client'
 
 interface Message {
