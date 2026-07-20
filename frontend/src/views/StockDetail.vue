@@ -259,13 +259,20 @@
             <div class="value-row"><span>年报数</span><b>{{ valueAnalysis.annual_count }}</b></div>
           </div>
         </n-gi>
-        <!-- 分红记录 -->
+        <!-- 分红记录（idea22：近到远排列 + 统计 + 总值对比） -->
         <n-gi :span="2">
           <div class="value-section">
-            <div class="value-section-title">分红记录 (近 {{ valueAnalysis.dividends?.length || 0 }} 次)</div>
+            <div class="value-section-title">分红记录</div>
+            <!-- 分红统计摘要 -->
+            <div v-if="dividendStats" class="dividend-summary">
+              <span class="stats-item">累计分红 <b>{{ dividendStats.total_dividend }}元/股</b></span>
+              <span class="stats-item">分红次数 <b>{{ dividendStats.count }}</b></span>
+              <span class="stats-item">年均股息率 <b>{{ dividendStats.avg_yield }}</b></span>
+              <span class="stats-item">最近一次 <b>{{ dividendStats.latest_date }} ({{ dividendStats.latest_per_share }}元/股)</b></span>
+            </div>
             <n-data-table
               :columns="dividendColumns"
-              :data="valueAnalysis.dividends || []"
+              :data="sortedDividends"
               :bordered="false"
               :pagination="{ pageSize: 5 }"
               size="small"
@@ -765,6 +772,36 @@ function fmtPct(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '-'
   return (Number(v) * 100).toFixed(2) + '%'
 }
+
+// 分红记录：近到远排列（idea22）
+const sortedDividends = computed(() => {
+  const divs = valueAnalysis.value?.dividends || []
+  return [...divs].sort((a, b) => (a.announce_date > b.announce_date ? -1 : 1))
+})
+
+// 分红统计（idea22）
+const dividendStats = computed(() => {
+  const divs = sortedDividends.value
+  if (!divs.length) return null
+  const total = divs.reduce((s, d) => s + (d.dividend_per_share || 0), 0)
+  const count = divs.length
+  const years = divs.length > 1
+    ? (new Date(divs[0].announce_date).getFullYear() - new Date(divs[divs.length - 1].announce_date).getFullYear() + 1)
+    : 1
+  const latest = divs[0]
+  // 股息率近似：最新每股派息 / 当前价
+  const price = latestIndicators.value?.price || 0
+  const avgYield = price > 0 && years > 0
+    ? ((total / years / price) * 100).toFixed(2) + '%'
+    : '-'
+  return {
+    total_dividend: total.toFixed(2),
+    count,
+    avg_yield: avgYield,
+    latest_date: latest.announce_date,
+    latest_per_share: (latest.dividend_per_share || 0).toFixed(2),
+  }
+})
 
 const dividendColumns = [
   { title: '公告日', key: 'announce_date', width: 110 },
