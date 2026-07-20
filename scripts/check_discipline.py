@@ -37,18 +37,16 @@ VALID_TYPES = {"feat", "fix", "docs", "refactor", "test", "chore", "progress"}
 ISSUE_TYPES = {"bug", "tech-debt", "question", "feature"}
 ISSUE_PRIORITIES = {"block", "high", "medium", "low"}
 
-# Filenames that must never be staged (secrets / local config).
+# Filenames that must never be staged (secrets / local config). This is a
+# NAME-based guard only — it intentionally does NOT embed any leaked secret
+# VALUE (a value-based guard would either contain the secret in recoverable
+# form, defeating the scrub, or require split-assembly that is trivially
+# reconstructable). Rotate secrets instead; the filename guard prevents
+# re-adding the files that carry them.
 SENSITIVE_NAME_RE = re.compile(
     r"(^|/)(config\.yaml|.*\.(pem|key|p12)|id_rsa|\.env(\..*)?)$",
     re.IGNORECASE,
 )
-# Known-leaked credential tokens — assembled from parts so the literals do NOT
-# appear contiguously in THIS source file (otherwise the self-scan would
-# flag the checker itself). At runtime the compiled pattern still matches the
-# real secrets wherever they are re-introduced.
-_LEAKED_PWD = "***REMOVED***" + "nget"                       # the hardcoded admin password
-_LEAKED_SECRET = "***REMOVED***" + "change"      # the placeholder JWT secret
-LEAKED_TOKEN_RE = re.compile(re.escape(_LEAKED_PWD) + "|" + re.escape(_LEAKED_SECRET))
 
 COMMIT_MSG_RE = re.compile(
     r"^(?P<type>" + "|".join(sorted(VALID_TYPES)) + r")"
@@ -75,24 +73,17 @@ def staged_files() -> list[str]:
 
 
 def check_staged_secrets() -> tuple[bool, str]:
-    """FAIL if any staged file is sensitive or staged content contains leaked tokens.
+    """FAIL if any staged file is sensitive (secret/local-config filename).
 
-    Filename check applies to all files; leaked-token content scan applies only
-    to code/config files (*.py, *.yaml, *.json, *.ts, *.js, *.vue, *.toml, *.env*)
-    so documentation that legitimately records the incident (e.g. REVIEW-FIXES.md)
-    is not a false positive.
+    Name-based only (see SENSITIVE_NAME_RE): prevents staging config.yaml,
+    *.key/.pem, id_rsa, .env*. No value-based secret scan — secrets are
+    rotated, and embedding their values (even split) for detection would
+    re-introduce them in recoverable form.
     """
     files = staged_files()
     bad_names = [f for f in files if SENSITIVE_NAME_RE.search(f)]
     if bad_names:
         return False, "敏感文件被 staged，禁止提交:\n  " + "\n  ".join(bad_names)
-    scan_exts = (".py", ".yaml", ".yml", ".json", ".toml", ".ts", ".js", ".vue", ".tsx", ".jsx")
-    for f in files:
-        if not f.endswith(scan_exts):
-            continue
-        code, diff = run(["git", "diff", "--cached", "--", f])
-        if code == 0 and LEAKED_TOKEN_RE.search(diff):
-            return False, f"staged 内容含已泄漏凭证 token: {f}"
     return True, "无敏感文件 staged"
 
 
