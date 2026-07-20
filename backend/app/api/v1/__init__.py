@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.auth import router as auth_router
 from app.api.v1.backtest import router as backtest_router
 from app.api.v1.books import router as books_router
+from app.api.v1.chat import router as chat_router
 from app.api.v1.data import router as data_router
 from app.api.v1.debate import router as debate_router
 from app.api.v1.filters import router as filters_router
@@ -28,3 +29,4 @@ api_router.include_router(notifications_router)
 api_router.include_router(tasks_router)
 api_router.include_router(settings_router)
 api_router.include_router(quant_router)
+api_router.include_router(chat_router)

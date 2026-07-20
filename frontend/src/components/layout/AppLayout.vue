@@ -38,7 +38,7 @@
             <span style="font-weight: 600; color: var(--text-primary);">{{ currentRoute }}</span>
           </n-breadcrumb-item>
         </n-breadcrumb>
-        <n-space :size="16">
+        <n-space :size="12">
           <n-badge :value="notificationStore.unreadCount" :max="99">
             <n-button quaternary circle @click="$router.push('/alerts')" style="transition: all 0.3s;">
               <template #icon>
@@ -46,6 +46,12 @@
               </template>
             </n-button>
           </n-badge>
+          <!-- 语言切换 (idea17) -->
+          <n-dropdown :options="langOptions" @select="(k: string) => setLocale(k as any)" trigger="click">
+            <n-button quaternary size="small">
+              <span style="font-size: 13px; font-weight: 500;">{{ locale === 'zh' ? '中' : locale === 'en' ? 'EN' : locale === 'ja' ? '日' : '한' }}</span>
+            </n-button>
+          </n-dropdown>
           <n-dropdown :options="userMenuOptions" @select="handleUserMenu">
             <n-button quaternary style="transition: all 0.3s;">
               <template #icon>
@@ -91,6 +97,7 @@ import {
 } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
 import { useNotificationStore } from '../../stores/notifications'
+import { locale, setLocale } from '../../i18n'
 
 const router = useRouter()
 const route = useRoute()
@@ -98,6 +105,13 @@ const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
 const collapsed = ref(false)
 let notifTimer: ReturnType<typeof setInterval> | null = null
+
+const langOptions = [
+  { label: '中文', key: 'zh' },
+  { label: 'English', key: 'en' },
+  { label: '日本語', key: 'ja' },
+  { label: '한국어', key: 'ko' },
+]
 
 const activeKey = computed(() => route.name as string)
 const currentRoute = computed(() => route.name as string)

@@ -14,7 +14,8 @@ const router = createRouter({
       component: () => import('../components/layout/AppLayout.vue'),
       meta: { requiresAuth: true },
       children: [
-        { path: '', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
+        { path: '', name: 'ChatHome', component: () => import('../views/ChatHome.vue') },
+        { path: 'dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
         { path: 'stocks', name: 'StockList', component: () => import('../views/StockList.vue') },
         { path: 'stocks/:code', name: 'StockDetail', component: () => import('../views/StockDetail.vue') },
         { path: 'portfolios', name: 'PortfolioList', component: () => import('../views/PortfolioList.vue') },
