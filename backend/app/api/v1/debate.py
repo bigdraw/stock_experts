@@ -1,9 +1,6 @@
 """Debate API routes."""
 
-import json
-
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
@@ -35,15 +32,22 @@ async def start_debate(
         agent = await db.get(Agent, agent_id)
         if not agent:
             raise NotFoundException(f"Agent {agent_id} not found")
-        agents.append({
-            "id": agent.id,
-            "name": agent.name,
-            "system_prompt": agent.system_prompt,
-            "description": agent.description or "",
-        })
+        agents.append(
+            {
+                "id": agent.id,
+                "name": agent.name,
+                "system_prompt": agent.system_prompt,
+                "description": agent.description or "",
+            }
+        )
 
     # Load target data
-    target_info = {"type": req.target_type, "code": req.target_id, "name": req.target_id, "data": {}}
+    target_info = {
+        "type": req.target_type,
+        "code": req.target_id,
+        "name": req.target_id,
+        "data": {},
+    }
     if req.target_type == "stock":
         stock = await db.get(Stock, req.target_id)
         if stock:
@@ -60,8 +64,7 @@ async def start_debate(
             {
                 "round_type": r.round_type,
                 "opinions": [
-                    {"agent_name": op.agent_name, "content": op.content}
-                    for op in r.opinions
+                    {"agent_name": op.agent_name, "content": op.content} for op in r.opinions
                 ],
             }
             for r in result.rounds

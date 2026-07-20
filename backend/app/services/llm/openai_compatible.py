@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
 
@@ -26,11 +26,7 @@ class OpenAICompatibleProvider(LLMProvider):
         )
 
     async def chat(
-        self,
-        messages: list[LLMMessage],
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-        **kwargs
+        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int = 4096, **kwargs
     ) -> LLMResponse:
         """Synchronous chat call."""
         try:
@@ -59,11 +55,7 @@ class OpenAICompatibleProvider(LLMProvider):
             raise LLMProviderError(f"Failed to call LLM: {e}") from e
 
     async def chat_stream(
-        self,
-        messages: list[LLMMessage],
-        temperature: float = 0.7,
-        max_tokens: int = 4096,
-        **kwargs
+        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int = 4096, **kwargs
     ) -> AsyncIterator[LLMStreamChunk]:
         """Streaming chat call."""
         try:

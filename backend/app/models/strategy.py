@@ -12,14 +12,18 @@ class BacktestStrategy(Base):
     __tablename__ = "backtest_strategies"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     nl_description: Mapped[str] = mapped_column(Text, nullable=False)
     strategy_code: Mapped[str] = mapped_column(Text, nullable=False)
     friction_config: Mapped[str] = mapped_column(Text, default="{}")  # JSON
     parameters: Mapped[str | None] = mapped_column(Text)  # JSON
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
 
 
 class BacktestResult(Base):
@@ -27,7 +31,10 @@ class BacktestResult(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     strategy_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("backtest_strategies.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer,
+        ForeignKey("backtest_strategies.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     run_params: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
     total_return: Mapped[float | None] = mapped_column(Float)

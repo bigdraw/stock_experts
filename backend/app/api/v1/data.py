@@ -1,7 +1,7 @@
 """Data acquisition API routes."""
 
-import asyncio
 import uuid
+
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,7 +77,11 @@ async def start_deep_fetch(
     """Fetch deep data for specific stocks (background task)."""
     task_id = f"deep_{uuid.uuid4().hex[:8]}"
     background_tasks.add_task(_run_deep_fetch, stock_codes, task_id)
-    return {"status": "started", "message": f"Deep fetch started for {len(stock_codes)} stocks", "task_id": task_id}
+    return {
+        "status": "started",
+        "message": f"Deep fetch started for {len(stock_codes)} stocks",
+        "task_id": task_id,
+    }
 
 
 @router.post("/collect/financial")
@@ -86,7 +90,7 @@ async def start_financial_update(
     current_user: User = Depends(require_admin),
 ):
     """Start full financial data update for all stocks (background task).
-    
+
     This fetches comprehensive financial indicators including ROE, EPS, profit margins,
     growth rates, and other key financial ratios.
     """
@@ -102,7 +106,9 @@ async def get_collection_status(
 ):
     """Get recent data acquisition logs."""
     from sqlalchemy import select
+
     from app.models.system import DataAcquisitionLog
+
     result = await db.execute(
         select(DataAcquisitionLog).order_by(DataAcquisitionLog.started_at.desc()).limit(10)
     )

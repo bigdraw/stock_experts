@@ -38,7 +38,7 @@ async def unread_count(
     result = await db.execute(
         select(Notification).where(
             Notification.user_id == current_user.id,
-            Notification.is_read == False,
+            not Notification.is_read,
         )
     )
     return {"count": len(result.scalars().all())}
@@ -64,7 +64,7 @@ async def mark_all_read(
     result = await db.execute(
         select(Notification).where(
             Notification.user_id == current_user.id,
-            Notification.is_read == False,
+            not Notification.is_read,
         )
     )
     for n in result.scalars():
@@ -81,8 +81,11 @@ async def create_alert(
 ):
     engine = AlertEngine(db, llm_manager.get())
     return await engine.create_alert(
-        current_user.id, req.name, req.nl_condition,
-        req.target_type, req.target_id,
+        current_user.id,
+        req.name,
+        req.nl_condition,
+        req.target_type,
+        req.target_id,
     )
 
 

@@ -8,18 +8,18 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import api_router
 from app.api.admin import router as admin_router
+from app.api.v1 import api_router
 from app.config import settings
 from app.database import init_db
 from app.scheduler.jobs import alert_check, backup_reminder, daily_data_update
 from app.services.llm.manager import llm_manager
 
 # Force UTF-8 encoding for stdout/stderr to fix Chinese character display issues
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout.reconfigure(encoding='utf-8')
-if sys.stderr.encoding != 'utf-8':
-    sys.stderr.reconfigure(encoding='utf-8')
+if sys.stdout.encoding != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr.encoding != "utf-8":
+    sys.stderr.reconfigure(encoding="utf-8")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
 
     # Initialize proxy cache
     from app.services.data.akshare_provider import get_proxy_enabled
+
     proxy_enabled = await get_proxy_enabled()
     logger.info(f"Proxy cache initialized: proxy_enabled={proxy_enabled}")
 
@@ -45,6 +46,7 @@ async def lifespan(app: FastAPI):
     # back to config.yaml when the DB has no api_key yet.
     logger.info("Initializing LLM providers...")
     from app.database import async_session_factory
+
     async with async_session_factory() as db:
         await llm_manager.reload(db)
     logger.info(f"LLM providers ready: {llm_manager.list_providers()}")
@@ -53,7 +55,13 @@ async def lifespan(app: FastAPI):
     _hour, _minute = map(int, settings.scheduler.daily_update_time.split(":"))
     scheduler.add_job(daily_data_update, "cron", hour=_hour, minute=_minute, id="daily_data_update")
     scheduler.add_job(alert_check, "interval", minutes=30, id="alert_check")
-    scheduler.add_job(backup_reminder, "cron", day_of_week=settings.scheduler.backup_day[:3], hour=9, id="backup_reminder")
+    scheduler.add_job(
+        backup_reminder,
+        "cron",
+        day_of_week=settings.scheduler.backup_day[:3],
+        hour=9,
+        id="backup_reminder",
+    )
     scheduler.start()
     logger.info("Scheduler started.")
 

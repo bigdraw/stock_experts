@@ -23,9 +23,9 @@ class StrategyParser:
 
     def __init__(self, llm=None) -> None:
         """Args:
-            llm: 可选 LLM provider（本平台 `llm_manager.get()` 返回的对象，需有
-                 `complete(prompt) -> str` 或兼容 OpenAI chat completion 接口）。
-                 为 None 时 `parse_with_llm` 回退 `parse_simple`。
+        llm: 可选 LLM provider（本平台 `llm_manager.get()` 返回的对象，需有
+             `complete(prompt) -> str` 或兼容 OpenAI chat completion 接口）。
+             为 None 时 `parse_with_llm` 回退 `parse_simple`。
         """
         self.llm = llm
         self.templates = STRATEGY_TEMPLATES
@@ -148,9 +148,7 @@ class StrategyParser:
         if not self.llm:
             return self.parse_simple(description)
 
-        available = "\n".join(
-            f"- {k}: {v['description']}" for k, v in self.templates.items()
-        )
+        available = "\n".join(f"- {k}: {v['description']}" for k, v in self.templates.items())
         prompt = (
             "Convert this trading strategy description into JSON.\n"
             f"Description: {description}\n\n"

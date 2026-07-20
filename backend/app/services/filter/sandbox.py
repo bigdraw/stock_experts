@@ -36,24 +36,65 @@ from RestrictedPython.Guards import full_write_guard, safer_getattr
 logger = logging.getLogger(__name__)
 
 FORBIDDEN_IMPORTS = {
-    "os", "sys", "subprocess", "socket", "http", "urllib",
-    "requests", "pathlib", "shutil", "io", "builtins",
-    "ctypes", "importlib", "pickle", "marshal",
+    "os",
+    "sys",
+    "subprocess",
+    "socket",
+    "http",
+    "urllib",
+    "requests",
+    "pathlib",
+    "shutil",
+    "io",
+    "builtins",
+    "ctypes",
+    "importlib",
+    "pickle",
+    "marshal",
 }
 FORBIDDEN_BUILTINS = {
-    "open", "exec", "eval", "compile", "__import__",
-    "input", "breakpoint", "exit", "quit", "globals", "locals", "vars",
+    "open",
+    "exec",
+    "eval",
+    "compile",
+    "__import__",
+    "input",
+    "breakpoint",
+    "exit",
+    "quit",
+    "globals",
+    "locals",
+    "vars",
 }
 
 # Extra builtins allowed in filter scripts (data manipulation only).
 _EXTRA_BUILTINS = {
-    "len": len, "range": range, "enumerate": enumerate, "zip": zip,
-    "map": map, "filter": filter, "sorted": sorted, "reversed": reversed,
-    "sum": sum, "min": min, "max": max, "abs": abs, "round": round,
-    "all": all, "any": any,
-    "int": int, "float": float, "str": str, "bool": bool,
-    "list": list, "dict": dict, "set": set, "tuple": tuple,
-    "True": True, "False": False, "None": None,
+    "len": len,
+    "range": range,
+    "enumerate": enumerate,
+    "zip": zip,
+    "map": map,
+    "filter": filter,
+    "sorted": sorted,
+    "reversed": reversed,
+    "sum": sum,
+    "min": min,
+    "max": max,
+    "abs": abs,
+    "round": round,
+    "all": all,
+    "any": any,
+    "int": int,
+    "float": float,
+    "str": str,
+    "bool": bool,
+    "list": list,
+    "dict": dict,
+    "set": set,
+    "tuple": tuple,
+    "True": True,
+    "False": False,
+    "None": None,
 }
 
 
@@ -107,9 +148,9 @@ class FilterSandbox:
             builtins.pop(name, None)
         return {
             "__builtins__": builtins,
-            "_getattr_": safer_getattr,            # blocks _-prefixed attrs
+            "_getattr_": safer_getattr,  # blocks _-prefixed attrs
             "_getitem_": default_guarded_getitem,  # blocks dunder subscripts
-            "_write_": full_write_guard,           # guards attribute writes
+            "_write_": full_write_guard,  # guards attribute writes
             "pd": pd,
             "np": np,
         }

@@ -18,9 +18,7 @@ class DecisionLog(Base):
     __tablename__ = "decision_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), index=True
-    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     session_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     query_text: Mapped[str | None] = mapped_column(Text, nullable=True)

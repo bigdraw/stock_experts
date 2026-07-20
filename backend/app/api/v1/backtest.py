@@ -10,11 +10,11 @@ from app.database import get_db
 from app.models.strategy import BacktestResult as BacktestResultModel
 from app.models.strategy import BacktestStrategy
 from app.models.user import User
-from app.schemas import BacktestGenerateRequest, BacktestResultResponse, BacktestRunRequest
+from app.schemas import BacktestGenerateRequest, BacktestRunRequest
+from app.services import settings_service
 from app.services.backtest.engine import BacktestEngine, FrictionConfig
 from app.services.backtest.generator import StrategyCodeGenerator
 from app.services.llm.manager import llm_manager
-from app.services import settings_service
 from app.utils.exceptions import BadRequestException, NotFoundException
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -77,17 +77,19 @@ async def run_backtest(
             initial_capital=req.initial_capital,
         )
     except Exception as e:
-        raise BadRequestException(f"Backtest failed: {e}")
+        raise BadRequestException(f"Backtest failed: {e}") from e
 
     # Save result
     bt_result = BacktestResultModel(
         strategy_id=req.strategy_id,
-        run_params=json.dumps({
-            "stock_codes": stock_codes,
-            "start_date": req.start_date,
-            "end_date": req.end_date,
-            "initial_capital": req.initial_capital,
-        }),
+        run_params=json.dumps(
+            {
+                "stock_codes": stock_codes,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "initial_capital": req.initial_capital,
+            }
+        ),
         total_return=result.total_return,
         annualized_return=result.annualized_return,
         max_drawdown=result.max_drawdown,
@@ -111,12 +113,18 @@ async def list_strategies(
 ):
     """List user's strategies."""
     from sqlalchemy import select
+
     result = await db.execute(
         select(BacktestStrategy).where(BacktestStrategy.user_id == current_user.id)
     )
     strategies = result.scalars().all()
     return [
-        {"id": s.id, "name": s.name, "nl_description": s.nl_description, "created_at": str(s.created_at)}
+        {
+            "id": s.id,
+            "name": s.name,
+            "nl_description": s.nl_description,
+            "created_at": str(s.created_at),
+        }
         for s in strategies
     ]
 
@@ -128,16 +136,21 @@ async def list_results(
 ):
     """List backtest results."""
     from sqlalchemy import select
+
     result = await db.execute(
         select(BacktestResultModel).order_by(BacktestResultModel.created_at.desc()).limit(50)
     )
     results = result.scalars().all()
     return [
         {
-            "id": r.id, "strategy_id": r.strategy_id,
-            "total_return": r.total_return, "max_drawdown": r.max_drawdown,
-            "sharpe_ratio": r.sharpe_ratio, "win_rate": r.win_rate,
-            "total_trades": r.total_trades, "created_at": str(r.created_at),
+            "id": r.id,
+            "strategy_id": r.strategy_id,
+            "total_return": r.total_return,
+            "max_drawdown": r.max_drawdown,
+            "sharpe_ratio": r.sharpe_ratio,
+            "win_rate": r.win_rate,
+            "total_trades": r.total_trades,
+            "created_at": str(r.created_at),
         }
         for r in results
     ]

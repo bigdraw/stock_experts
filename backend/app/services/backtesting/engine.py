@@ -133,7 +133,9 @@ def run_backtest(
     avg_loss = float(np.mean(losses)) if losses else 0.0
     gross_win = sum(wins)
     gross_loss = abs(sum(losses))
-    profit_factor = gross_win / gross_loss if gross_loss > 0 else (float("inf") if gross_win > 0 else 0.0)
+    profit_factor = (
+        gross_win / gross_loss if gross_loss > 0 else (float("inf") if gross_win > 0 else 0.0)
+    )
     profit_factor = 1e9 if profit_factor == float("inf") else profit_factor
 
     return BacktestMetrics(

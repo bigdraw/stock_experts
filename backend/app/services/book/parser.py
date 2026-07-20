@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BookContent:
     """Parsed book content."""
+
     title: str
     text: str
     format: str  # pdf / epub / txt
@@ -32,6 +33,7 @@ class BookParser:
 
     def _parse_pdf(self, path: Path) -> BookContent:
         import fitz  # PyMuPDF
+
         doc = fitz.open(str(path))
         text_parts = []
         for page in doc:
@@ -45,8 +47,8 @@ class BookParser:
 
     def _parse_epub(self, path: Path) -> BookContent:
         import ebooklib
-        from ebooklib import epub
         from bs4 import BeautifulSoup
+        from ebooklib import epub
 
         book = epub.read_epub(str(path))
         text_parts = []

@@ -42,7 +42,7 @@ async def get_portfolio(
     try:
         return await mgr.get_detail(portfolio_id)
     except ValueError as e:
-        raise NotFoundException(str(e))
+        raise NotFoundException(str(e)) from e
 
 
 @router.post("/{portfolio_id}/items")
@@ -55,7 +55,7 @@ async def add_stocks(
     # Validate stock code is not empty
     if not req.stock_code or not req.stock_code.strip():
         raise BadRequestException("股票代码不能为空")
-    
+
     mgr = PortfolioManager(db)
     await mgr.add_stocks(portfolio_id, [req.stock_code.strip()], req.shares, req.avg_cost)
     return {"status": "added"}

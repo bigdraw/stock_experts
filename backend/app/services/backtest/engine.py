@@ -1,8 +1,7 @@
 """Backtesting engine."""
 
-import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 import numpy as np
@@ -63,12 +62,31 @@ class BacktestEngine:
 
         # 2. Compile strategy
         safe_globals = {
-            "__builtins__": {"len": len, "range": range, "enumerate": enumerate, "zip": zip,
-                            "map": map, "filter": filter, "sorted": sorted, "sum": sum,
-                            "min": min, "max": max, "abs": abs, "round": round,
-                            "int": int, "float": float, "str": str, "bool": bool,
-                            "list": list, "dict": dict, "set": set, "tuple": tuple,
-                            "True": True, "False": False, "None": None},
+            "__builtins__": {
+                "len": len,
+                "range": range,
+                "enumerate": enumerate,
+                "zip": zip,
+                "map": map,
+                "filter": filter,
+                "sorted": sorted,
+                "sum": sum,
+                "min": min,
+                "max": max,
+                "abs": abs,
+                "round": round,
+                "int": int,
+                "float": float,
+                "str": str,
+                "bool": bool,
+                "list": list,
+                "dict": dict,
+                "set": set,
+                "tuple": tuple,
+                "True": True,
+                "False": False,
+                "None": None,
+            },
             "pd": pd,
             "np": np,
         }
@@ -77,7 +95,7 @@ class BacktestEngine:
         select_fn = safe_globals.get("select_stocks")
         signal_fn = safe_globals.get("generate_signals")
 
-        config = init_fn() if init_fn else {}
+        init_fn() if init_fn else {}
 
         # 3. Simulate day by day
         cash = initial_capital
@@ -108,7 +126,9 @@ class BacktestEngine:
             # Generate signals
             if signal_fn:
                 for code in set(list(portfolio.keys()) + list(selected)):
-                    stock_hist = market_data[(market_data["code"] == code) & (market_data["date"] <= date)]
+                    stock_hist = market_data[
+                        (market_data["code"] == code) & (market_data["date"] <= date)
+                    ]
                     try:
                         context = {
                             "code": code,
@@ -116,9 +136,7 @@ class BacktestEngine:
                         }
                         signals = signal_fn(stock_hist, context)
                         for signal in signals:
-                            trade = self._execute_trade(
-                                signal, portfolio, cash, day_data, date
-                            )
+                            trade = self._execute_trade(signal, portfolio, cash, day_data, date)
                             if trade:
                                 cash = trade["remaining_cash"]
                                 trade_log.append(trade["record"])
@@ -127,8 +145,7 @@ class BacktestEngine:
 
             # Record equity
             portfolio_value = sum(
-                pos.get("shares", 0) * pos.get("current_price", 0)
-                for pos in portfolio.values()
+                pos.get("shares", 0) * pos.get("current_price", 0) for pos in portfolio.values()
             )
             equity_curve.append({"date": str(date), "value": cash + portfolio_value})
 
@@ -140,7 +157,9 @@ class BacktestEngine:
             **metrics,
         )
 
-    def _execute_trade(self, signal: dict, portfolio: dict, cash: float, day_data: pd.DataFrame, date) -> dict | None:
+    def _execute_trade(
+        self, signal: dict, portfolio: dict, cash: float, day_data: pd.DataFrame, date
+    ) -> dict | None:
         """Execute a single trade with friction costs."""
         code = signal.get("code")
         action = signal.get("action")
@@ -165,14 +184,29 @@ class BacktestEngine:
                 old = portfolio[code]
                 total_shares = old["shares"] + shares
                 avg_cost = (old["avg_cost"] * old["shares"] + actual_price * shares) / total_shares
-                portfolio[code] = {"shares": total_shares, "avg_cost": avg_cost, "current_price": price}
+                portfolio[code] = {
+                    "shares": total_shares,
+                    "avg_cost": avg_cost,
+                    "current_price": price,
+                }
             else:
-                portfolio[code] = {"shares": shares, "avg_cost": actual_price, "current_price": price}
+                portfolio[code] = {
+                    "shares": shares,
+                    "avg_cost": actual_price,
+                    "current_price": price,
+                }
 
             return {
                 "remaining_cash": cash,
-                "record": {"date": str(date), "action": "buy", "code": code, "price": actual_price,
-                          "shares": shares, "cost": commission, "reason": signal.get("reason", "")},
+                "record": {
+                    "date": str(date),
+                    "action": "buy",
+                    "code": code,
+                    "price": actual_price,
+                    "shares": shares,
+                    "cost": commission,
+                    "reason": signal.get("reason", ""),
+                },
             }
 
         elif action == "sell":
@@ -196,18 +230,32 @@ class BacktestEngine:
 
             return {
                 "remaining_cash": cash,
-                "record": {"date": str(date), "action": "sell", "code": code, "price": actual_price,
-                          "shares": sell_shares, "cost": commission + stamp_tax, "pnl": pnl,
-                          "reason": signal.get("reason", "")},
+                "record": {
+                    "date": str(date),
+                    "action": "sell",
+                    "code": code,
+                    "price": actual_price,
+                    "shares": sell_shares,
+                    "cost": commission + stamp_tax,
+                    "pnl": pnl,
+                    "reason": signal.get("reason", ""),
+                },
             }
         return None
 
-    def _calculate_metrics(self, equity_curve: list[dict], trade_log: list[dict], initial_capital: float) -> dict:
+    def _calculate_metrics(
+        self, equity_curve: list[dict], trade_log: list[dict], initial_capital: float
+    ) -> dict:
         """Calculate backtest performance metrics."""
         if not equity_curve:
             return {
-                "total_return": 0, "annualized_return": 0, "max_drawdown": 0,
-                "sharpe_ratio": 0, "win_rate": 0, "total_trades": 0, "final_capital": initial_capital,
+                "total_return": 0,
+                "annualized_return": 0,
+                "max_drawdown": 0,
+                "sharpe_ratio": 0,
+                "win_rate": 0,
+                "total_trades": 0,
+                "final_capital": initial_capital,
             }
 
         values = [e["value"] for e in equity_curve]
@@ -227,11 +275,11 @@ class BacktestEngine:
                 max_dd = dd
 
         # Sharpe ratio (risk-free rate 3%)
-        daily_returns = [(values[i] - values[i-1]) / values[i-1] for i in range(1, len(values))]
+        daily_returns = [(values[i] - values[i - 1]) / values[i - 1] for i in range(1, len(values))]
         if daily_returns:
             avg_ret = np.mean(daily_returns)
             std_ret = np.std(daily_returns)
-            sharpe = (avg_ret - 0.03/252) / std_ret * np.sqrt(252) if std_ret > 0 else 0
+            sharpe = (avg_ret - 0.03 / 252) / std_ret * np.sqrt(252) if std_ret > 0 else 0
         else:
             sharpe = 0
 
@@ -250,7 +298,9 @@ class BacktestEngine:
             "final_capital": round(final, 2),
         }
 
-    async def _load_market_data(self, stock_codes: list[str], start_date: str, end_date: str) -> pd.DataFrame:
+    async def _load_market_data(
+        self, stock_codes: list[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
         """Load market data into DataFrame."""
         result = await self.db.execute(
             select(DailyQuote).where(
@@ -263,14 +313,17 @@ class BacktestEngine:
         if not quotes:
             return pd.DataFrame()
 
-        data = [{
-            "code": q.stock_code,
-            "date": q.date,
-            "open": q.open,
-            "high": q.high,
-            "low": q.low,
-            "close": q.close,
-            "volume": q.volume,
-            "amount": q.amount,
-        } for q in quotes]
+        data = [
+            {
+                "code": q.stock_code,
+                "date": q.date,
+                "open": q.open,
+                "high": q.high,
+                "low": q.low,
+                "close": q.close,
+                "volume": q.volume,
+                "amount": q.amount,
+            }
+            for q in quotes
+        ]
         return pd.DataFrame(data)

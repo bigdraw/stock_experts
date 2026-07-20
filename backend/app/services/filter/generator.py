@@ -1,6 +1,5 @@
 """NL → Filter code generator using LLM."""
 
-import json
 import logging
 import re
 
@@ -48,10 +47,12 @@ class FilterCodeGenerator:
         current_description = nl_description
 
         for attempt in range(3):
-            response = await self.llm.chat([
-                LLMMessage(role="system", content=SYSTEM_PROMPT),
-                LLMMessage(role="user", content=current_description),
-            ])
+            response = await self.llm.chat(
+                [
+                    LLMMessage(role="system", content=SYSTEM_PROMPT),
+                    LLMMessage(role="user", content=current_description),
+                ]
+            )
             code = self._extract_code(response.content)
 
             is_valid, msg = self.sandbox.validate(code)

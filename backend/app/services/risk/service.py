@@ -69,8 +69,7 @@ def compute_dashboard(portfolio_positions: list[dict[str, Any]]) -> dict[str, An
         }
 
     total_value = sum(
-        float(p.get("shares", 0)) * float(p.get("current_price", 0))
-        for p in portfolio_positions
+        float(p.get("shares", 0)) * float(p.get("current_price", 0)) for p in portfolio_positions
     )
     total_pnl = sum(
         (float(p.get("current_price", 0)) - float(p.get("cost_basis", 0)))
@@ -259,8 +258,7 @@ def generate_alerts(
 
     # 组合回撤
     total_cost = sum(
-        float(p.get("cost_basis", 0)) * float(p.get("shares", 0))
-        for p in portfolio_positions
+        float(p.get("cost_basis", 0)) * float(p.get("shares", 0)) for p in portfolio_positions
     )
     if total_cost > 0:
         loss_pct = (total_cost - total_value) / total_cost
@@ -289,10 +287,6 @@ def _estimate_portfolio_std(positions: list[dict[str, Any]], total_value: float)
     daily_vol_per_position = 0.02
     variance = 0.0
     for pos in positions:
-        weight = (
-            float(pos.get("shares", 0))
-            * float(pos.get("current_price", 0))
-            / total_value
-        )
+        weight = float(pos.get("shares", 0)) * float(pos.get("current_price", 0)) / total_value
         variance += (weight * daily_vol_per_position) ** 2
     return math.sqrt(variance)

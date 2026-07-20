@@ -38,7 +38,7 @@ class DebateOrchestrator:
     async def run_debate(
         self,
         agents: list[dict],  # [{id, name, system_prompt, description}]
-        target_info: dict,   # {type, code, name, data}
+        target_info: dict,  # {type, code, name, data}
         max_rounds: int = 3,
     ) -> DebateResult:
         """Run a full debate."""
@@ -64,17 +64,24 @@ class DebateOrchestrator:
         return DebateRound(round_type="analysis", opinions=list(opinions))
 
     async def _agent_analyze(self, agent: dict, target: dict) -> AgentOpinion:
-        response = await self.llm.chat([
-            LLMMessage(role="system", content=agent["system_prompt"]),
-            LLMMessage(role="user", content=f"""请基于你的投资理念，分析以下投资标的：
+        response = await self.llm.chat(
+            [
+                LLMMessage(role="system", content=agent["system_prompt"]),
+                LLMMessage(
+                    role="user",
+                    content=f"""请基于你的投资理念，分析以下投资标的：
 
-标的：{target.get('name', '')}（{target.get('code', '')}）
+标的：{target.get("name", "")}（{target.get("code", "")}）
 关键数据：
-{json.dumps(target.get('data', {}), ensure_ascii=False, indent=2)}
+{json.dumps(target.get("data", {}), ensure_ascii=False, indent=2)}
 
-请给出：1.投资价值判断 2.核心理由 3.主要风险 4.建议操作"""),
-        ])
-        return AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=response.content)
+请给出：1.投资价值判断 2.核心理由 3.主要风险 4.建议操作""",
+                ),
+            ]
+        )
+        return AgentOpinion(
+            agent_id=agent["id"], agent_name=agent["name"], content=response.content
+        )
 
     async def _round_challenge(self, agents: list[dict], history: list[DebateRound]) -> DebateRound:
         """Challenge round: each agent critiques others' views."""
@@ -83,11 +90,20 @@ class DebateOrchestrator:
         for agent in agents:
             others = [op for op in last_round.opinions if op.agent_id != agent["id"]]
             others_text = "\n\n".join([f"【{op.agent_name}】: {op.content}" for op in others])
-            response = await self.llm.chat([
-                LLMMessage(role="system", content=agent["system_prompt"]),
-                LLMMessage(role="user", content=f"以下是其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。"),
-            ])
-            opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=response.content))
+            response = await self.llm.chat(
+                [
+                    LLMMessage(role="system", content=agent["system_prompt"]),
+                    LLMMessage(
+                        role="user",
+                        content=f"以下是其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。",
+                    ),
+                ]
+            )
+            opinions.append(
+                AgentOpinion(
+                    agent_id=agent["id"], agent_name=agent["name"], content=response.content
+                )
+            )
         return DebateRound(round_type="challenge", opinions=opinions)
 
     async def _round_response(self, agents: list[dict], history: list[DebateRound]) -> DebateRound:
@@ -97,11 +113,20 @@ class DebateOrchestrator:
         for agent in agents:
             challenges = [op for op in challenge_round.opinions if op.agent_id != agent["id"]]
             text = "\n\n".join([f"【{op.agent_name}的质疑】: {op.content}" for op in challenges])
-            response = await self.llm.chat([
-                LLMMessage(role="system", content=agent["system_prompt"]),
-                LLMMessage(role="user", content=f"其他投资者对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。"),
-            ])
-            opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=response.content))
+            response = await self.llm.chat(
+                [
+                    LLMMessage(role="system", content=agent["system_prompt"]),
+                    LLMMessage(
+                        role="user",
+                        content=f"其他投资者对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。",
+                    ),
+                ]
+            )
+            opinions.append(
+                AgentOpinion(
+                    agent_id=agent["id"], agent_name=agent["name"], content=response.content
+                )
+            )
         return DebateRound(round_type="response", opinions=opinions)
 
     async def _summarize(self, agents: list[dict], target: dict, history: list[DebateRound]) -> str:
@@ -113,15 +138,23 @@ class DebateOrchestrator:
                 round_text += f"\n【{op.agent_name}】:\n{op.content}\n"
             all_content.append(round_text)
 
-        response = await self.llm.chat([
-            LLMMessage(role="system", content="""你是一位客观中立的投资分析总结专家。请综合辩论内容输出分析报告：
+        response = await self.llm.chat(
+            [
+                LLMMessage(
+                    role="system",
+                    content="""你是一位客观中立的投资分析总结专家。请综合辩论内容输出分析报告：
 ## 辩论总结
 ### 多方观点
 ### 空方观点
 ### 共识点
 ### 分歧点
 ### 风险提示
-### 综合建议"""),
-            LLMMessage(role="user", content=f"标的：{target.get('name', '')}\n\n辩论内容：\n{''.join(all_content)}"),
-        ])
+### 综合建议""",
+                ),
+                LLMMessage(
+                    role="user",
+                    content=f"标的：{target.get('name', '')}\n\n辩论内容：\n{''.join(all_content)}",
+                ),
+            ]
+        )
         return response.content

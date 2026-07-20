@@ -1,6 +1,5 @@
 """Filter script registry (tool library)."""
 
-import json
 import logging
 from difflib import SequenceMatcher
 
@@ -32,10 +31,20 @@ class FilterRegistry:
         code = await self.generator.generate(nl_description)
 
         # Try a dry-run validation with empty DataFrame
-        test_df = pd.DataFrame(columns=[
-            "code", "name", "market_cap", "pe_ratio", "pb_ratio",
-            "roe", "is_profitable", "close", "volume", "turnover_rate",
-        ])
+        test_df = pd.DataFrame(
+            columns=[
+                "code",
+                "name",
+                "market_cap",
+                "pe_ratio",
+                "pb_ratio",
+                "roe",
+                "is_profitable",
+                "close",
+                "volume",
+                "turnover_rate",
+            ]
+        )
         try:
             self.sandbox.execute(code, test_df, {})
         except Exception as e:
@@ -53,15 +62,19 @@ class FilterRegistry:
         logger.info(f"Filter script saved: {script.id} - {name}")
         return script
 
-    async def find_similar(self, nl_description: str, threshold: float = 0.7) -> FilterScript | None:
+    async def find_similar(
+        self, nl_description: str, threshold: float = 0.7
+    ) -> FilterScript | None:
         """Find similar existing script by NL description (text similarity)."""
-        result = await self.db.execute(select(FilterScript).where(FilterScript.is_verified == True))
+        result = await self.db.execute(select(FilterScript).where(FilterScript.is_verified))
         scripts = result.scalars().all()
 
         best_match = None
         best_score = 0.0
         for script in scripts:
-            score = SequenceMatcher(None, nl_description.lower(), script.nl_description.lower()).ratio()
+            score = SequenceMatcher(
+                None, nl_description.lower(), script.nl_description.lower()
+            ).ratio()
             if score > best_score and score >= threshold:
                 best_score = score
                 best_match = script
@@ -87,20 +100,32 @@ class FilterRegistry:
     async def list_all(self) -> list[FilterScript]:
         """List all verified filter scripts."""
         result = await self.db.execute(
-            select(FilterScript).where(FilterScript.is_verified == True).order_by(FilterScript.usage_count.desc())
+            select(FilterScript)
+            .where(FilterScript.is_verified)
+            .order_by(FilterScript.usage_count.desc())
         )
         return list(result.scalars().all())
 
     async def _load_stock_data(self) -> pd.DataFrame:
         """Load all active stocks with their latest indicators."""
-        stocks_result = await self.db.execute(select(Stock).where(Stock.is_active == True))
+        stocks_result = await self.db.execute(select(Stock).where(Stock.is_active))
         stocks = stocks_result.scalars().all()
 
         if not stocks:
-            return pd.DataFrame(columns=[
-                "code", "name", "market_cap", "pe_ratio", "pb_ratio",
-                "roe", "is_profitable", "close", "volume", "turnover_rate",
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "code",
+                    "name",
+                    "market_cap",
+                    "pe_ratio",
+                    "pb_ratio",
+                    "roe",
+                    "is_profitable",
+                    "close",
+                    "volume",
+                    "turnover_rate",
+                ]
+            )
 
         data = []
         for stock in stocks:

@@ -12,7 +12,9 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     nl_condition: Mapped[str] = mapped_column(Text, nullable=False)
     condition_code: Mapped[str] = mapped_column(Text, nullable=False)
@@ -27,7 +29,9 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False, index=True
+    )
     type: Mapped[str] = mapped_column(String(20), nullable=False)  # alert / system / task
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     content: Mapped[str | None] = mapped_column(Text)

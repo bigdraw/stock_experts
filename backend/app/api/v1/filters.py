@@ -56,6 +56,7 @@ async def get_filter(
 ):
     """Get filter script details."""
     from app.models.filter import FilterScript
+
     script = await db.get(FilterScript, script_id)
     if not script:
         raise NotFoundException(f"Filter script {script_id} not found")
@@ -83,7 +84,7 @@ async def execute_filter(
             "data": result_df.head(100).to_dict(orient="records"),
         }
     except ValueError as e:
-        raise BadRequestException(str(e))
+        raise BadRequestException(str(e)) from e
 
 
 @router.delete("/{script_id}")
@@ -94,6 +95,7 @@ async def delete_filter(
 ):
     """Delete a filter script."""
     from app.models.filter import FilterScript
+
     script = await db.get(FilterScript, script_id)
     if not script:
         raise NotFoundException(f"Filter script {script_id} not found")

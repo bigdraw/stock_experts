@@ -114,8 +114,8 @@ class RegimeDetector:
         if len(prices) < self.long_window + 1:
             return 0.0, "neutral"
 
-        short_sma = float(prices.iloc[-self.short_window:].mean())
-        long_sma = float(prices.iloc[-self.long_window:].mean())
+        short_sma = float(prices.iloc[-self.short_window :].mean())
+        long_sma = float(prices.iloc[-self.long_window :].mean())
         current = float(prices.iloc[-1])
 
         pct_vs_long = (current - long_sma) / long_sma if long_sma != 0 else 0.0

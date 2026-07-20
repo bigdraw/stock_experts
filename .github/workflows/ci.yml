@@ -23,8 +23,7 @@ jobs:
         run: uv sync
       - name: Lint new code strictly (tests must be clean)
         run: uv run ruff check tests
-      - name: Lint baseline (app/ — pre-existing debt, non-blocking)
-        continue-on-error: true
+      - name: Lint app (strict — baseline driven to zero)
         run: uv run ruff check app
       - name: Import smoke
         run: uv run python -c "import app.main; print('app.main OK')"

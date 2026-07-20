@@ -47,9 +47,7 @@ class StrategyPerformance(Base):
     __tablename__ = "strategy_performance"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    strategy_tag: Mapped[str] = mapped_column(
-        String(100), nullable=False, index=True, unique=True
-    )
+    strategy_tag: Mapped[str] = mapped_column(String(100), nullable=False, index=True, unique=True)
     period: Mapped[str] = mapped_column(String(20), nullable=False, default="all_time")
     win_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     loss_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

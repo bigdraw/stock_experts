@@ -1,6 +1,7 @@
 """Settings API endpoints."""
 
 import logging
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,8 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.auth import get_current_user, require_admin
 from app.database import get_db
 from app.models.user import User
-from app.services.data.akshare_provider import get_proxy_enabled, set_proxy_enabled, AkShareProvider
 from app.services import settings_service
+from app.services.data.akshare_provider import AkShareProvider, get_proxy_enabled, set_proxy_enabled
 from app.services.llm.manager import llm_manager
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,7 @@ router = APIRouter(
 
 
 # ========== Proxy Settings ==========
+
 
 class ProxySettingRequest(BaseModel):
     enabled: bool
@@ -64,22 +66,16 @@ async def test_connection(current_user: User = Depends(get_current_user)):
         stocks = await provider.get_stock_list()
         if stocks and len(stocks) > 0:
             return TestConnectionResponse(
-                success=True,
-                message=f"连接成功，获取到 {len(stocks)} 只股票"
+                success=True, message=f"连接成功，获取到 {len(stocks)} 只股票"
             )
         else:
-            return TestConnectionResponse(
-                success=False,
-                message="连接成功但未获取到数据"
-            )
+            return TestConnectionResponse(success=False, message="连接成功但未获取到数据")
     except Exception as e:
-        return TestConnectionResponse(
-            success=False,
-            message=f"连接失败: {str(e)}"
-        )
+        return TestConnectionResponse(success=False, message=f"连接失败: {str(e)}")
 
 
 # ========== LLM Settings ==========
+
 
 class LLMConfigRequest(BaseModel):
     provider: str
@@ -191,6 +187,7 @@ async def test_llm_connection(
 
 # ========== Data Source Settings ==========
 
+
 class DataSourceConfigRequest(BaseModel):
     provider: str
     rate_limit: int = 10
@@ -226,6 +223,7 @@ async def set_data_source_setting(
 
 
 # ========== Friction Cost Settings ==========
+
 
 class FrictionConfigRequest(BaseModel):
     stamp_tax: float = 0.0005

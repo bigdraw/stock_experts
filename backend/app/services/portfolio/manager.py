@@ -26,7 +26,9 @@ class PortfolioManager:
 
     async def list_by_user(self, user_id: int) -> list[Portfolio]:
         result = await self.db.execute(
-            select(Portfolio).where(Portfolio.user_id == user_id).order_by(Portfolio.updated_at.desc())
+            select(Portfolio)
+            .where(Portfolio.user_id == user_id)
+            .order_by(Portfolio.updated_at.desc())
         )
         return list(result.scalars().all())
 
@@ -53,10 +55,12 @@ class PortfolioManager:
             stock_by_code = {s.code: s for s in stocks_res.scalars().all()}
 
             fins_res = await self.db.execute(
-                select(FinancialReport).where(
+                select(FinancialReport)
+                .where(
                     FinancialReport.stock_code.in_(codes),
                     FinancialReport.report_type == "Latest",
-                ).order_by(FinancialReport.report_date.desc())
+                )
+                .order_by(FinancialReport.report_date.desc())
             )
             # Ordered by date desc, so the first occurrence per code is the latest.
             for fin in fins_res.scalars().all():
@@ -67,42 +71,46 @@ class PortfolioManager:
         for item in items:
             stock = stock_by_code.get(item.stock_code)
             financial = fin_by_code.get(item.stock_code)
-            holdings.append({
-                "id": item.id,
-                "stock_code": item.stock_code,
-                "stock_name": stock.name if stock else "Unknown",
-                "market": stock.market if stock else "Unknown",
-                "industry": stock.industry if stock else None,
-                "shares": item.shares,
-                "avg_cost": item.avg_cost,
-                "added_at": str(item.added_at),
-                # All 20 market fields from Sina API
-                "symbol": financial.symbol if financial else None,
-                "price": financial.price if financial else None,
-                "pricechange": financial.pricechange if financial else None,
-                "changepercent": financial.changepercent if financial else None,
-                "buy": financial.buy if financial else None,
-                "sell": financial.sell if financial else None,
-                "settlement": financial.settlement if financial else None,
-                "open": financial.open if financial else None,
-                "high": financial.high if financial else None,
-                "low": financial.low if financial else None,
-                "volume": financial.volume if financial else None,
-                "amount": financial.amount if financial else None,
-                "ticktime": financial.ticktime if financial else None,
-                "per": financial.per if financial else None,
-                "pb": financial.pb if financial else None,
-                "mktcap": financial.mktcap if financial else None,
-                "nmc": financial.nmc if financial else None,
-                "turnoverratio": financial.turnoverratio if financial else None,
-                # Legacy fields for backward compatibility
-                "pe_ratio": financial.pe_ratio if financial else None,
-                "pb_ratio": financial.pb_ratio if financial else None,
-                "market_cap": financial.market_cap if financial else None,
-                "circulating_market_cap": financial.circulating_market_cap if financial else None,
-                # 衍生指标
-                "is_profitable": financial.is_profitable if financial else None,
-            })
+            holdings.append(
+                {
+                    "id": item.id,
+                    "stock_code": item.stock_code,
+                    "stock_name": stock.name if stock else "Unknown",
+                    "market": stock.market if stock else "Unknown",
+                    "industry": stock.industry if stock else None,
+                    "shares": item.shares,
+                    "avg_cost": item.avg_cost,
+                    "added_at": str(item.added_at),
+                    # All 20 market fields from Sina API
+                    "symbol": financial.symbol if financial else None,
+                    "price": financial.price if financial else None,
+                    "pricechange": financial.pricechange if financial else None,
+                    "changepercent": financial.changepercent if financial else None,
+                    "buy": financial.buy if financial else None,
+                    "sell": financial.sell if financial else None,
+                    "settlement": financial.settlement if financial else None,
+                    "open": financial.open if financial else None,
+                    "high": financial.high if financial else None,
+                    "low": financial.low if financial else None,
+                    "volume": financial.volume if financial else None,
+                    "amount": financial.amount if financial else None,
+                    "ticktime": financial.ticktime if financial else None,
+                    "per": financial.per if financial else None,
+                    "pb": financial.pb if financial else None,
+                    "mktcap": financial.mktcap if financial else None,
+                    "nmc": financial.nmc if financial else None,
+                    "turnoverratio": financial.turnoverratio if financial else None,
+                    # Legacy fields for backward compatibility
+                    "pe_ratio": financial.pe_ratio if financial else None,
+                    "pb_ratio": financial.pb_ratio if financial else None,
+                    "market_cap": financial.market_cap if financial else None,
+                    "circulating_market_cap": financial.circulating_market_cap
+                    if financial
+                    else None,
+                    # 衍生指标
+                    "is_profitable": financial.is_profitable if financial else None,
+                }
+            )
 
         return {
             "id": portfolio.id,
@@ -113,7 +121,9 @@ class PortfolioManager:
             "updated_at": str(portfolio.updated_at),
         }
 
-    async def add_stocks(self, portfolio_id: int, stock_codes: list[str], shares: float = 0, avg_cost: float = 0):
+    async def add_stocks(
+        self, portfolio_id: int, stock_codes: list[str], shares: float = 0, avg_cost: float = 0
+    ):
         for code in stock_codes:
             # Skip empty codes
             if not code or not code.strip():
@@ -126,12 +136,14 @@ class PortfolioManager:
                 )
             )
             if not existing.scalar_one_or_none():
-                self.db.add(PortfolioItem(
-                    portfolio_id=portfolio_id,
-                    stock_code=code,
-                    shares=shares,
-                    avg_cost=avg_cost,
-                ))
+                self.db.add(
+                    PortfolioItem(
+                        portfolio_id=portfolio_id,
+                        stock_code=code,
+                        shares=shares,
+                        avg_cost=avg_cost,
+                    )
+                )
         await self.db.flush()
 
     async def remove_stock(self, portfolio_id: int, stock_code: str):

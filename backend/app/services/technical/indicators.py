@@ -52,9 +52,7 @@ def rsi(close: pd.Series, period: int = 14) -> pd.Series:
     return result.mask(total == 0, 50.0)
 
 
-def macd(
-    close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9
-) -> pd.DataFrame:
+def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
     """Moving average convergence/divergence。
 
     返回 DataFrame：``macd``（快 EMA - 慢 EMA）、``signal``（macd 的 EMA）、
@@ -71,14 +69,10 @@ def macd(
     else:
         signal_line = ema(macd_line.loc[first_valid:], signal).reindex(close.index)
     histogram = macd_line - signal_line
-    return pd.DataFrame(
-        {"macd": macd_line, "signal": signal_line, "histogram": histogram}
-    )
+    return pd.DataFrame({"macd": macd_line, "signal": signal_line, "histogram": histogram})
 
 
-def atr(
-    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
-) -> pd.Series:
+def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
     """Average true range：真实波幅用 Wilder 法平滑。
 
     第一行 true range 用 ``high - low``（无前收可差分）；前 ``period`` 个 true range

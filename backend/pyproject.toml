@@ -47,6 +47,9 @@ ignore = ["E501"]  # line length handled by formatter, not lint
 [tool.ruff.lint.per-file-ignores]
 # Test scripts legitimately use runtime __main__ patterns and broad imports.
 "tests/**" = ["B008"]
+# FastAPI route handlers use Depends()/Query()/Path() as default args — this is
+# the documented idiom, B008 is a false positive for it.
+"app/api/**" = ["B008"]
 "app/scripts/**" = []
 
 [tool.pytest.ini_options]

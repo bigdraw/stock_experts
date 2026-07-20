@@ -1,7 +1,6 @@
 """Book and Agent API routes."""
 
 import json
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, UploadFile
@@ -82,15 +81,17 @@ async def create_agent(
 ):
     """Create agent from natural language description."""
     llm = llm_manager.get()
-    response = await llm.chat([
-        LLMMessage(
-            role="system",
-            content="""你是投资 Agent 定义专家。根据用户的自然语言描述，生成投资 Agent 的 system_prompt。
+    response = await llm.chat(
+        [
+            LLMMessage(
+                role="system",
+                content="""你是投资 Agent 定义专家。根据用户的自然语言描述，生成投资 Agent 的 system_prompt。
 输出 JSON：{"system_prompt": "...", "config": {"style": "...", "risk_tolerance": "...", "holding_period": "..."}}
 只输出 JSON。""",
-        ),
-        LLMMessage(role="user", content=req.nl_description),
-    ])
+            ),
+            LLMMessage(role="user", content=req.nl_description),
+        ]
+    )
     try:
         agent_def = json.loads(response.content)
     except json.JSONDecodeError:
@@ -115,7 +116,7 @@ async def list_agents(
     current_user: User = Depends(get_current_user),
 ):
     """List all agents."""
-    result = await db.execute(select(Agent).where(Agent.is_active == True))
+    result = await db.execute(select(Agent).where(Agent.is_active))
     return result.scalars().all()
 
 

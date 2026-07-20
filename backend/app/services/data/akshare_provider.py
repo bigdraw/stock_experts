@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 from datetime import datetime
-from typing import Optional
 
 import akshare as ak
 import pandas as pd
@@ -21,7 +20,7 @@ from app.services.data.provider import (
 logger = logging.getLogger(__name__)
 
 # Proxy enabled cache (None means not loaded yet)
-_proxy_enabled_cache: Optional[bool] = None
+_proxy_enabled_cache: bool | None = None
 
 
 async def get_proxy_enabled() -> bool:
@@ -29,10 +28,10 @@ async def get_proxy_enabled() -> bool:
     global _proxy_enabled_cache
     if _proxy_enabled_cache is not None:
         return _proxy_enabled_cache
-    
+
     from app.database import async_session_factory
     from app.models.system import SystemSettings
-    
+
     async with async_session_factory() as db:
         result = await db.execute(
             select(SystemSettings).where(SystemSettings.key == "proxy_enabled")
@@ -49,10 +48,10 @@ async def get_proxy_enabled() -> bool:
 async def set_proxy_enabled(enabled: bool):
     """Set proxy enabled setting in database."""
     global _proxy_enabled_cache
-    
+
     from app.database import async_session_factory
     from app.models.system import SystemSettings
-    
+
     async with async_session_factory() as db:
         result = await db.execute(
             select(SystemSettings).where(SystemSettings.key == "proxy_enabled")
@@ -71,31 +70,31 @@ def _bypass_proxy():
     # Check if proxy is enabled (use cache, sync version)
     if _proxy_enabled_cache is True:
         return {}  # Don't bypass, use proxy
-    
+
     # Save original proxy settings
-    original_http = os.environ.get('HTTP_PROXY')
-    original_https = os.environ.get('HTTPS_PROXY')
-    original_http_lower = os.environ.get('http_proxy')
-    original_https_lower = os.environ.get('https_proxy')
-    original_no_proxy = os.environ.get('NO_PROXY')
-    original_no_proxy_lower = os.environ.get('no_proxy')
-    
+    original_http = os.environ.get("HTTP_PROXY")
+    original_https = os.environ.get("HTTPS_PROXY")
+    original_http_lower = os.environ.get("http_proxy")
+    original_https_lower = os.environ.get("https_proxy")
+    original_no_proxy = os.environ.get("NO_PROXY")
+    original_no_proxy_lower = os.environ.get("no_proxy")
+
     # Remove proxy settings
-    for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+    for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
         if key in os.environ:
             del os.environ[key]
-    
+
     # Also set NO_PROXY to bypass all proxies
-    os.environ['NO_PROXY'] = '*'
-    os.environ['no_proxy'] = '*'
-    
+    os.environ["NO_PROXY"] = "*"
+    os.environ["no_proxy"] = "*"
+
     return {
-        'HTTP_PROXY': original_http,
-        'HTTPS_PROXY': original_https,
-        'http_proxy': original_http_lower,
-        'https_proxy': original_https_lower,
-        'NO_PROXY': original_no_proxy,
-        'no_proxy': original_no_proxy_lower,
+        "HTTP_PROXY": original_http,
+        "HTTPS_PROXY": original_https,
+        "http_proxy": original_http_lower,
+        "https_proxy": original_https_lower,
+        "NO_PROXY": original_no_proxy,
+        "no_proxy": original_no_proxy_lower,
     }
 
 
@@ -122,18 +121,22 @@ class AkShareProvider(DataProvider):
             try:
                 # Run synchronous akshare call in thread pool to avoid blocking event loop
                 df = await asyncio.to_thread(self._fetch_stock_list_sync)
-                
+
                 stocks = []
                 for _, row in df.iterrows():
                     code = str(row["code"]).zfill(6)
                     # Filter: 600xxx (SH), 000xxx/001xxx/002xxx/003xxx (SZ), 300xxx (SZ)
-                    if code.startswith(("600", "601", "603", "605", "000", "001", "002", "003", "300")):
+                    if code.startswith(
+                        ("600", "601", "603", "605", "000", "001", "002", "003", "300")
+                    ):
                         market = "SH" if code.startswith(("600", "601", "603", "605")) else "SZ"
-                        stocks.append(StockBasic(
-                            code=code,
-                            name=row["name"],
-                            market=market,
-                        ))
+                        stocks.append(
+                            StockBasic(
+                                code=code,
+                                name=row["name"],
+                                market=market,
+                            )
+                        )
                 logger.info(f"Fetched {len(stocks)} stocks from AkShare")
                 return stocks
             except Exception as e:
@@ -151,115 +154,133 @@ class AkShareProvider(DataProvider):
     async def get_basic_indicators(self, codes: list[str]) -> list[StockBasicIndicators]:
         """Get basic indicators for given stock codes using Sina API."""
         results = []
-        
+
         # Fetch all A-share data from Sina (eastmoney is broken)
         async with self._semaphore:
             try:
                 # Run synchronous call in thread pool
                 all_data = await asyncio.to_thread(self._fetch_all_indicators_sina)
-                
+
                 # Filter by codes
                 code_set = set(codes)
                 for item in all_data:
-                    code = item['code']
+                    code = item["code"]
                     if code in code_set:
-                        market_cap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
-                        pe_ratio = float(item.get('per', 0)) if item.get('per') else None
-                        pb_ratio = float(item.get('pb', 0)) if item.get('pb') else None
-                        
-                        results.append(StockBasicIndicators(
-                            code=code,
-                            date=datetime.now().strftime("%Y-%m-%d"),
-                            market_cap=market_cap,
-                            pe_ratio=pe_ratio,
-                            pb_ratio=pb_ratio,
-                            is_profitable=pe_ratio is not None and pe_ratio > 0 if pe_ratio is not None else None,
-                        ))
-                
+                        market_cap = float(item.get("mktcap", 0)) if item.get("mktcap") else None
+                        pe_ratio = float(item.get("per", 0)) if item.get("per") else None
+                        pb_ratio = float(item.get("pb", 0)) if item.get("pb") else None
+
+                        results.append(
+                            StockBasicIndicators(
+                                code=code,
+                                date=datetime.now().strftime("%Y-%m-%d"),
+                                market_cap=market_cap,
+                                pe_ratio=pe_ratio,
+                                pb_ratio=pb_ratio,
+                                is_profitable=pe_ratio is not None and pe_ratio > 0
+                                if pe_ratio is not None
+                                else None,
+                            )
+                        )
+
                 logger.info(f"Fetched indicators for {len(results)} stocks")
-                
+
             except Exception as e:
                 logger.error(f"Failed to fetch indicators: {e}")
                 return []
-        
+
         return results
-    
-    async def get_all_basic_indicators(self, code_prefixes: list[str] = None) -> list[StockBasicIndicators]:
+
+    async def get_all_basic_indicators(
+        self, code_prefixes: list[str] = None
+    ) -> list[StockBasicIndicators]:
         """Get basic indicators for ALL A-share stocks in a single API call.
-        
+
         Args:
             code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
                           If None, fetch all stocks.
         """
         results = []
-        
+
         async with self._semaphore:
             try:
                 # Run synchronous call in thread pool
                 all_data = await asyncio.to_thread(self._fetch_all_indicators_sina, code_prefixes)
-                
+
                 # Convert to StockBasicIndicators
                 for item in all_data:
-                    code = item['code']
-                    
+                    code = item["code"]
+
                     # 提取全部 20 个行情指标
-                    symbol = item.get('symbol')
-                    price = float(item.get('trade', 0)) if item.get('trade') else None
-                    pricechange = float(item.get('pricechange', 0)) if item.get('pricechange') else None
-                    changepercent = float(item.get('changepercent', 0)) if item.get('changepercent') else None
-                    buy = float(item.get('buy', 0)) if item.get('buy') else None
-                    sell = float(item.get('sell', 0)) if item.get('sell') else None
-                    settlement = float(item.get('settlement', 0)) if item.get('settlement') else None
-                    open_price = float(item.get('open', 0)) if item.get('open') else None
-                    high = float(item.get('high', 0)) if item.get('high') else None
-                    low = float(item.get('low', 0)) if item.get('low') else None
-                    volume = float(item.get('volume', 0)) if item.get('volume') else None
-                    amount = float(item.get('amount', 0)) if item.get('amount') else None
-                    ticktime = item.get('ticktime')
-                    per = float(item.get('per', 0)) if item.get('per') else None
-                    pb = float(item.get('pb', 0)) if item.get('pb') else None
-                    mktcap = float(item.get('mktcap', 0)) if item.get('mktcap') else None
-                    nmc = float(item.get('nmc', 0)) if item.get('nmc') else None
-                    turnoverratio = float(item.get('turnoverratio', 0)) if item.get('turnoverratio') else None
-                    
-                    results.append(StockBasicIndicators(
-                        code=code,
-                        date=datetime.now().strftime("%Y-%m-%d"),
-                        # 20 个行情指标
-                        symbol=symbol,
-                        price=price,
-                        pricechange=pricechange,
-                        changepercent=changepercent,
-                        buy=buy,
-                        sell=sell,
-                        settlement=settlement,
-                        open=open_price,
-                        high=high,
-                        low=low,
-                        volume=volume,
-                        amount=amount,
-                        ticktime=ticktime,
-                        per=per,
-                        pb=pb,
-                        mktcap=mktcap,
-                        nmc=nmc,
-                        turnoverratio=turnoverratio,
-                        # Legacy fields for backward compatibility
-                        pe_ratio=per,
-                        pb_ratio=pb,
-                        market_cap=mktcap,
-                        circulating_market_cap=nmc,
-                        is_profitable=per is not None and per > 0 if per is not None else None,
-                    ))
-                
-                logger.info(f"Fetched indicators for {len(results)} stocks (filtered by {code_prefixes if code_prefixes else 'all'})")
-                
+                    symbol = item.get("symbol")
+                    price = float(item.get("trade", 0)) if item.get("trade") else None
+                    pricechange = (
+                        float(item.get("pricechange", 0)) if item.get("pricechange") else None
+                    )
+                    changepercent = (
+                        float(item.get("changepercent", 0)) if item.get("changepercent") else None
+                    )
+                    buy = float(item.get("buy", 0)) if item.get("buy") else None
+                    sell = float(item.get("sell", 0)) if item.get("sell") else None
+                    settlement = (
+                        float(item.get("settlement", 0)) if item.get("settlement") else None
+                    )
+                    open_price = float(item.get("open", 0)) if item.get("open") else None
+                    high = float(item.get("high", 0)) if item.get("high") else None
+                    low = float(item.get("low", 0)) if item.get("low") else None
+                    volume = float(item.get("volume", 0)) if item.get("volume") else None
+                    amount = float(item.get("amount", 0)) if item.get("amount") else None
+                    ticktime = item.get("ticktime")
+                    per = float(item.get("per", 0)) if item.get("per") else None
+                    pb = float(item.get("pb", 0)) if item.get("pb") else None
+                    mktcap = float(item.get("mktcap", 0)) if item.get("mktcap") else None
+                    nmc = float(item.get("nmc", 0)) if item.get("nmc") else None
+                    turnoverratio = (
+                        float(item.get("turnoverratio", 0)) if item.get("turnoverratio") else None
+                    )
+
+                    results.append(
+                        StockBasicIndicators(
+                            code=code,
+                            date=datetime.now().strftime("%Y-%m-%d"),
+                            # 20 个行情指标
+                            symbol=symbol,
+                            price=price,
+                            pricechange=pricechange,
+                            changepercent=changepercent,
+                            buy=buy,
+                            sell=sell,
+                            settlement=settlement,
+                            open=open_price,
+                            high=high,
+                            low=low,
+                            volume=volume,
+                            amount=amount,
+                            ticktime=ticktime,
+                            per=per,
+                            pb=pb,
+                            mktcap=mktcap,
+                            nmc=nmc,
+                            turnoverratio=turnoverratio,
+                            # Legacy fields for backward compatibility
+                            pe_ratio=per,
+                            pb_ratio=pb,
+                            market_cap=mktcap,
+                            circulating_market_cap=nmc,
+                            is_profitable=per is not None and per > 0 if per is not None else None,
+                        )
+                    )
+
+                logger.info(
+                    f"Fetched indicators for {len(results)} stocks (filtered by {code_prefixes if code_prefixes else 'all'})"
+                )
+
             except Exception as e:
                 logger.error(f"Failed to fetch all indicators: {e}")
                 return []
-        
+
         return results
-    
+
     def _fetch_all_indicators_sina(self, code_prefixes: list[str] = None) -> list[dict]:
         """Fetch all A-share indicators from Sina API.
 
@@ -267,8 +288,9 @@ class AkShareProvider(DataProvider):
             code_prefixes: List of code prefixes to filter (e.g., ['000', '600', '300']).
                           If None, fetch all stocks.
         """
-        import requests
         import json
+
+        import requests
 
         s = requests.Session()
         s.trust_env = False
@@ -281,17 +303,17 @@ class AkShareProvider(DataProvider):
         while page <= MAX_PAGES:
             try:
                 r = s.get(
-                    'https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData',
+                    "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData",
                     params={
-                        'page': str(page),
-                        'num': str(page_size),
-                        'sort': 'symbol',
-                        'asc': '1',
-                        'node': 'hs_a',
-                        'symbol': '',
-                        '_s_r_a': 'page'
+                        "page": str(page),
+                        "num": str(page_size),
+                        "sort": "symbol",
+                        "asc": "1",
+                        "node": "hs_a",
+                        "symbol": "",
+                        "_s_r_a": "page",
                     },
-                    timeout=10
+                    timeout=10,
                 )
             except requests.RequestException as e:
                 logger.error(f"Sina request failed on page {page}: {e}")
@@ -300,9 +322,11 @@ class AkShareProvider(DataProvider):
             # Validate HTTP status — Sina returns an HTML error page (not JSON)
             # on failures; without this guard we'd raise JSONDecodeError and
             # discard everything already collected this run.
-            if r.status_code != 200 or not r.text or not r.text.strip().startswith('['):
-                logger.warning(f"Sina page {page} returned status {r.status_code}, "
-                               f"non-JSON body (len={len(r.text)}) — stopping pagination")
+            if r.status_code != 200 or not r.text or not r.text.strip().startswith("["):
+                logger.warning(
+                    f"Sina page {page} returned status {r.status_code}, "
+                    f"non-JSON body (len={len(r.text)}) — stopping pagination"
+                )
                 break
 
             try:
@@ -316,7 +340,11 @@ class AkShareProvider(DataProvider):
 
             # Filter by code prefixes if specified
             if code_prefixes:
-                filtered = [item for item in data if any(item['code'].startswith(prefix) for prefix in code_prefixes)]
+                filtered = [
+                    item
+                    for item in data
+                    if any(item["code"].startswith(prefix) for prefix in code_prefixes)
+                ]
                 all_data.extend(filtered)
             else:
                 all_data.extend(data)
@@ -343,23 +371,26 @@ class AkShareProvider(DataProvider):
             try:
                 # Run synchronous akshare call in thread pool to avoid blocking event loop
                 df = await asyncio.to_thread(
-                    self._fetch_daily_quotes_sync,
-                    code, start_date, end_date
+                    self._fetch_daily_quotes_sync, code, start_date, end_date
                 )
-                
+
                 quotes = []
                 for _, row in df.iterrows():
-                    quotes.append(DailyQuote(
-                        code=code,
-                        date=str(row["日期"]),
-                        open=float(row["开盘"]),
-                        high=float(row["最高"]),
-                        low=float(row["最低"]),
-                        close=float(row["收盘"]),
-                        volume=float(row["成交量"]),
-                        amount=float(row["成交额"]),
-                        turnover_rate=float(row.get("换手率")) if pd.notna(row.get("换手率")) else None,
-                    ))
+                    quotes.append(
+                        DailyQuote(
+                            code=code,
+                            date=str(row["日期"]),
+                            open=float(row["开盘"]),
+                            high=float(row["最高"]),
+                            low=float(row["最低"]),
+                            close=float(row["收盘"]),
+                            volume=float(row["成交量"]),
+                            amount=float(row["成交额"]),
+                            turnover_rate=float(row.get("换手率"))
+                            if pd.notna(row.get("换手率"))
+                            else None,
+                        )
+                    )
                 return quotes
             except Exception as e:
                 logger.error(f"Failed to fetch daily quotes for {code}: {e}")
@@ -384,41 +415,64 @@ class AkShareProvider(DataProvider):
         async with self._semaphore:
             try:
                 # Run synchronous akshare call in thread pool to avoid blocking event loop
-                df = await asyncio.to_thread(
-                    self._fetch_financial_reports_sync,
-                    code
-                )
-                
+                df = await asyncio.to_thread(self._fetch_financial_reports_sync, code)
+
                 reports = []
                 for _, row in df.iterrows():
                     # Extract all available financial metrics
-                    revenue = float(row.get("营业总收入")) if pd.notna(row.get("营业总收入")) else None
+                    revenue = (
+                        float(row.get("营业总收入")) if pd.notna(row.get("营业总收入")) else None
+                    )
                     net_profit = float(row.get("净利润")) if pd.notna(row.get("净利润")) else None
-                    roe = float(row.get("净资产收益率")) if pd.notna(row.get("净资产收益率")) else None
-                    eps = float(row.get("基本每股收益")) if pd.notna(row.get("基本每股收益")) else None
+                    roe = (
+                        float(row.get("净资产收益率"))
+                        if pd.notna(row.get("净资产收益率"))
+                        else None
+                    )
+                    eps = (
+                        float(row.get("基本每股收益"))
+                        if pd.notna(row.get("基本每股收益"))
+                        else None
+                    )
                     bps = float(row.get("每股净资产")) if pd.notna(row.get("每股净资产")) else None
-                    revenue_growth = float(row.get("营业总收入同比增长率")) if pd.notna(row.get("营业总收入同比增长率")) else None
-                    net_profit_growth = float(row.get("净利润同比增长率")) if pd.notna(row.get("净利润同比增长率")) else None
-                    gross_margin = float(row.get("销售毛利率")) if pd.notna(row.get("销售毛利率")) else None
-                    net_margin = float(row.get("销售净利率")) if pd.notna(row.get("销售净利率")) else None
-                    debt_ratio = float(row.get("资产负债率")) if pd.notna(row.get("资产负债率")) else None
-                    
-                    reports.append(FinancialReport(
-                        code=code,
-                        report_date=str(row.get("报告期", "")),
-                        report_type=self._infer_report_type(str(row.get("报告期", ""))),
-                        revenue=revenue,
-                        net_profit=net_profit,
-                        roe=roe,
-                        eps=eps,
-                        bps=bps,
-                        revenue_growth=revenue_growth,
-                        net_profit_growth=net_profit_growth,
-                        gross_margin=gross_margin,
-                        net_margin=net_margin,
-                        debt_ratio=debt_ratio,
-                        raw_data=row.to_dict(),
-                    ))
+                    revenue_growth = (
+                        float(row.get("营业总收入同比增长率"))
+                        if pd.notna(row.get("营业总收入同比增长率"))
+                        else None
+                    )
+                    net_profit_growth = (
+                        float(row.get("净利润同比增长率"))
+                        if pd.notna(row.get("净利润同比增长率"))
+                        else None
+                    )
+                    gross_margin = (
+                        float(row.get("销售毛利率")) if pd.notna(row.get("销售毛利率")) else None
+                    )
+                    net_margin = (
+                        float(row.get("销售净利率")) if pd.notna(row.get("销售净利率")) else None
+                    )
+                    debt_ratio = (
+                        float(row.get("资产负债率")) if pd.notna(row.get("资产负债率")) else None
+                    )
+
+                    reports.append(
+                        FinancialReport(
+                            code=code,
+                            report_date=str(row.get("报告期", "")),
+                            report_type=self._infer_report_type(str(row.get("报告期", ""))),
+                            revenue=revenue,
+                            net_profit=net_profit,
+                            roe=roe,
+                            eps=eps,
+                            bps=bps,
+                            revenue_growth=revenue_growth,
+                            net_profit_growth=net_profit_growth,
+                            gross_margin=gross_margin,
+                            net_margin=net_margin,
+                            debt_ratio=debt_ratio,
+                            raw_data=row.to_dict(),
+                        )
+                    )
                 return reports
             except Exception as e:
                 logger.error(f"Failed to fetch financial reports for {code}: {e}")
@@ -432,16 +486,18 @@ class AkShareProvider(DataProvider):
         finally:
             _restore_proxy(original_proxy)
 
-    async def get_financial_analysis_indicators(self, code: str, start_year: str = None) -> list[FinancialReport]:
+    async def get_financial_analysis_indicators(
+        self, code: str, start_year: str = None
+    ) -> list[FinancialReport]:
         """Get comprehensive financial analysis indicators for a stock.
-        
+
         This method fetches detailed financial metrics including ROE, EPS, profit margins,
         growth rates, and other key financial ratios.
-        
+
         Args:
             code: Stock code (e.g., '600519')
             start_year: Optional start year (e.g., '2020'). If None, fetches all available data.
-        
+
         Returns:
             List of FinancialReport objects with comprehensive financial data
         """
@@ -449,18 +505,20 @@ class AkShareProvider(DataProvider):
             try:
                 # Run synchronous akshare call in thread pool
                 df = await asyncio.to_thread(
-                    self._fetch_financial_analysis_indicators_sync,
-                    code, start_year
+                    self._fetch_financial_analysis_indicators_sync, code, start_year
                 )
-                
+
                 reports = []
                 for _, row in df.iterrows():
                     # Extract key metrics
                     report_date = str(row.get("日期", ""))
 
-                    def _num(key: str) -> float | None:
-                        """Coerce a cell to float, None if missing/NaN."""
-                        v = row.get(key)
+                    def _num(key: str, _row=row) -> float | None:
+                        """Coerce a cell to float, None if missing/NaN.
+
+                        ``_row=row`` binds the current loop iteration's row
+                        (B023: closures over loop vars capture by reference)."""
+                        v = _row.get(key)
                         return float(v) if pd.notna(v) else None
 
                     # ROE - prefer weighted, fall back to diluted
@@ -481,28 +539,33 @@ class AkShareProvider(DataProvider):
                     net_profit_growth = _num("净利润增长率(%)")
                     debt_ratio = _num("资产负债率(%)")
 
-                    reports.append(FinancialReport(
-                        code=code,
-                        report_date=report_date,
-                        report_type=self._infer_report_type(report_date),
-                        roe=roe,
-                        eps=eps,
-                        bps=bps,
-                        gross_margin=gross_margin,
-                        net_margin=net_margin,
-                        revenue_growth=revenue_growth,
-                        net_profit_growth=net_profit_growth,
-                        debt_ratio=debt_ratio,
-                        # Keep full payload for traceability / future fields.
-                        raw_data={
-                            "eps": eps, "bps": bps, "roe": roe,
-                            "gross_margin": gross_margin, "net_margin": net_margin,
-                            "revenue_growth": revenue_growth,
-                            "net_profit_growth": net_profit_growth,
-                            "debt_ratio": debt_ratio,
-                            "full_data": row.to_dict(),
-                        },
-                    ))
+                    reports.append(
+                        FinancialReport(
+                            code=code,
+                            report_date=report_date,
+                            report_type=self._infer_report_type(report_date),
+                            roe=roe,
+                            eps=eps,
+                            bps=bps,
+                            gross_margin=gross_margin,
+                            net_margin=net_margin,
+                            revenue_growth=revenue_growth,
+                            net_profit_growth=net_profit_growth,
+                            debt_ratio=debt_ratio,
+                            # Keep full payload for traceability / future fields.
+                            raw_data={
+                                "eps": eps,
+                                "bps": bps,
+                                "roe": roe,
+                                "gross_margin": gross_margin,
+                                "net_margin": net_margin,
+                                "revenue_growth": revenue_growth,
+                                "net_profit_growth": net_profit_growth,
+                                "debt_ratio": debt_ratio,
+                                "full_data": row.to_dict(),
+                            },
+                        )
+                    )
                 return reports
             except Exception as e:
                 logger.error(f"Failed to fetch financial analysis indicators for {code}: {e}")

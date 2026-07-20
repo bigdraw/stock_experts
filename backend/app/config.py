@@ -3,7 +3,6 @@
 import os
 import re
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import BaseModel
@@ -44,6 +43,7 @@ class AuthConfig(BaseModel):
     algorithm: str = "HS256"
     token_expire_minutes: int = 1440  # 24 hours
 
+
 class LLMProviderConfig(BaseModel):
     base_url: str
     api_key: str
@@ -68,10 +68,10 @@ class DataSourceConfig(BaseModel):
 
 
 class FrictionConfig(BaseModel):
-    stamp_tax: float = 0.0005       # 0.05% sell-side only
-    commission: float = 0.00025     # 0.025% both sides
-    commission_min: float = 5.0     # minimum 5 CNY
-    slippage: float = 0.001         # 0.1%
+    stamp_tax: float = 0.0005  # 0.05% sell-side only
+    commission: float = 0.00025  # 0.025% both sides
+    commission_min: float = 5.0  # minimum 5 CNY
+    slippage: float = 0.001  # 0.1%
 
 
 class BacktestConfig(BaseModel):
@@ -102,7 +102,7 @@ def load_config(config_path: str = "config.yaml") -> Settings:
     """
     path = Path(config_path)
     if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = f.read()
         data = yaml.safe_load(_expand_env_vars(raw)) or {}
         settings_ = Settings(**data)

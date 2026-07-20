@@ -2,12 +2,12 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import date
 
 
 @dataclass
 class StockBasic:
     """Basic stock information."""
+
     code: str
     name: str
     market: str  # SH / SZ
@@ -19,6 +19,7 @@ class StockBasic:
 @dataclass
 class StockBasicIndicators:
     """Basic financial indicators for a stock."""
+
     code: str
     date: str
     # 行情指标 (20 fields from Sina API)
@@ -40,7 +41,7 @@ class StockBasicIndicators:
     mktcap: float | None = None  # 总市值（万元）
     nmc: float | None = None  # 流通市值（万元）
     turnoverratio: float | None = None  # 换手率（%）
-    
+
     # Legacy fields for backward compatibility
     pe_ratio: float | None = None  # 市盈率
     pb_ratio: float | None = None  # 市净率
@@ -52,6 +53,7 @@ class StockBasicIndicators:
 @dataclass
 class DailyQuote:
     """Daily OHLCV data."""
+
     code: str
     date: str
     open: float
@@ -66,6 +68,7 @@ class DailyQuote:
 @dataclass
 class FinancialReport:
     """Financial report data."""
+
     code: str
     report_date: str
     report_type: str  # Q1 / H1 / Q3 / Annual

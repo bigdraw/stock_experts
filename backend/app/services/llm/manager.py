@@ -2,7 +2,6 @@
 
 import logging
 import os
-from typing import Any
 
 from app.config import settings
 from app.services.llm.openai_compatible import OpenAICompatibleProvider
@@ -82,6 +81,7 @@ class LLMManager:
         if db is not None:
             try:
                 from app.services import settings_service
+
                 db_config = await settings_service.get_llm_config(db)
             except Exception as e:
                 logger.warning(f"Could not load LLM config from DB: {e}")

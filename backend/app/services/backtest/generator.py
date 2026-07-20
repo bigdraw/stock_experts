@@ -1,6 +1,5 @@
 """Strategy code generator from natural language."""
 
-import json
 import logging
 import re
 
@@ -37,10 +36,12 @@ class StrategyCodeGenerator:
         """Generate strategy code, retry up to 3 times."""
         current_desc = nl_description
         for attempt in range(3):
-            response = await self.llm.chat([
-                LLMMessage(role="system", content=SYSTEM_PROMPT),
-                LLMMessage(role="user", content=current_desc),
-            ])
+            response = await self.llm.chat(
+                [
+                    LLMMessage(role="system", content=SYSTEM_PROMPT),
+                    LLMMessage(role="user", content=current_desc),
+                ]
+            )
             code = self._extract_code(response.content)
 
             # Basic syntax check

@@ -16,7 +16,7 @@ async def create_admin(username: str, password: str):
         # Check if user already exists
         result = await db.execute(select(User).where(User.username == username))
         existing = result.scalar_one_or_none()
-        
+
         if existing:
             # Update existing user to admin
             existing.role = "admin"
@@ -29,7 +29,7 @@ async def create_admin(username: str, password: str):
                 username=username,
                 password_hash=hash_password(password),
                 role="admin",
-                is_active=True
+                is_active=True,
             )
             db.add(admin)
             await db.commit()
@@ -38,19 +38,19 @@ async def create_admin(username: str, password: str):
 
 if __name__ == "__main__":
     if sys.platform == "win32":
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
-    
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
     if len(sys.argv) < 3:
         print("Usage: python -m app.scripts.create_admin <username> <password>")
         print("Example: python -m app.scripts.create_admin admin admin123")
         sys.exit(1)
-    
+
     username = sys.argv[1]
     password = sys.argv[2]
-    
+
     if len(password) < 6:
         print("Error: Password must be at least 6 characters")
         sys.exit(1)
-    
+
     asyncio.run(create_admin(username, password))

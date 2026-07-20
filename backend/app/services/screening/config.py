@@ -24,15 +24,9 @@ def _env_int(name: str, default: int) -> int:
 class ScreeningSettings(BaseModel):
     """三策略打分的可调阈值（均可经环境变量覆盖）。"""
 
-    bullish_min_score: int = Field(
-        default_factory=lambda: _env_int("SCR_BULLISH_MIN_SCORE", 50)
-    )
-    bear_min_score: int = Field(
-        default_factory=lambda: _env_int("SCR_BEAR_MIN_SCORE", 40)
-    )
-    min_history_days: int = Field(
-        default_factory=lambda: _env_int("SCR_MIN_HISTORY_DAYS", 200)
-    )
+    bullish_min_score: int = Field(default_factory=lambda: _env_int("SCR_BULLISH_MIN_SCORE", 50))
+    bear_min_score: int = Field(default_factory=lambda: _env_int("SCR_BEAR_MIN_SCORE", 40))
+    min_history_days: int = Field(default_factory=lambda: _env_int("SCR_MIN_HISTORY_DAYS", 200))
     universe_max: int = Field(default_factory=lambda: _env_int("SCR_UNIVERSE_MAX", 200))
     volume_surge_multiplier: float = 1.5
     volume_decline_multiplier: float = 1.2

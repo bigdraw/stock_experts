@@ -1,10 +1,8 @@
 """Stock API routes."""
 
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, Query
-from pypinyin import pinyin, Style
-from sqlalchemy import select, func
+from pypinyin import Style, pinyin
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
@@ -38,7 +36,7 @@ async def count_stocks(
     current_user: User = Depends(get_current_user),
 ):
     """Get total count of stocks."""
-    query = select(func.count()).select_from(Stock).where(Stock.is_active == True)
+    query = select(func.count()).select_from(Stock).where(Stock.is_active)
     if market:
         query = query.where(Stock.market == market)
     result = await db.execute(query)
@@ -56,7 +54,7 @@ async def list_stocks(
     current_user: User = Depends(get_current_user),
 ):
     """List stocks with optional filtering."""
-    query = select(Stock).where(Stock.is_active == True)
+    query = select(Stock).where(Stock.is_active)
     if market:
         query = query.where(Stock.market == market)
     if search:
@@ -76,19 +74,16 @@ async def list_stocks_with_indicators(
     current_user: User = Depends(get_current_user),
 ):
     """List stocks with their latest financial indicators."""
-    from sqlalchemy import and_, desc, func
-    
+    from sqlalchemy import and_, func
+
     # Subquery to get the most recent report date for each stock
     latest_dates_subq = (
-        select(
-            FinancialReport.stock_code,
-            func.max(FinancialReport.report_date).label('max_date')
-        )
+        select(FinancialReport.stock_code, func.max(FinancialReport.report_date).label("max_date"))
         .where(FinancialReport.report_type == "Latest")
         .group_by(FinancialReport.stock_code)
         .subquery()
     )
-    
+
     # Main query joining stocks with their latest financial reports
     query = (
         select(
@@ -125,30 +120,27 @@ async def list_stocks_with_indicators(
             # 衍生指标
             FinancialReport.is_profitable,
         )
-        .outerjoin(
-            latest_dates_subq,
-            Stock.code == latest_dates_subq.c.stock_code
-        )
+        .outerjoin(latest_dates_subq, Stock.code == latest_dates_subq.c.stock_code)
         .outerjoin(
             FinancialReport,
             and_(
                 Stock.code == FinancialReport.stock_code,
                 FinancialReport.report_date == latest_dates_subq.c.max_date,
-                FinancialReport.report_type == "Latest"
-            )
+                FinancialReport.report_type == "Latest",
+            ),
         )
-        .where(Stock.is_active == True)
+        .where(Stock.is_active)
     )
-    
+
     if market:
         query = query.where(Stock.market == market)
     if search:
         query = query.where(Stock.name.contains(search) | Stock.code.contains(search))
-    
+
     query = query.offset(offset).limit(limit)
     result = await db.execute(query)
     rows = result.all()
-    
+
     # Convert to list of dicts
     return [
         {
@@ -191,7 +183,9 @@ async def list_stocks_with_indicators(
 
 @router.get("/search", response_model=list[StockResponse])
 async def search_stocks(
-    q: str = Query(..., min_length=1, description="Search query (code, name, pinyin, or first letter)"),
+    q: str = Query(
+        ..., min_length=1, description="Search query (code, name, pinyin, or first letter)"
+    ),
     limit: int = Query(default=100, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -201,46 +195,49 @@ async def search_stocks(
     q_normalized = q.replace(" ", "").replace(" ", "")
     q_lower = q_normalized.lower()
     q_original = q  # Keep original for exact name matching
-    
+
     # First, try database filtering by code and name (fast)
-    query = select(Stock).where(
-        Stock.is_active == True,
-        (Stock.code.contains(q_lower)) | (Stock.name.contains(q_original)) | (Stock.name.contains(q_normalized))
-    ).limit(limit)
+    query = (
+        select(Stock)
+        .where(
+            Stock.is_active,
+            (Stock.code.contains(q_lower))
+            | (Stock.name.contains(q_original))
+            | (Stock.name.contains(q_normalized)),
+        )
+        .limit(limit)
+    )
     result = await db.execute(query)
     matched_stocks = list(result.scalars().all())
-    
+
     # If we have enough results, return them
     if len(matched_stocks) >= limit:
         return matched_stocks[:limit]
-    
+
     # If not enough results, try pinyin and first letter matching
     # Load only stocks that haven't been matched yet
     matched_codes = {stock.code for stock in matched_stocks}
-    query = select(Stock).where(
-        Stock.is_active == True,
-        ~Stock.code.in_(matched_codes)
-    )
+    query = select(Stock).where(Stock.is_active, ~Stock.code.in_(matched_codes))
     result = await db.execute(query)
     remaining_stocks = result.scalars().all()
-    
+
     for stock in remaining_stocks:
         if len(matched_stocks) >= limit:
             break
-        
+
         # Match by pinyin
         if stock.name:
             stock_pinyin = get_pinyin(stock.name).lower()
             if q_lower in stock_pinyin:
                 matched_stocks.append(stock)
                 continue
-            
+
             # Match by first letter
             stock_first_letter = get_first_letter(stock.name).lower()
             if q_lower in stock_first_letter:
                 matched_stocks.append(stock)
                 continue
-    
+
     return matched_stocks[:limit]
 
 
@@ -359,17 +356,14 @@ async def get_latest_indicators(
     """Get the latest market indicators for a stock (from the most recent 'Latest' report)."""
     result = await db.execute(
         select(FinancialReport)
-        .where(
-            FinancialReport.stock_code == code,
-            FinancialReport.report_type == "Latest"
-        )
+        .where(FinancialReport.stock_code == code, FinancialReport.report_type == "Latest")
         .order_by(FinancialReport.report_date.desc())
         .limit(1)
     )
     report = result.scalar_one_or_none()
     if not report:
         return {}
-    
+
     return {
         "report_date": str(report.report_date),
         # All 20 market fields from Sina API

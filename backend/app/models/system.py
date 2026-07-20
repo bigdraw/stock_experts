@@ -26,8 +26,12 @@ class DataAcquisitionLog(Base):
     __tablename__ = "data_acquisition_log"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    task_type: Mapped[str] = mapped_column(String(30), nullable=False)  # full_basic / incremental / deep / custom
-    status: Mapped[str] = mapped_column(String(20), nullable=False)  # pending / running / success / failed / recovering
+    task_type: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # full_basic / incremental / deep / custom
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # pending / running / success / failed / recovering
     started_at: Mapped[datetime | None] = mapped_column(DateTime)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
     stocks_processed: Mapped[int] = mapped_column(Integer, default=0)
@@ -42,4 +46,6 @@ class SystemSettings(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     key: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     value: Mapped[str] = mapped_column(String(500), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )

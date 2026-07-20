@@ -81,22 +81,15 @@ class StrategyTracker:
 
     async def recompute(self, strategy_tag: str) -> StrategyPerformance:
         """重算某 tag 的指标并 upsert。"""
-        result = await self._db.execute(
-            select(JournalEntry).where(JournalEntry.status == "closed")
-        )
+        result = await self._db.execute(select(JournalEntry).where(JournalEntry.status == "closed"))
         closed_entries: list[JournalEntry] = list(result.scalars().all())
 
-        tagged = [
-            e for e in closed_entries
-            if isinstance(e.tags, list) and strategy_tag in e.tags
-        ]
+        tagged = [e for e in closed_entries if isinstance(e.tags, list) and strategy_tag in e.tags]
 
         m = compute_strategy_metrics(tagged)
 
         perf_result = await self._db.execute(
-            select(StrategyPerformance).where(
-                StrategyPerformance.strategy_tag == strategy_tag
-            )
+            select(StrategyPerformance).where(StrategyPerformance.strategy_tag == strategy_tag)
         )
         perf = perf_result.scalar_one_or_none()
         if perf is None:
@@ -120,9 +113,7 @@ class StrategyTracker:
     async def get_performance(self, strategy_tag: str) -> StrategyPerformance | None:
         """取某 tag 的持久化表现记录。"""
         result = await self._db.execute(
-            select(StrategyPerformance).where(
-                StrategyPerformance.strategy_tag == strategy_tag
-            )
+            select(StrategyPerformance).where(StrategyPerformance.strategy_tag == strategy_tag)
         )
         return result.scalar_one_or_none()
 

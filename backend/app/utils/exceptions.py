@@ -25,14 +25,17 @@ class BadRequestException(HTTPException):
 
 class LLMProviderError(Exception):
     """Raised when LLM provider call fails."""
+
     pass
 
 
 class DataAcquisitionError(Exception):
     """Raised when data acquisition fails."""
+
     pass
 
 
 class SandboxValidationError(Exception):
     """Raised when generated code fails sandbox validation."""
+
     pass
