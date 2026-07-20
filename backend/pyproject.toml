@@ -8,7 +8,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "akshare>=1.18.64",
     "apscheduler>=3.11.3",
-    "bcrypt<6",
+    "bcrypt==5.0.0",
     "ebooklib>=0.20",
     "fastapi>=0.139.2",
     "httpx>=0.28.1",
