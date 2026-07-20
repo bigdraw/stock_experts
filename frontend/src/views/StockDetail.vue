@@ -312,8 +312,15 @@
         </n-gi>
         <n-gi>
           <div class="trend-block">
-            <div class="trend-title">P/E 估值带（均值黄虚线 · 30/70 分位）</div>
-            <v-chart :option="peBandOption" style="height: 280px" autoresize />
+            <div class="trend-title">
+              <n-radio-group v-model:value="bandType" size="tiny">
+                <n-radio-button value="pe">P/E</n-radio-button>
+                <n-radio-button value="pb">P/B</n-radio-button>
+                <n-radio-button value="ps">P/S</n-radio-button>
+              </n-radio-group>
+              估值带（均值黄虚线 · 30/70 分位）
+            </div>
+            <v-chart :option="bandOption" style="height: 280px" autoresize />
           </div>
         </n-gi>
       </n-grid>
@@ -386,6 +393,7 @@ const klineLoading = ref(false)
 const klinePeriod = ref<string>('daily')
 const finFilter = ref<string>('all') // all | Annual | H1 | Q1 | Q3
 const valueAnalysis = ref<any>(null)
+const bandType = ref<'pe' | 'pb' | 'ps'>('pe')
 
 // 关键指标的 近3年/近10年 均值（从年报计算，不满10年标注 *）
 const metricStats = computed(() => {
@@ -494,21 +502,24 @@ const roeTrendOption = computed(() => {
   }
 })
 
-// 营收 + 净利 趋势（双柱+双轴）
+// 营收 + 净利 趋势（双柱+双轴+增长率折线）
 const revenueProfitTrendOption = computed(() => {
   const data = periodicSorted.value
   return {
     tooltip: { trigger: 'axis' },
-    legend: { data: ['营业收入', '净利润'], textStyle: { color: '#94a3b8' }, top: 5 },
-    grid: { left: '8%', right: '8%', top: '18%', bottom: '18%' },
+    legend: { data: ['营业收入', '净利润', '营收增长', '净利增长'], textStyle: { color: '#94a3b8' }, top: 5 },
+    grid: { left: '8%', right: '12%', top: '18%', bottom: '18%' },
     xAxis: { type: 'category', data: data.map(d => d.report_date), axisLabel: { rotate: 40, color: '#94a3b8' } },
     yAxis: [
       { type: 'value', name: '营收', axisLabel: { color: '#94a3b8', formatter: (v: number) => (v >= 1e8 ? (v / 1e8).toFixed(1) + '亿' : v.toFixed(0)) } },
       { type: 'value', name: '净利', axisLabel: { color: '#94a3b8', formatter: (v: number) => (v >= 1e8 ? (v / 1e8).toFixed(1) + '亿' : v.toFixed(0)) } },
+      { type: 'value', name: '增长率%', axisLabel: { color: '#94a3b8', formatter: (v: number) => v.toFixed(0) + '%' } },
     ],
     series: [
       { name: '营业收入', type: 'bar', data: data.map(d => d.revenue), itemStyle: { color: '#6366f1' } },
       { name: '净利润', type: 'bar', data: data.map(d => d.net_profit), itemStyle: { color: '#00d4aa' }, yAxisIndex: 1 },
+      { name: '营收增长', type: 'line', smooth: true, yAxisIndex: 2, data: data.map(d => (d.revenue_growth ?? 0) * 100), itemStyle: { color: '#f59e0b' }, lineStyle: { width: 1.5 } },
+      { name: '净利增长', type: 'line', smooth: true, yAxisIndex: 2, data: data.map(d => (d.net_profit_growth ?? 0) * 100), itemStyle: { color: '#ef4444' }, lineStyle: { width: 1.5 } },
     ],
   }
 })
@@ -529,45 +540,61 @@ const marginTrendOption = computed(() => {
   }
 })
 
-// P/E 估值带：日K收盘 / 年化EPS，叠加均值 + 30/70 分位带
-const peBandOption = computed(() => {
+// 估值带（P/E / P/B / P/S 切换）：日K收盘 / 锚定值，叠加均值 + 30/70 分位带
+const bandOption = computed(() => {
   const q = quotes.value
   if (!q || q.length < 30) return {}
-
-  // 年化 EPS：优先用最新周期财报 eps（按报告类型年化）；
-  // 无则用实时指标 per(当前PE)+price 反推 EPS = price/per（当前 PE 已是年化口径），
-  // 这样即使周期财报缺 eps 也能用"当前 EPS 锚"生成历史 PE 带。
   const lf = latestFinancial.value
-  let annual = 0
-  if (lf && lf.eps) {
-    annual = lf.report_type === 'Annual' ? lf.eps
-      : lf.report_type === 'H1' ? lf.eps * 2
-      : lf.report_type === 'Q3' ? lf.eps * 4 / 3
-      : lf.eps * 4
-  } else if (latestIndicators.value && latestIndicators.value.per && latestIndicators.value.price) {
-    annual = latestIndicators.value.price / latestIndicators.value.per
-  }
-  if (annual <= 0) return {}
+  const li = latestIndicators.value
 
-  const peSeries = q.map(bar => [bar.date, bar.close / annual])
-  const peVals = peSeries.map(p => p[1]).filter(v => v > 0).sort((a, b) => a - b)
-  if (peVals.length < 30) return {}
-  const pct = (p: number) => peVals[Math.floor(p * peVals.length)] || peVals[peVals.length - 1]
-  const avg = peVals.reduce((s, v) => s + v, 0) / peVals.length
+  let anchor = 0  // 分母：EPS(BPS/年化营收)
+  let label = 'PE'
+  if (bandType.value === 'pe') {
+    label = 'PE'
+    if (lf && lf.eps) {
+      anchor = lf.report_type === 'Annual' ? lf.eps
+        : lf.report_type === 'H1' ? lf.eps * 2
+        : lf.report_type === 'Q3' ? lf.eps * 4 / 3
+        : lf.eps * 4
+    } else if (li && li.per && li.price) {
+      anchor = li.price / li.per
+    }
+  } else if (bandType.value === 'pb') {
+    label = 'PB'
+    anchor = lf?.bps || 0
+  } else if (bandType.value === 'ps') {
+    label = 'PS'
+    // PS = 市值 / 年化营收；用 close / (年化营收/总股本) 简化为 close*总股本/年化营收
+    // 但没有总股本 → 用 close / (年化营收 / 市值) = close * 市值 / 年化营收，太绕
+    // 简化：用最新 PS 锚 = 市值/年化营收，则 PS_t = close_t * (市值_最新/close_最新) / 年化营收
+    if (li && li.mktcap && li.price && lf && lf.revenue) {
+      const mktcap = li.mktcap * 10000  // 万元→元
+      const rd = lf.report_date
+      const annRev = lf.revenue * (rd.endsWith('12-31') ? 1 : rd.endsWith('03-31') ? 4 : rd.endsWith('06-30') ? 2 : 4/3)
+      if (annRev > 0) anchor = li.price / (mktcap / annRev)  // 反推每股营收
+    }
+  }
+  if (anchor <= 0) return {}
+
+  const series = q.map(bar => [bar.date, bar.close / anchor])
+  const vals = series.map(p => p[1]).filter(v => v > 0).sort((a, b) => a - b)
+  if (vals.length < 30) return {}
+  const pct = (p: number) => vals[Math.floor(p * vals.length)] || vals[vals.length - 1]
+  const avg = vals.reduce((s, v) => s + v, 0) / vals.length
   return {
     tooltip: { trigger: 'axis', formatter: (params: any) => {
       const d = params[0]
-      return `${d.axisValue}<br/>PE: ${d.value != null ? d.value.toFixed(2) : '-'}<br/>均值: ${avg.toFixed(2)}`
+      return `${d.axisValue}<br/>${label}: ${d.value != null ? d.value.toFixed(2) : '-'}<br/>均值: ${avg.toFixed(2)}`
     } },
-    legend: { data: ['P/E', '均值'], textStyle: { color: '#94a3b8' }, top: 5 },
+    legend: { data: [label, '均值'], textStyle: { color: '#94a3b8' }, top: 5 },
     grid: { left: '8%', right: '5%', top: '18%', bottom: '18%' },
-    xAxis: { type: 'category', data: peSeries.map(p => p[0]), axisLabel: { color: '#94a3b8' } },
-    yAxis: { type: 'value', name: 'PE', axisLabel: { color: '#94a3b8' } },
+    xAxis: { type: 'category', data: series.map(p => p[0]), axisLabel: { color: '#94a3b8' } },
+    yAxis: { type: 'value', name: label, axisLabel: { color: '#94a3b8' } },
     dataZoom: [{ type: 'inside' }],
     series: [
       {
-        name: 'P/E', type: 'line', smooth: true, symbol: 'none',
-        data: peSeries.map(p => p[1]),
+        name: label, type: 'line', smooth: true, symbol: 'none',
+        data: series.map(p => p[1]),
         itemStyle: { color: '#6366f1' }, lineStyle: { width: 1.2 },
         markLine: { silent: true, symbol: 'none', lineStyle: { color: '#f59e0b', type: 'dashed' },
           data: [{ yAxis: avg }, { yAxis: pct(0.3), lineStyle: { color: '#10b981' } }, { yAxis: pct(0.7), lineStyle: { color: '#ef4444' } }] },
