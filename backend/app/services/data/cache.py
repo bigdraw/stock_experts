@@ -185,3 +185,120 @@ def _parse_date(s: str | None):
         except ValueError:
             continue
     return None
+
+
+# ---------------------------------------------------------------------------
+# 历史全量 + 周期 resample
+# ---------------------------------------------------------------------------
+
+# 起点足够早以覆盖绝大多数 A 股上市以来的全部日K（新股 akshare 自动从上市日起返回）
+_FULL_HISTORY_START = "2010-01-01"
+
+
+async def ensure_full_daily_quotes(
+    db: AsyncSession, code: str, provider: AkShareProvider | None = None
+) -> int:
+    """确保 DB 有 code 的**全量历史日K**（从上市起至今天）；不足则全量拉取，过期则增量补。
+
+    与 ensure_daily_quotes(按需 N 天) 不同：这里拉全量（起点 2010-01-01，新股自动
+    从上市日起），缓存后供周/月/季/年线 resample。首次访问某股详情页时拉全量（1 次
+    akshare 调用，~数千根），之后：同天不拉，下一交易日只补 delta。
+    """
+    provider = provider or AkShareProvider()
+    existing = await db.execute(
+        select(DailyQuote.date)
+        .where(DailyQuote.stock_code == code)
+        .order_by(DailyQuote.date.desc())
+    )
+    have_dates = [r[0] for r in existing.all()]
+    have_set = set(have_dates)
+    latest = have_dates[0] if have_dates else None
+    today = date.today()
+    days_behind = (today - latest).days if latest else 999
+    is_weekend = today.weekday() >= 5
+    fresh = days_behind == 0 or (is_weekend and days_behind <= 2)
+
+    # 已有全量且新鲜→不拉（判断"全量"：DB 条数 > 250，即不止最近一年）
+    if len(have_set) > 250 and fresh:
+        return len(have_set)
+
+    # 确定拉取区间：已有且过期→只补 delta；否则全量
+    if latest is not None and len(have_set) > 250 and not fresh:
+        start = (latest + timedelta(days=1)).strftime("%Y-%m-%d")
+    else:
+        start = _FULL_HISTORY_START
+    end = today.strftime("%Y-%m-%d")
+    if start > end:
+        return len(have_set)
+
+    try:
+        quotes = await provider.get_daily_quotes(code, start, end)
+    except Exception as e:
+        logger.warning(f"ensure_full_daily_quotes fetch failed for {code} [{start}~{end}]: {e}")
+        return len(have_set)
+
+    added = 0
+    for q in quotes:
+        qd = _parse_date(q.date)
+        if qd is None or qd in have_set:
+            continue
+        db.add(
+            DailyQuote(
+                stock_code=code, date=qd,
+                open=q.open, high=q.high, low=q.low, close=q.close,
+                volume=q.volume, amount=q.amount, turnover_rate=q.turnover_rate,
+            )
+        )
+        have_set.add(qd)
+        added += 1
+    if added:
+        await db.flush()
+        logger.info(f"ensure_full_daily_quotes: cached {added} bars for {code} [{start}~{end}]")
+    return len(have_set)
+
+
+def aggregate_to_period(daily_rows: list, period: str) -> list[dict]:
+    """把日K行列表 resample 成 周/月/季/年 线。
+
+    daily_rows: [{"date": str, "open","high","low","close","volume","amount","turnover_rate"}]
+    period: daily | weekly | monthly | quarterly | yearly
+    返回同结构 dict 列表（OHLCV 聚合：开=期初 open，高=期高 max，低=期低 min，
+    收=期末 close，量/额=期和 sum）。
+    """
+    import pandas as pd
+
+    if period == "daily" or not daily_rows:
+        return daily_rows
+
+    df = pd.DataFrame(daily_rows)
+    df["date"] = pd.to_datetime(df["date"], format="mixed", errors="coerce")
+    df = df.dropna(subset=["date"]).set_index("date").sort_index()
+    # 数值列强制 float
+    for col in ("open", "high", "low", "close", "volume", "amount", "turnover_rate"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    rule = {
+        "weekly": "W",
+        "monthly": "ME",
+        "quarterly": "QE",
+        "yearly": "YE",
+    }.get(period)
+    if rule is None:
+        return daily_rows
+
+    agg = {}
+    if "open" in df.columns:
+        agg["open"] = "first"
+    if "high" in df.columns:
+        agg["high"] = "max"
+    if "low" in df.columns:
+        agg["low"] = "min"
+    if "close" in df.columns:
+        agg["close"] = "last"
+    for col in ("volume", "amount", "turnover_rate"):
+        if col in df.columns:
+            agg[col] = "sum"
+    resampled = df.resample(rule).agg(agg).dropna(how="all").reset_index()
+    resampled["date"] = resampled["date"].dt.strftime("%Y-%m-%d")
+    return resampled.to_dict(orient="records")

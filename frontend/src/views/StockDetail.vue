@@ -167,11 +167,23 @@
     </n-card>
 
     <!-- K线图 -->
-    <n-card title="K线图" class="chart-card">
+    <n-card class="chart-card">
+      <template #header>
+        <span style="font-weight: 600; color: var(--text-primary);">K线图</span>
+      </template>
       <template #header-extra>
-        <n-icon :size="20" color="#6366f1">
-          <TrendingUpOutline />
-        </n-icon>
+        <n-space align="center" :size="8">
+          <n-radio-group v-model:value="klinePeriod" size="small" @update:value="onPeriodChange">
+            <n-radio-button value="daily">日K</n-radio-button>
+            <n-radio-button value="weekly">周K</n-radio-button>
+            <n-radio-button value="monthly">月K</n-radio-button>
+            <n-radio-button value="quarterly">季K</n-radio-button>
+            <n-radio-button value="yearly">年K</n-radio-button>
+          </n-radio-group>
+          <n-icon :size="20" color="#6366f1">
+            <TrendingUpOutline />
+          </n-icon>
+        </n-space>
       </template>
       <v-chart :option="klineOption" style="height: 500px" autoresize />
     </n-card>
@@ -357,6 +369,7 @@ const quotes = ref<DailyQuote[]>([])
 const financials = ref<any[]>([])
 const latestIndicators = ref<any>(null)
 const finLoading = ref(false)
+const klinePeriod = ref<string>('daily')
 
 const latestQuote = computed(() => quotes.value.length > 0 ? quotes.value[quotes.value.length - 1] : null)
 const latestFinancial = computed(() => {
@@ -596,7 +609,7 @@ async function loadData(stockCode: string) {
 
   const [stockRes, quotesRes, indicatorsRes] = await Promise.all([
     stocksApi.get(stockCode),
-    stocksApi.getQuotes(stockCode, 120),
+    stocksApi.getQuotes(stockCode, { period: klinePeriod.value, limit: 1000 }),
     stocksApi.getIndicators(stockCode),
   ])
   stock.value = stockRes.data
@@ -620,13 +633,15 @@ const REALTIME_INTERVAL_MS = 10000
 
 async function refreshRealtime(stockCode: string) {
   try {
-    const [indicatorsRes, quotesRes] = await Promise.all([
-      stocksApi.getIndicators(stockCode),
-      stocksApi.getQuotes(stockCode, 1),
-    ])
+    // 周K/月K/季K/年K 下不逐 tick 追加（聚合 bar 不随分时变）；只刷新实时指标。
+    // 日K 下才取最新 1 根追加到图表末尾。
+    const fetches: Promise<any>[] = [stocksApi.getIndicators(stockCode)]
+    if (klinePeriod.value === 'daily') {
+      fetches.push(stocksApi.getQuotes(stockCode, { period: 'daily', limit: 1 }))
+    }
+    const [indicatorsRes, quotesRes] = await Promise.all(fetches)
     if (indicatorsRes.data) latestIndicators.value = indicatorsRes.data
-    // Append the newest tick if the chart data changed.
-    if (quotesRes.data && quotesRes.data.length) {
+    if (klinePeriod.value === 'daily' && quotesRes && quotesRes.data && quotesRes.data.length) {
       const newest = quotesRes.data[quotesRes.data.length - 1]
       const last = quotes.value[quotes.value.length - 1]
       if (!last || new Date(newest.date).getTime() !== new Date(last.date).getTime()) {
@@ -636,6 +651,16 @@ async function refreshRealtime(stockCode: string) {
   } catch (e) {
     // Silent — transient network blips shouldn't surface to the user.
     console.debug('realtime refresh failed', e)
+  }
+}
+
+// 周期切换：重新按新 period 拉取 K线（复用本地缓存，只 resample）
+async function onPeriodChange(period: string) {
+  try {
+    const res = await stocksApi.getQuotes(code.value, { period, limit: 1000 })
+    quotes.value = res.data
+  } catch (e) {
+    console.error('period switch failed', e)
   }
 }
 

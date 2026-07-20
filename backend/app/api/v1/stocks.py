@@ -258,38 +258,62 @@ async def get_stock(
 async def get_quotes(
     code: str,
     days: int = Query(default=120, le=365),
+    period: str = Query(default="daily", pattern="^(daily|weekly|monthly|quarterly|yearly)$"),
+    limit: int = Query(default=1000, le=20000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get daily quotes for a stock (fetch-on-demand: cache from akshare if DB lacks).
+    """Get daily quotes for a stock (full history cached; resample to 周/月/季/年 线).
 
-    解决"K线无数据"：DB 日K不足时按需从 akshare 拉取该股最近 `days` 个交易日
-    并缓存到 daily_quotes，后续直接读 DB。首次访问即有K线，无需预跑采集。
+    - 拉取策略：本地优先 + 全量缓存。首次访问拉全量历史日K（从上市起）到 daily_quotes，
+      之后同天读本地不拉，下一交易日只补 delta。
+    - period=daily 返回日K；weekly/monthly/quarterly/yearly 由日K resample 得到。
+    - limit 控制返回条数（最近 N 根）；日K默认 1000（~4年），周/月/季/年返回全量。
     """
-    from app.services.data.cache import ensure_daily_quotes
+    from app.services.data.cache import aggregate_to_period, ensure_full_daily_quotes
 
-    await ensure_daily_quotes(db, code, days=days)
+    await ensure_full_daily_quotes(db, code)
     await db.commit()
 
     result = await db.execute(
         select(DailyQuote)
         .where(DailyQuote.stock_code == code)
-        .order_by(DailyQuote.date.desc())
-        .limit(days)
+        .order_by(DailyQuote.date.asc())
     )
-    quotes = result.scalars().all()
+    rows = result.scalars().all()
+    daily = [
+        {
+            "date": str(r.date),
+            "open": r.open,
+            "high": r.high,
+            "low": r.low,
+            "close": r.close,
+            "volume": r.volume,
+            "amount": r.amount,
+            "turnover_rate": r.turnover_rate,
+        }
+        for r in rows
+    ]
+
+    if period != "daily":
+        daily = aggregate_to_period(daily, period)
+
+    # 取最近 limit 根（保持时间升序）
+    if len(daily) > limit:
+        daily = daily[-limit:]
+
     return [
         DailyQuoteResponse(
-            date=str(q.date),
-            open=q.open,
-            high=q.high,
-            low=q.low,
-            close=q.close,
-            volume=q.volume,
-            amount=q.amount,
-            turnover_rate=q.turnover_rate,
+            date=d["date"],
+            open=d["open"],
+            high=d["high"],
+            low=d["low"],
+            close=d["close"],
+            volume=d["volume"],
+            amount=d["amount"],
+            turnover_rate=d.get("turnover_rate"),
         )
-        for q in reversed(quotes)
+        for d in daily
     ]
 
 

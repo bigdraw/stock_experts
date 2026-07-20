@@ -19,8 +19,10 @@ export const stocksApi = {
   search: (q: string, limit: number = 100) =>
     apiClient.get<Stock[]>('/stocks/search', { params: { q, limit } }),
   get: (code: string) => apiClient.get<Stock>(`/stocks/${code}`),
-  getQuotes: (code: string, days: number = 120) =>
-    apiClient.get<DailyQuote[]>(`/stocks/${code}/quotes`, { params: { days } }),
+  getQuotes: (code: string, opts: { period?: string; limit?: number; days?: number } = {}) =>
+    apiClient.get<DailyQuote[]>(`/stocks/${code}/quotes`, {
+      params: { period: opts.period ?? 'daily', limit: opts.limit ?? 1000, days: opts.days ?? 120 },
+    }),
   getFinancials: (code: string) => apiClient.get(`/stocks/${code}/financials`),
   getIndicators: (code: string) => apiClient.get(`/stocks/${code}/indicators`),
 }
