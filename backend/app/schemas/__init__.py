@@ -19,6 +19,7 @@ class TokenResponse(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
+    email: str | None = None
     role: str
     created_at: datetime
 
@@ -27,8 +28,9 @@ class UserResponse(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=50, description="用户名不能为空")
-    password: str = Field(..., min_length=6, description="密码长度至少6位")
+    email: str = Field(..., description="邮箱（作为登录ID）")
+    username: str = Field(..., min_length=1, max_length=50, description="显示用户名")
+    password: str = Field(..., min_length=8, description="密码长度至少8位")
 
 
 # --- Stock ---

@@ -13,6 +13,7 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)  # idea28: 邮箱ID
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="user")  # admin / user
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
