@@ -15,6 +15,7 @@ const router = createRouter({
       meta: { requiresAuth: true },
       children: [
         { path: '', name: 'ChatHome', component: () => import('../views/ChatHome.vue') },
+        { path: 'chat/:sessionId?', name: 'ChatSession', component: () => import('../views/ChatHome.vue') },
         { path: 'dashboard', name: 'Dashboard', component: () => import('../views/Dashboard.vue') },
         { path: 'stocks', name: 'StockList', component: () => import('../views/StockList.vue') },
         { path: 'stocks/:code', name: 'StockDetail', component: () => import('../views/StockDetail.vue') },

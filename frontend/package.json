@@ -12,8 +12,11 @@
   },
   "dependencies": {
     "@vicons/ionicons5": "^0.13.0",
+    "@vueuse/core": "^14.3.0",
     "axios": "^1.18.1",
     "echarts": "^6.1.0",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.3.0",
     "naive-ui": "^2.44.1",
     "pinia": "^4.0.2",
     "vue": "^3.5.39",
@@ -22,6 +25,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.13.2",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vue/tsconfig": "^0.9.1",
