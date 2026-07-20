@@ -15,18 +15,25 @@ from app.utils.exceptions import NotFoundException
 router = APIRouter(prefix="/stocks", tags=["stocks"])
 
 
+def _strip_spaces(text: str) -> str:
+    """去除中文/英文空格（idea30：DB 里"万 科A"有空格，搜索"万科"需匹配）。"""
+    return text.replace(" ", "").replace("　", "")
+
+
 def get_pinyin(text: str) -> str:
-    """Convert Chinese text to pinyin."""
+    """Convert Chinese text to pinyin (spaces removed for matching)."""
     if not text:
         return ""
-    return "".join([item[0] for item in pinyin(text, style=Style.NORMAL)])
+    clean = _strip_spaces(text)
+    return "".join([item[0] for item in pinyin(clean, style=Style.NORMAL)])
 
 
 def get_first_letter(text: str) -> str:
-    """Get first letter of each Chinese character."""
+    """Get first letter of each Chinese character (spaces removed)."""
     if not text:
         return ""
-    return "".join([item[0][0] for item in pinyin(text, style=Style.FIRST_LETTER)])
+    clean = _strip_spaces(text)
+    return "".join([item[0][0] for item in pinyin(clean, style=Style.FIRST_LETTER)])
 
 
 @router.get("/count")
@@ -225,8 +232,14 @@ async def search_stocks(
         if len(matched_stocks) >= limit:
             break
 
-        # Match by pinyin
+        # Space-insensitive name match (idea30: "万科" → "万 科A", "XXW" → "新 希 望")
         if stock.name:
+            stock_name_nospace = _strip_spaces(stock.name).lower()
+            if q_lower in stock_name_nospace:
+                matched_stocks.append(stock)
+                continue
+
+            # Match by pinyin
             stock_pinyin = get_pinyin(stock.name).lower()
             if q_lower in stock_pinyin:
                 matched_stocks.append(stock)
