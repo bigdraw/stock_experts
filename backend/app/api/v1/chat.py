@@ -115,3 +115,170 @@ async def list_chat_skills(
     """列出可用技能（供 / 唤起，代理 /agent/tools）。"""
     from app.api.agent import TOOLS
     return [{"name": t["name"], "desc": t["desc"], "path": t["path"]} for t in TOOLS]
+
+
+# --- idea24: 分析 MCP 工具端点（组合分析/个股分析/基金分析）---
+# 不替 agent 下结论——只提供数据，agent 基于数据自行判断。
+
+
+class StockAnalysisRequest(BaseModel):
+    """个股分析：确认股票存在 + 取价值分析数据。"""
+    code: str
+
+
+@router.post("/analyze/stock")
+async def analyze_stock(
+    req: StockAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """个股分析工具（idea24）：验证股票存在 → 返回价值分析数据供 agent 使用。
+
+    如果股票不存在，返回 {found: false}——不瞎编。
+    """
+    from app.models.stock import Stock
+    from app.services.data.cache import ensure_financial_reports
+    from app.services.data.value_analysis import analyze
+
+    # 确认股票存在
+    stock = await db.get(Stock, req.code)
+    if not stock:
+        return {"found": False, "message": f"股票 {req.code} 不存在于数据库中"}
+
+    # 取价值分析
+    await ensure_financial_reports(db, req.code)
+    await db.commit()
+    va = await analyze(db, req.code)
+    return {
+        "found": True,
+        "stock": {"code": stock.code, "name": stock.name, "market": stock.market},
+        "value_analysis": va,
+    }
+
+
+class PortfolioAnalysisRequest(BaseModel):
+    """组合分析：确认组合存在 + 取持仓+风险。"""
+    portfolio_id: int
+
+
+@router.post("/analyze/portfolio")
+async def analyze_portfolio(
+    req: PortfolioAnalysisRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """组合分析工具（idea24）：验证组合存在 → 返回持仓+风险看板供 agent 使用。
+
+    如果组合不存在或非本人，返回 {found: false}。
+    """
+    from app.models.portfolio import Portfolio, PortfolioItem
+    from app.services.risk.service import compute_dashboard, generate_alerts
+
+    portfolio = await db.get(Portfolio, req.portfolio_id)
+    if not portfolio:
+        return {"found": False, "message": f"组合 {req.portfolio_id} 不存在"}
+
+    # 取持仓
+    items_result = await db.execute(
+        select(PortfolioItem).where(PortfolioItem.portfolio_id == req.portfolio_id)
+    )
+    items = items_result.scalars().all()
+
+    # 构建 positions（用 Latest 快照的当前价）
+    from app.models.stock import FinancialReport
+    positions = []
+    for item in items:
+        fin_result = await db.execute(
+            select(FinancialReport).where(
+                FinancialReport.stock_code == item.stock_code,
+                FinancialReport.report_type == "Latest",
+            ).order_by(FinancialReport.report_date.desc()).limit(1)
+        )
+        fin = fin_result.scalar_one_or_none()
+        positions.append({
+            "symbol": item.stock_code,
+            "shares": float(item.shares or 0),
+            "cost_basis": float(item.avg_cost or 0),
+            "current_price": float(fin.price) if fin and fin.price else 0,
+            "sector": "Unknown",
+        })
+
+    dashboard = compute_dashboard(positions)
+    alerts = [a.__dict__ for a in generate_alerts(positions)]
+
+    return {
+        "found": True,
+        "portfolio": {"id": portfolio.id, "name": portfolio.name},
+        "positions": positions,
+        "risk_dashboard": dashboard,
+        "risk_alerts": alerts,
+    }
+
+
+class FundAnalysisRequest(BaseModel):
+    """基金分析：支持场内 ETF（股票代码形式）+ 场外基金（基金代码）。"""
+    code: str
+
+
+@router.post("/analyze/fund")
+async def analyze_fund(
+    req: FundAnalysisRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """基金分析工具（idea24）：验证基金存在 → 返回基本信息。
+
+    场内 ETF：用股票代码（如 510300）查 akshare ETF 行情。
+    场外基金：用基金代码（如 000001）查 akshare 开放式基金净值。
+    如果不存在，返回 {found: false}。
+    """
+    import akshare as ak
+
+    from app.services.data.akshare_provider import _bypass_proxy, _restore_proxy
+
+    code = req.code.strip()
+    result = {"found": False, "code": code}
+
+    # 场内 ETF（5/1 开头）
+    if code.startswith(("5", "1")) and len(code) == 6:
+        op = _bypass_proxy()
+        try:
+            df = ak.fund_etf_hist_em(symbol=code, period="daily", adjust="qfq")
+            if len(df) > 0:
+                latest = df.iloc[-1]
+                result = {
+                    "found": True,
+                    "code": code,
+                    "type": "ETF",
+                    "latest_date": str(latest["日期"]),
+                    "close": float(latest["收盘"]),
+                    "volume": float(latest["成交量"]),
+                    "rows": len(df),
+                }
+        except Exception as e:
+            result["message"] = f"ETF 查询失败: {str(e)[:60]}"
+        finally:
+            _restore_proxy(op)
+
+    # 场外基金（0/1 开头）
+    if not result.get("found") and len(code) == 6:
+        op = _bypass_proxy()
+        try:
+            df = ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势")
+            if len(df) > 0:
+                latest = df.iloc[-1]
+                result = {
+                    "found": True,
+                    "code": code,
+                    "type": "开放式基金",
+                    "latest_date": str(latest["净值日期"]),
+                    "nav": float(latest["单位净值"]),
+                    "rows": len(df),
+                }
+        except Exception as e:
+            result["message"] = f"基金查询失败: {str(e)[:60]}"
+        finally:
+            _restore_proxy(op)
+
+    if not result.get("found") and "message" not in result:
+        result["message"] = "未找到该基金（场内 ETF 或场外开放式基金）"
+    return result
