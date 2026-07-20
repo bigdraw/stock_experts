@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database initialized.")
 
+    # Seed 8 default master agents (idempotent; idea8) — 巴菲特/芒格/林奇/索罗斯/
+    # 塔勒布/利弗莫尔/格雷厄姆/费雪。system_prompt 含理念 + 可用工具(stock-analysis/tavily)。
+    from scripts.seed_master_agents import seed_master_agents
+    await seed_master_agents()
+
     # Initialize proxy cache
     from app.services.data.akshare_provider import get_proxy_enabled
 
