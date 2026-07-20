@@ -4,20 +4,19 @@
       bordered
       collapse-mode="width"
       :collapsed-width="64"
-      :width="240"
+      :width="220"
       show-trigger
       :collapsed="collapsed"
       @collapse="collapsed = true"
       @expand="collapsed = false"
       :native-scrollbar="false"
-      style="background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 14, 26, 0.95) 100%); backdrop-filter: blur(12px);"
+      style="background: var(--bg-elevated); border-right: 1px solid var(--border-subtle);"
     >
-      <div class="logo-container">
-        <div class="logo-glow"></div>
-        <h1 class="logo-text">
-          <span class="gradient-text">股票分析</span>
-          <span class="logo-subtitle">智能投资平台</span>
-        </h1>
+      <div style="padding: 20px 16px 12px;">
+        <h2 style="margin:0; font-size: 18px; font-weight: 700;">
+          <span class="gradient-text">Stock</span> Analysis
+        </h2>
+        <p style="margin:2px 0 0; font-size: 12px; color: var(--text-tertiary);">AI 投资平台</p>
       </div>
       <n-menu
         :collapsed="collapsed"
@@ -29,9 +28,9 @@
       />
     </n-layout-sider>
     <n-layout>
-      <n-layout-header 
-        bordered 
-        style="padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(12px);"
+      <n-layout-header
+        bordered
+        style="padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-glass); backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid var(--border-subtle);"
       >
         <n-breadcrumb>
           <n-breadcrumb-item>
@@ -181,55 +180,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.logo-container {
-  position: relative;
-  padding: 28px 20px;
-  text-align: center;
-  border-bottom: 1px solid var(--border-subtle);
-  overflow: hidden;
-}
-
-.logo-glow {
-  position: absolute;
-  top: -50%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 200px;
-  height: 200px;
-  background: radial-gradient(circle, var(--primary-glow) 0%, transparent 70%);
-  opacity: 0.6;
-  pointer-events: none;
-  animation: pulse 4s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 0.4;
-    transform: translateX(-50%) scale(1);
-  }
-  50% {
-    opacity: 0.7;
-    transform: translateX(-50%) scale(1.1);
-  }
-}
-
-.logo-text {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.5px;
-}
-
-.logo-subtitle {
-  display: block;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-  margin-top: 6px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+.n-layout-content {
+  background: var(--bg-base) !important;
 }
 </style>
