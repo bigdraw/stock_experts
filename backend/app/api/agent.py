@@ -2,12 +2,18 @@
 
 GET /agent/tools 返回所有分析端点的清单（路径/方法/一句话/参数/返回字段），
 agent（opencode/MCP/任意 HTTP agent）据此调用得出结论，无需人工告知 API。
+GET /agent/web-search?q=... 联网搜索（tavily 优先，无 key 降级 DuckDuckGo）。
 这是"把已实现的指标计算/获取逻辑抽取为 agent 可调用工具"的发现层；
 具体计算复用 /quant/* 与 /stocks/{code}/* 既有端点，不重写。
 """
 
-from fastapi import APIRouter
+import logging
+import os
 
+import httpx
+from fastapi import APIRouter, Query
+
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
@@ -104,6 +110,15 @@ TOOLS: list[dict] = [
         "returns": "{combined_score, flags, reason, indicators} 或 {qualified:false}",
         "auth": "Bearer token",
     },
+    {
+        "name": "web_search",
+        "method": "GET",
+        "path": "/agent/web-search?q=...",
+        "desc": "联网搜索（tavily 优先，无 key 降级 DuckDuckGo），返回摘要+结果列表",
+        "params": {"q": "搜索查询"},
+        "returns": "{source, query, answer, results:[{title,url,content}]}",
+        "auth": "Bearer token",
+    },
 ]
 
 
@@ -111,3 +126,73 @@ TOOLS: list[dict] = [
 async def list_tools() -> dict:
     """列出所有 agent 可调用的分析工具（端点+schema）。"""
     return {"tools": TOOLS, "count": len(TOOLS), "base_url": "http://127.0.0.1:8000"}
+
+
+@router.get("/web-search")
+async def web_search(q: str = Query(..., description="搜索查询")):
+    """联网搜索（agent 的 tavily 替代/实现）。
+
+    优先用 TAVILY_API_KEY 调 tavily；无 key 时降级 DuckDuckGo Instant Answer API
+    （免费、无需 key，返回摘要+相关话题）。这样 agent 的"tavily 联网搜索"始终可用。
+    """
+    tavily_key = os.environ.get("TAVILY_API_KEY")
+    if tavily_key:
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": tavily_key,
+                        "query": q,
+                        "max_results": 5,
+                        "include_answer": True,
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return {
+                        "source": "tavily",
+                        "query": q,
+                        "answer": data.get("answer", ""),
+                        "results": [
+                            {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")[:200]}
+                            for r in data.get("results", [])
+                        ],
+                    }
+        except Exception as e:
+            logger.warning(f"tavily search failed: {e}, fallback to DuckDuckGo")
+
+    # DuckDuckGo Instant Answer (free, no key)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://api.duckduckgo.com/",
+                params={"q": q, "format": "json", "no_html": 1, "skip_disambig": 1},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                results = []
+                if data.get("AbstractText"):
+                    results.append({
+                        "title": data.get("Heading", q),
+                        "url": data.get("AbstractURL", ""),
+                        "content": data["AbstractText"][:300],
+                    })
+                for topic in (data.get("RelatedTopics") or [])[:5]:
+                    if isinstance(topic, dict) and topic.get("Text"):
+                        results.append({
+                            "title": topic.get("Text", "")[:80],
+                            "url": topic.get("FirstURL", ""),
+                            "content": topic.get("Text", "")[:200],
+                        })
+                return {
+                    "source": "duckduckgo",
+                    "query": q,
+                    "answer": data.get("AbstractText", ""),
+                    "results": results,
+                }
+    except Exception as e:
+        logger.error(f"web search failed: {e}")
+        return {"error": f"web search failed: {e}", "query": q}
+
+    return {"error": "web search returned no results", "query": q}
