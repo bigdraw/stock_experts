@@ -69,5 +69,9 @@ opencode.json
 REVIEW-FIXES.md
 docs/SESSION-SUMMARY.md
 
+# 用户 idea 输入 + 处理日志（本地用户文件，不入开源 git）
+user_idea.txt
+.idea_processed.md
+
 # Pre-scrub git backup (contains old history w/ secrets) — never track
 .git.backup-pre-scrub/
