@@ -9,63 +9,59 @@
       </div>
     </div>
 
-    <n-card title="上传书籍（或下方文本框造 Agent）" class="action-card">
-      <template #header-extra>
-        <n-icon :size="20" color="#00d4aa">
-          <CloudUploadOutline />
-        </n-icon>
+    <!-- 构建 Agent（二合一：文本输入 + 拖拽多文件）idea11 -->
+    <n-card class="action-card">
+      <template #header>
+        <span style="font-weight: 600; color: var(--text-primary);">构建 Agent</span>
       </template>
-      <n-upload 
-        :max="1" 
-        :custom-request="handleUpload" 
-        accept=".pdf,.epub,.txt"
-        class="upload-area"
-      >
-        <n-button size="large" class="upload-button">
-          <template #icon>
-            <n-icon :size="18">
-              <DocumentOutline />
-            </n-icon>
-          </template>
-          选择文件 (PDF/EPUB/TXT)
-        </n-button>
-      </n-upload>
-      <div v-if="uploadedPath" class="upload-status">
-        <n-tag type="success" round size="large">
-          <template #icon>
-            <n-icon :size="16">
-              <CheckmarkCircleOutline />
-            </n-icon>
-          </template>
-          已上传
-        </n-tag>
-        <n-button type="primary" :loading="analyzing" @click="handleAnalyze" size="large" class="action-button">
-          <template #icon>
-            <n-icon :size="18">
-              <SparklesOutline />
-            </n-icon>
-          </template>
-          生成投资 Agent
-        </n-button>
-      </div>
-    </n-card>
-
-    <!-- 文本造 Agent（idea4/7）：粘贴投资理念/公式直接构造 agent -->
-    <n-card title="从文本构建 Agent" class="action-card">
       <template #header-extra>
         <n-icon :size="20" color="#00d4aa">
-          <CreateOutline />
+          <SparklesOutline />
         </n-icon>
       </template>
       <n-space vertical :size="12">
-        <n-input v-model:value="textContent.title" placeholder="Agent 名称，如：稳健价值型" />
-        <n-input
-          v-model:value="textContent.text"
-          type="textarea"
-          :autosize="{ minRows: 6, maxRows: 18 }"
-          placeholder="粘贴你认可的投资理念/策略公式/一段投资逻辑。例如：&#10;- 只买 ROE>15% 且连续 5 年上升的公司&#10;- PE 处于近 5 年 30 分位以下&#10- 资产负债率 <40%，FCF yield >5%&#10;- 持有周期 3 年以上，分散 10-15 只"
-        />
-        <n-button type="primary" :loading="textAnalyzing" @click="handleGenerateFromText" :disabled="!textContent.title || !textContent.text">
+        <n-input v-model:value="agentName" placeholder="Agent 名称，如：稳健价值型" />
+
+        <!-- 二合一输入区：textarea + 拖拽 drop zone 叠加 -->
+        <div
+          class="combined-input-zone"
+          :class="{ dragover }"
+          @drop.prevent="handleDrop"
+          @dragover.prevent="dragover = true"
+          @dragleave.prevent="dragover = false"
+        >
+          <n-input
+            v-model:value="textContent"
+            type="textarea"
+            :autosize="{ minRows: 6, maxRows: 18 }"
+            placeholder="粘贴投资理念 / 策略公式 / 一段投资逻辑。&#10;也可以把 TXT / PDF / EPUB 文件直接拖到这里（支持多文件）。"
+            style="background: transparent;"
+          />
+          <div v-if="dragover" class="drop-overlay">
+            <n-icon :size="32" color="#00d4aa"><CloudUploadOutline /></n-icon>
+            <span>松开以添加文件</span>
+          </div>
+        </div>
+
+        <div class="drop-hint">支持拖拽多个文件 · TXT 自动读取内容填入文本框 · PDF/EPUB 上传后服务端解析</div>
+
+        <!-- 已上传文件列表 -->
+        <n-space v-if="uploadedFiles.length" :size="8">
+          <n-tag v-for="f in uploadedFiles" :key="f.name" type="success" round size="small">
+            {{ f.name }}
+          </n-tag>
+        </n-space>
+
+        <n-button
+          type="primary"
+          size="large"
+          :loading="generating"
+          :disabled="!agentName || (!textContent && !uploadedFiles.length)"
+          @click="handleGenerate"
+        >
+          <template #icon>
+            <n-icon :size="18"><SparklesOutline /></n-icon>
+          </template>
           生成 Agent
         </n-button>
       </n-space>
@@ -93,9 +89,6 @@ import { NButton, NTag, NIcon, useMessage } from 'naive-ui'
 import {
   BookOutline,
   CloudUploadOutline,
-  CreateOutline,
-  DocumentOutline,
-  CheckmarkCircleOutline,
   SparklesOutline,
   PeopleOutline,
   TrashOutline
@@ -106,10 +99,11 @@ import type { Agent } from '../types'
 const message = useMessage()
 const agents = ref<Agent[]>([])
 const loading = ref(false)
-const uploadedPath = ref('')
-const analyzing = ref(false)
-const textContent = ref({ title: '', text: '' })
-const textAnalyzing = ref(false)
+const agentName = ref('')
+const textContent = ref('')
+const uploadedFiles = ref<{ name: string; path: string }[]>([])
+const dragover = ref(false)
+const generating = ref(false)
 
 const columns = [
   { 
@@ -173,41 +167,60 @@ async function load() {
   }
 }
 
-async function handleUpload({ file }: any) {
-  try {
-    const res = await booksApi.upload(file.file)
-    uploadedPath.value = res.data.path
-    message.success('上传成功')
-  } catch {
-    message.error('上传失败')
+async function handleDrop(e: DragEvent) {
+  dragover.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  for (const file of files) {
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (ext === 'txt') {
+      // TXT: 客户端直接读内容填入文本框
+      const text = await file.text()
+      textContent.value = textContent.value
+        ? `${textContent.value}\n\n--- ${file.name} ---\n${text}`
+        : text
+      message.success(`已读取 ${file.name} 内容`)
+    } else if (ext === 'pdf' || ext === 'epub') {
+      // PDF/EPUB: 上传到服务端解析
+      try {
+        const res = await booksApi.upload(file)
+        uploadedFiles.value.push({ name: file.name, path: res.data.path })
+        message.success(`已上传 ${file.name}`)
+      } catch {
+        message.error(`上传 ${file.name} 失败`)
+      }
+    } else {
+      message.warning(`不支持的格式: ${file.name}（仅 TXT/PDF/EPUB）`)
+    }
   }
 }
 
-async function handleAnalyze() {
-  analyzing.value = true
+async function handleGenerate() {
+  generating.value = true
   try {
-    await booksApi.generateAgent(uploadedPath.value)
-    message.success('Agent 生成成功')
-    uploadedPath.value = ''
-    await load()
+    let count = 0
+    // 1. 文本内容 → generate-agent-from-text
+    if (textContent.value.trim()) {
+      await booksApi.generateAgentFromText(agentName.value, textContent.value)
+      count++
+    }
+    // 2. 上传的文件 → generate-agent per file
+    for (const f of uploadedFiles.value) {
+      await booksApi.generateAgent(f.path)
+      count++
+    }
+    if (count > 0) {
+      message.success(`生成 ${count} 个 Agent 成功`)
+      agentName.value = ''
+      textContent.value = ''
+      uploadedFiles.value = []
+      await load()
+    } else {
+      message.warning('请输入文本或拖入文件')
+    }
   } catch (e: any) {
     message.error(e.response?.data?.detail || '生成失败')
   } finally {
-    analyzing.value = false
-  }
-}
-
-async function handleGenerateFromText() {
-  textAnalyzing.value = true
-  try {
-    await booksApi.generateAgentFromText(textContent.value.title, textContent.value.text)
-    message.success(`Agent "${textContent.value.title}" 生成成功`)
-    textContent.value = { title: '', text: '' }
-    await load()
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '生成失败')
-  } finally {
-    textAnalyzing.value = false
+    generating.value = false
   }
 }
 
@@ -274,45 +287,38 @@ onMounted(load)
   color: var(--text-primary);
 }
 
-.upload-area {
-  margin-bottom: 16px;
+/* 二合一输入区：textarea + drop zone */
+.combined-input-zone {
+  position: relative;
+  border: 2px dashed var(--border-subtle);
+  border-radius: 10px;
+  transition: all 0.2s;
 }
-
-.upload-button {
-  background: rgba(30, 41, 59, 0.6) !important;
-  border: 2px dashed var(--border-medium) !important;
-  border-radius: 12px !important;
-  padding: 24px 48px !important;
-  font-weight: 600 !important;
-  transition: all 0.3s !important;
+.combined-input-zone.dragover {
+  border-color: #00d4aa;
+  background: rgba(0, 212, 170, 0.08);
 }
-
-.upload-button:hover {
-  border-color: var(--primary) !important;
-  background: rgba(0, 212, 170, 0.05) !important;
-  box-shadow: 0 0 20px rgba(0, 212, 170, 0.2) !important;
+.combined-input-zone :deep(.n-input) {
+  --n-border: 0 !important;
 }
-
-.upload-status {
+.drop-overlay {
+  position: absolute;
+  inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding: 16px;
-  background: rgba(30, 41, 59, 0.4);
-  border-radius: 8px;
-  border: 1px solid var(--border-subtle);
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 212, 170, 0.12);
+  border-radius: 10px;
+  color: #00d4aa;
+  font-weight: 600;
+  pointer-events: none;
 }
-
-.action-button {
-  background: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%) !important;
-  border: none !important;
-  font-weight: 600 !important;
-  transition: all 0.3s !important;
-}
-
-.action-button:hover {
-  box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4) !important;
-  transform: translateY(-2px);
+.drop-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 .data-card :deep(.n-data-table) {
