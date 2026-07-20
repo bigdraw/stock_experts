@@ -5,11 +5,11 @@
         <n-icon :size="32" color="#10b981">
           <BookOutline />
         </n-icon>
-        <h2 class="page-title gradient-text">书籍管理</h2>
+        <h2 class="page-title gradient-text">Agent构建</h2>
       </div>
     </div>
 
-    <n-card title="上传书籍" class="action-card">
+    <n-card title="上传书籍（或下方文本框造 Agent）" class="action-card">
       <template #header-extra>
         <n-icon :size="20" color="#00d4aa">
           <CloudUploadOutline />
@@ -50,6 +50,27 @@
       </div>
     </n-card>
 
+    <!-- 文本造 Agent（idea4/7）：粘贴投资理念/公式直接构造 agent -->
+    <n-card title="从文本构建 Agent" class="action-card">
+      <template #header-extra>
+        <n-icon :size="20" color="#00d4aa">
+          <CreateOutline />
+        </n-icon>
+      </template>
+      <n-space vertical :size="12">
+        <n-input v-model:value="textContent.title" placeholder="Agent 名称，如：稳健价值型" />
+        <n-input
+          v-model:value="textContent.text"
+          type="textarea"
+          :autosize="{ minRows: 6, maxRows: 18 }"
+          placeholder="粘贴你认可的投资理念/策略公式/一段投资逻辑。例如：&#10;- 只买 ROE>15% 且连续 5 年上升的公司&#10;- PE 处于近 5 年 30 分位以下&#10- 资产负债率 <40%，FCF yield >5%&#10;- 持有周期 3 年以上，分散 10-15 只"
+        />
+        <n-button type="primary" :loading="textAnalyzing" @click="handleGenerateFromText" :disabled="!textContent.title || !textContent.text">
+          生成 Agent
+        </n-button>
+      </n-space>
+    </n-card>
+
     <n-card title="已有 Agent" class="data-card">
       <template #header-extra>
         <n-icon :size="20" color="#6366f1">
@@ -69,9 +90,10 @@
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
 import { NButton, NTag, NIcon, useMessage } from 'naive-ui'
-import { 
-  BookOutline, 
-  CloudUploadOutline, 
+import {
+  BookOutline,
+  CloudUploadOutline,
+  CreateOutline,
   DocumentOutline,
   CheckmarkCircleOutline,
   SparklesOutline,
@@ -86,6 +108,8 @@ const agents = ref<Agent[]>([])
 const loading = ref(false)
 const uploadedPath = ref('')
 const analyzing = ref(false)
+const textContent = ref({ title: '', text: '' })
+const textAnalyzing = ref(false)
 
 const columns = [
   { 
@@ -170,6 +194,20 @@ async function handleAnalyze() {
     message.error(e.response?.data?.detail || '生成失败')
   } finally {
     analyzing.value = false
+  }
+}
+
+async function handleGenerateFromText() {
+  textAnalyzing.value = true
+  try {
+    await booksApi.generateAgentFromText(textContent.value.title, textContent.value.text)
+    message.success(`Agent "${textContent.value.title}" 生成成功`)
+    textContent.value = { title: '', text: '' }
+    await load()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '生成失败')
+  } finally {
+    textAnalyzing.value = false
   }
 }
 

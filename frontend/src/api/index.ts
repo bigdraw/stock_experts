@@ -87,6 +87,8 @@ export const booksApi = {
     return apiClient.post('/books/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
   generateAgent: (filePath: string) => apiClient.post('/books/generate-agent', null, { params: { file_path: filePath } }),
+  generateAgentFromText: (title: string, text: string, description?: string) =>
+    apiClient.post('/books/generate-agent-from-text', { title, text, description }),
 }
 
 // Notifications

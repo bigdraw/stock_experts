@@ -399,15 +399,53 @@ class AkShareProvider(DataProvider):
             _restore_proxy(original_proxy)
 
     async def get_daily_quotes(self, code: str, start_date: str, end_date: str) -> list[DailyQuote]:
-        """Get daily OHLCV data for a stock."""
-        async with self._semaphore:
-            try:
-                # Run synchronous akshare call in thread pool to avoid blocking event loop
-                df = await asyncio.to_thread(
-                    self._fetch_daily_quotes_sync, code, start_date, end_date
-                )
+        """Get daily OHLCV data for a stock.
 
-                quotes = []
+        主源 stock_zh_a_hist（东方财富），失败（某些码如 000036 会被断连）则降级
+        stock_zh_a_daily（新浪），并带 1 次重试应对瞬时 ConnectionError。这样保证
+        基础数据全面——不因单一数据源对个别码的抽风而缺K线。
+        """
+        async with self._semaphore:
+            # 主源（东方财富），重试 1 次
+            df = None
+            source = "eastmoney"
+            for attempt in range(2):
+                try:
+                    df = await asyncio.to_thread(self._fetch_daily_quotes_sync, code, start_date, end_date)
+                    break
+                except Exception as e:
+                    if attempt == 0:
+                        logger.warning(f"stock_zh_a_hist {code} attempt1 failed ({str(e)[:60]}), retry/fallback...")
+                    else:
+                        logger.warning(f"stock_zh_a_hist {code} failed twice, fallback to 新浪 stock_zh_a_daily")
+
+            # 降级：新浪源（symbol 需 sz/sh 前缀）
+            if df is None or len(df) == 0:
+                try:
+                    df = await asyncio.to_thread(self._fetch_daily_quotes_sina_sync, code, start_date, end_date)
+                    source = "sina"
+                except Exception as e:
+                    logger.error(f"All daily-quote sources failed for {code}: {e}")
+                    return []
+
+            quotes = []
+            if source == "sina":
+                # 新浪 stock_zh_a_daily 列: date/open/high/low/close/volume/(outstanding_share/turnover)
+                for _, row in df.iterrows():
+                    quotes.append(
+                        DailyQuote(
+                            code=code,
+                            date=str(row["date"]),
+                            open=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            volume=float(row["volume"]),
+                            amount=float(row.get("turnover")) if pd.notna(row.get("turnover")) else None,
+                            turnover_rate=None,
+                        )
+                    )
+            else:
                 for _, row in df.iterrows():
                     quotes.append(
                         DailyQuote(
@@ -424,13 +462,10 @@ class AkShareProvider(DataProvider):
                             else None,
                         )
                     )
-                return quotes
-            except Exception as e:
-                logger.error(f"Failed to fetch daily quotes for {code}: {e}")
-                raise
+            return quotes
 
     def _fetch_daily_quotes_sync(self, code: str, start_date: str, end_date: str):
-        """Synchronous wrapper for fetching daily quotes."""
+        """Synchronous wrapper for fetching daily quotes (主源：东方财富)."""
         original_proxy = _bypass_proxy()
         try:
             return ak.stock_zh_a_hist(
@@ -439,6 +474,23 @@ class AkShareProvider(DataProvider):
                 start_date=start_date.replace("-", ""),
                 end_date=end_date.replace("-", ""),
                 adjust="qfq",  # Forward-adjusted
+            )
+        finally:
+            _restore_proxy(original_proxy)
+
+    def _fetch_daily_quotes_sina_sync(self, code: str, start_date: str, end_date: str):
+        """备选源：新浪 stock_zh_a_daily（东方财富对个别码会断连，新浪兜底）。
+
+        symbol 需 sz/sh 前缀：0/3 开头=sz，6/9 开头=sh。
+        """
+        prefix = "sh" if code[:1] in ("6", "9") else "sz"
+        original_proxy = _bypass_proxy()
+        try:
+            return ak.stock_zh_a_daily(
+                symbol=f"{prefix}{code}",
+                start_date=start_date.replace("-", ""),
+                end_date=end_date.replace("-", ""),
+                adjust="qfq",
             )
         finally:
             _restore_proxy(original_proxy)

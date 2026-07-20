@@ -114,7 +114,7 @@ const menuOptions = computed(() => {
     { label: '筛选工具库', key: 'FilterLibrary', icon: renderIcon(FunnelOutline) },
     { label: '策略回测', key: 'BacktestCreate', icon: renderIcon(BarChartOutline) },
     { label: '辩论分析', key: 'DebateCreate', icon: renderIcon(ChatbubblesOutline) },
-    { label: '书籍管理', key: 'BookManager', icon: renderIcon(BookOutline) },
+    { label: 'Agent构建', key: 'BookManager', icon: renderIcon(BookOutline) },
     { label: '告警管理', key: 'AlertManager', icon: renderIcon(NotificationsOutline) },
     { label: '系统设置', key: 'Settings', icon: renderIcon(SettingsOutline) },
   ]
