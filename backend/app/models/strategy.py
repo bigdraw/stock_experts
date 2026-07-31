@@ -17,9 +17,13 @@ class BacktestStrategy(Base):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     nl_description: Mapped[str] = mapped_column(Text, nullable=False)
-    strategy_code: Mapped[str] = mapped_column(Text, nullable=False)
+    strategy_code: Mapped[str | None] = mapped_column(Text)  # LLM 生成路径（可空）
+    strategy_type: Mapped[str | None] = mapped_column(String(50))  # 结构化路径模板名
+    strategy_params: Mapped[str | None] = mapped_column(Text)  # 结构化路径参数 JSON
+    category: Mapped[str | None] = mapped_column(String(50))  # 分类（趋势跟随/均值回归/量价/高级/自定义）
+    tags: Mapped[str | None] = mapped_column(Text)  # JSON 标签
+    description: Mapped[str | None] = mapped_column(Text)  # 策略简介
     friction_config: Mapped[str] = mapped_column(Text, default="{}")  # JSON
-    parameters: Mapped[str | None] = mapped_column(Text)  # JSON
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()

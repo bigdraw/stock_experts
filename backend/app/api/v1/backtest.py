@@ -26,25 +26,60 @@ async def generate_strategy(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Generate strategy code from natural language."""
-    llm = llm_manager.get()
-    generator = StrategyCodeGenerator(llm)
-    code = await generator.generate(req.nl_description)
+    """从自然语言生成策略——先结构化匹配，匹配失败再 LLM 生成代码。
 
-    # Read friction config from DB
+    1. StrategyParser.parse_simple → 匹配 9 个模板之一（无代码生成，安全）
+    2. 匹配失败 → StrategyCodeGenerator LLM 生成代码（现有路径）
+    """
+    from app.services.backtesting.parser import StrategyParser
+
+    parser = StrategyParser()
+    parsed = parser.parse_simple(req.nl_description)
+    classified = parser.classify(req.nl_description)
+
     friction_config = await settings_service.get_friction_config(db)
-
     strategy = BacktestStrategy(
         user_id=current_user.id,
         name=req.name,
         nl_description=req.nl_description,
-        strategy_code=code,
         friction_config=json.dumps(friction_config),
     )
+
+    # 结构化匹配成功 → 用模板路径（不生成代码，更安全）
+    if parsed["strategy_type"] and parsed["strategy_type"] in (
+        "sma_cross", "ema_cross", "macd", "rsi", "bollinger",
+        "momentum", "mean_reversion", "breakout", "volume_momentum",
+    ):
+        strategy.strategy_type = parsed["strategy_type"]
+        strategy.strategy_params = json.dumps(parsed["parameters"])
+        strategy.category = classified.get("category", "未分类")
+        strategy.tags = json.dumps(classified.get("tags", []))
+        strategy.description = req.nl_description[:200]
+        db.add(strategy)
+        await db.flush()
+        await db.refresh(strategy)
+        return {
+            "id": strategy.id, "name": strategy.name,
+            "strategy_type": parsed["strategy_type"],
+            "parameters": parsed["parameters"],
+            "category": classified.get("category"),
+            "tags": classified.get("tags", []),
+            "mode": "structured",
+        }
+
+    # 结构化匹配失败 → LLM 生成代码（保留现有路径）
+    llm = llm_manager.get()
+    generator = StrategyCodeGenerator(llm)
+    code = await generator.generate(req.nl_description)
+
+    strategy.strategy_code = code
+    strategy.category = classified.get("category", "自定义")
+    strategy.tags = json.dumps(classified.get("tags", []))
+    strategy.description = req.nl_description[:200]
     db.add(strategy)
     await db.flush()
     await db.refresh(strategy)
-    return {"id": strategy.id, "name": strategy.name, "code": code}
+    return {"id": strategy.id, "name": strategy.name, "code": code, "category": strategy.category, "mode": "llm_generated"}
 
 
 @router.post("/run")

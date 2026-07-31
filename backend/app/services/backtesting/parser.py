@@ -148,17 +148,25 @@ class StrategyParser:
         if not self.llm:
             return self.parse_simple(description)
 
-        available = "\n".join(f"- {k}: {v['description']}" for k, v in self.templates.items())
+        available = "\n".join(
+            f"- {k}: {v['description']} (分类: {v.get('category', '未分类')}, 参数: {list(v['parameters'].keys())})"
+            for k, v in self.templates.items()
+        )
         prompt = (
-            "Convert this trading strategy description into JSON.\n"
-            f"Description: {description}\n\n"
-            f"Available strategy types:\n{available}\n\n"
-            'Return ONLY a JSON object: {"strategy_type": <one of available>, '
-            '"parameters": {...}, "entry_logic": "...", "exit_logic": "..."}'
+            "将以下交易策略描述转换为 JSON。\n"
+            f"描述: {description}\n\n"
+            f"可用策略类型:\n{available}\n\n"
+            '只返回 JSON: {"strategy_type": <可用类型之一>, "parameters": {...}, '
+            '"entry_logic": "...", "exit_logic": "..."}'
         )
         try:
-            text = await self.llm.complete(prompt)  # type: ignore[attr-defined]
-            # 容错：取首个 JSON 对象
+            from app.services.llm.provider import LLMMessage
+
+            response = await self.llm.chat([
+                LLMMessage(role="system", content="你是策略解析器，只输出 JSON。"),
+                LLMMessage(role="user", content=prompt),
+            ])
+            text = response.content
             start = text.find("{")
             end = text.rfind("}")
             if start != -1 and end != -1:
@@ -168,6 +176,35 @@ class StrategyParser:
         except Exception as e:
             logger.warning(f"LLM strategy parse failed, falling back: {e}")
         return self.parse_simple(description)
+
+    def classify(self, description: str) -> dict[str, Any]:
+        """从描述推断策略分类（不调 LLM，纯关键词匹配）。
+
+        返回 {category, tags, strategy_type, match_confidence}。
+        """
+        d = description.lower()
+        for stype, tpl in self.templates.items():
+            tags = [t.lower() for t in tpl.get("tags", [])]
+            name = tpl.get("name", "").lower()
+            if stype in d or name in d or any(tag in d for tag in tags):
+                return {
+                    "category": tpl.get("category", "未分类"),
+                    "tags": tpl.get("tags", []),
+                    "strategy_type": stype,
+                    "match_confidence": "high",
+                }
+        # 尝试 parse_simple 的关键词匹配
+        parsed = self.parse_simple(description)
+        stype = parsed.get("strategy_type", "")
+        if stype in self.templates:
+            tpl = self.templates[stype]
+            return {
+                "category": tpl.get("category", "未分类"),
+                "tags": tpl.get("tags", []),
+                "strategy_type": stype,
+                "match_confidence": "medium",
+            }
+        return {"category": "未分类", "tags": [], "strategy_type": None, "match_confidence": "low"}
 
     def validate_strategy(self, config: dict[str, Any]) -> bool:
         """校验配置：strategy_type 合法且含全部必需参数。"""

@@ -54,9 +54,9 @@ async def start_debate(
             target_info["name"] = stock.name
             target_info["data"] = {"code": stock.code, "name": stock.name, "market": stock.market}
 
-    # Run debate
+    # Run debate (传 db 让 orchestrator 能拉 value_analysis + web search)
     llm = llm_manager.get()
-    orchestrator = DebateOrchestrator(llm)
+    orchestrator = DebateOrchestrator(llm, db=db)
     result = await orchestrator.run_debate(agents, target_info, max_rounds=req.rounds)
 
     return {

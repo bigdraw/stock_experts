@@ -89,17 +89,33 @@ def _to_df(req: OHLCVRequest) -> pd.DataFrame:
 
 @router.get("/strategies")
 async def list_strategies(current_user: User = Depends(get_current_user)) -> dict[str, Any]:
-    """列出所有可用策略模板及其默认参数。"""
+    """列出所有可用策略模板及其默认参数 + 分类 + 标签。"""
     return {
         name: {
             "name": t["name"],
             "description": t["description"],
+            "category": t.get("category", "未分类"),
+            "tags": t.get("tags", []),
             "default_parameters": t["parameters"],
             "optimization_ranges": t["optimization_ranges"],
         }
         for name, t in STRATEGY_TEMPLATES.items()
     }
 
+
+@router.get("/strategies/categories")
+async def list_strategy_categories(current_user: User = Depends(get_current_user)) -> dict[str, Any]:
+    """返回策略分类树（category → [strategies]）。"""
+    categories: dict[str, list[dict]] = {}
+    for name, t in STRATEGY_TEMPLATES.items():
+        cat = t.get("category", "未分类")
+        categories.setdefault(cat, []).append({
+            "type": name,
+            "name": t["name"],
+            "description": t["description"],
+            "tags": t.get("tags", []),
+        })
+    return {"categories": categories}
 
 class ParseRequest(BaseModel):
     description: str
