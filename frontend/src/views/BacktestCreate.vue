@@ -40,9 +40,45 @@
               <SparklesOutline />
             </n-icon>
           </template>
-          生成策略代码
+          生成策略
         </n-button>
       </n-form>
+    </n-card>
+
+    <!-- 策略分类浏览（idea: 策略分类展示） -->
+    <n-card title="策略模板库" class="action-card" v-if="categories">
+      <template #header-extra>
+        <n-icon :size="20" color="#e94560"><LayersOutline /></n-icon>
+      </template>
+      <n-collapse>
+        <n-collapse-item v-for="(strats, cat) in categories" :key="cat" :title="cat" :name="cat">
+          <n-space vertical :size="8">
+            <div v-for="s in strats" :key="s.type" class="template-item" @click="useTemplate(s.type, s.name)">
+              <div class="template-head">
+                <b>{{ s.name }}</b>
+                <n-space :size="4">
+                  <n-tag v-for="t in (s.tags || [])" :key="t" size="tiny" round>{{ t }}</n-tag>
+                </n-space>
+              </div>
+              <p class="template-desc">{{ s.description }}</p>
+            </div>
+          </n-space>
+        </n-collapse-item>
+      </n-collapse>
+    </n-card>
+
+    <!-- 生成结果：分类+标签+模式 -->
+    <n-card v-if="strategyInfo" class="action-card">
+      <template #header>
+        <span style="font-weight: 600;">策略已生成</span>
+      </template>
+      <n-space align="center" :size="12">
+        <n-tag v-if="strategyInfo.category" type="info" size="small" round>{{ strategyInfo.category }}</n-tag>
+        <n-tag v-if="strategyInfo.mode === 'structured'" type="success" size="small" round>结构化匹配</n-tag>
+        <n-tag v-else type="warning" size="small" round>LLM 生成</n-tag>
+        <n-tag v-for="t in (strategyInfo.tags || [])" :key="t" size="small" round>{{ t }}</n-tag>
+        <span v-if="strategyInfo.strategy_type" style="color: var(--text-tertiary); font-size: 13px;">模板: {{ strategyInfo.strategy_type }}</span>
+      </n-space>
     </n-card>
 
     <n-card title="执行回测" class="action-card" v-if="strategyId">
@@ -144,16 +180,17 @@ import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { 
-  BarChartOutline, 
-  CreateOutline, 
+import {
+  BarChartOutline,
+  CreateOutline,
   PrismOutline,
   SparklesOutline,
   PlayOutline,
   CodeOutline,
   CashOutline,
   RocketOutline,
-  TrophyOutline
+  TrophyOutline,
+  LayersOutline
 } from '@vicons/ionicons5'
 import { backtestApi } from '../api'
 import type { BacktestResult } from '../types'
@@ -171,6 +208,18 @@ const endDate = ref<number>(Date.now())
 const capital = ref(1000000)
 const running = ref(false)
 const result = ref<BacktestResult | null>(null)
+const categories = ref<Record<string, any[]> | null>(null)
+const strategyInfo = ref<any>(null)
+
+// 加载策略分类
+backtestApi.getCategories().then(res => {
+  categories.value = res.data.categories
+}).catch(() => {})
+
+function useTemplate(type: string, name: string) {
+  name.value = name
+  nlDesc.value = name
+}
 
 const equityOption = computed(() => ({
   tooltip: { 
@@ -242,7 +291,8 @@ async function handleGenerate() {
   try {
     const res = await backtestApi.generate(name.value.trim(), nlDesc.value.trim())
     strategyId.value = res.data.id
-    message.success('策略代码已生成')
+    strategyInfo.value = res.data
+    message.success(res.data.mode === 'structured' ? '策略已生成（结构化匹配）' : '策略代码已生成（LLM）')
   } catch (e: any) {
     message.error(e.response?.data?.detail || '生成失败')
   } finally {
@@ -386,6 +436,16 @@ async function handleRun() {
   box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4) !important;
   transform: translateY(-2px);
 }
+
+.template-item {
+  padding: 10px 14px; border-radius: 10px; cursor: pointer;
+  background: var(--bg-surface); border: 1px solid var(--border-subtle);
+  transition: border-color 0.2s ease;
+}
+.template-item:hover { border-color: var(--border-medium); }
+.template-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.template-head b { font-size: 14px; color: var(--text-primary); }
+.template-desc { font-size: 13px; color: var(--text-tertiary); margin: 0; }
 
 .stats-grid {
   margin-bottom: 24px;

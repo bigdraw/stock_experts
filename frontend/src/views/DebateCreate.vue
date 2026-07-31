@@ -62,6 +62,14 @@
       </n-form>
     </n-card>
 
+    <!-- 数据能力提示 -->
+    <n-card class="action-card" size="small">
+      <n-space align="center" :size="16">
+        <n-tag type="info" size="small" round>自动取数</n-tag>
+        <span style="font-size: 13px; color: var(--text-tertiary);">辩论时自动拉取价值分析数据（估值/盈利/安全/现金流/成长/分红）+ 联网搜索公司新闻，agent 据此论证</span>
+      </n-space>
+    </n-card>
+
     <n-card title="辩论过程" class="result-card" v-if="debateResult">
       <template #header-extra>
         <n-icon :size="20" color="#f59e0b">

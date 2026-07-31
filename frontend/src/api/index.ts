@@ -72,6 +72,7 @@ export const backtestApi = {
     }),
   listStrategies: () => apiClient.get<BacktestStrategy[]>('/backtest/strategies'),
   listResults: () => apiClient.get<BacktestResult[]>('/backtest/results'),
+  getCategories: () => apiClient.get('/quant/strategies/categories'),
 }
 
 // Debate

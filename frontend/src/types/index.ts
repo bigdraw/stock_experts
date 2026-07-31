@@ -123,7 +123,17 @@ export interface BacktestStrategy {
   name: string
   nl_description: string
   code?: string
+  strategy_type?: string
+  strategy_params?: string
+  category?: string
+  tags?: string
+  description?: string
   created_at: string
+}
+
+export interface StrategyCategory {
+  category: string
+  strategies: { type: string; name: string; description: string; tags: string[] }[]
 }
 
 export interface BacktestResult {
