@@ -1,48 +1,47 @@
-# 一键启动 Stock Analysis Platform（Windows PowerShell）
-# 用法：powershell -ExecutionPolicy Bypass -File scripts\start.ps1
-# 停止：powershell -ExecutionPolicy Bypass -File scripts\stop.ps1
+# Stock Analysis Platform - Start Script (Windows PowerShell)
+# Usage: scripts\start.bat or powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+# Stop:  scripts\stop.bat
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 
-Write-Host "🚀 Starting Stock Analysis Platform..." -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Stock Analysis Platform" -ForegroundColor White
+Write-Host "  --------------------" -ForegroundColor DarkGray
 Write-Host ""
 
 # ---- Backend ----
-Write-Host "📡 Backend (uvicorn :8000)..."
+Write-Host "  [1/2] Backend (port 8000)..." -ForegroundColor Cyan
 Set-Location "$Root\backend"
 if (-not (Test-Path ".venv")) {
-    Write-Host "   Creating venv..."
+    Write-Host "       First run: installing deps..." -ForegroundColor DarkGray
     uv sync
 }
-# 用 cmd /c 包裹，避免 Start-Process 找到 .ps1 而非 .cmd
 $backend = Start-Process -FilePath "cmd" -ArgumentList "/c","uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000" -PassThru -WindowStyle Minimized
-Write-Host "   PID: $($backend.Id)"
-
-Start-Sleep -Seconds 2
+Write-Host "       PID: $($backend.Id)" -ForegroundColor DarkGray
+Start-Sleep -Seconds 3
 
 # ---- Frontend ----
-Write-Host "🖥️  Frontend (vite :5173)..."
+Write-Host "  [2/2] Frontend (port 5173)..." -ForegroundColor Cyan
 Set-Location "$Root\frontend"
 if (-not (Test-Path "node_modules")) {
-    Write-Host "   Installing deps..."
-    # npm.cmd 而非 npm（避免 PowerShell 找到 .ps1）
+    Write-Host "       First run: installing deps..." -ForegroundColor DarkGray
     cmd /c "npm install"
 }
-# 同样用 cmd /c 包裹 npm run dev
 $frontend = Start-Process -FilePath "cmd" -ArgumentList "/c","npm run dev" -PassThru -WindowStyle Minimized
-Write-Host "   PID: $($frontend.Id)"
+Write-Host "       PID: $($frontend.Id)" -ForegroundColor DarkGray
 
 # ---- Save PIDs ----
 $Pids = @{ backend = $backend.Id; frontend = $frontend.Id }
 $Pids | ConvertTo-Json | Set-Content "$PSScriptRoot\.service-pids.json"
 
 Write-Host ""
-Write-Host "✅ Running:" -ForegroundColor Green
-Write-Host "   Backend:  http://localhost:8000  (docs: /docs)"
-Write-Host "   Frontend: http://localhost:5173"
+Write-Host "  Backend:  http://localhost:8000/docs" -ForegroundColor Green
+Write-Host "  Frontend: http://localhost:5173" -ForegroundColor Green
 Write-Host ""
-Write-Host "   Stop: powershell -File scripts\stop.ps1  (or close this window)"
+Write-Host "  Press Ctrl+C or run scripts\stop.bat to stop." -ForegroundColor DarkGray
+Write-Host ""
 
-# 等待 backend 进程退出
+# Wait for backend process
 $backend.WaitForExit()

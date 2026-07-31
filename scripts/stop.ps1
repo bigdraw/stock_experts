@@ -1,43 +1,36 @@
-# 一键停止 Stock Analysis Platform（Windows PowerShell）
-# 用法：powershell -ExecutionPolicy Bypass -File scripts\stop.ps1
+# Stock Analysis Platform - Stop Script (Windows PowerShell)
+# Usage: scripts\stop.bat
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $Root = Split-Path -Parent $PSScriptRoot
 $PidFile = "$PSScriptRoot\.service-pids.json"
 
-Write-Host "🛑 Stopping Stock Analysis Platform..." -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  Stopping..." -ForegroundColor Yellow
 
-$killed = $false
+$found = $false
 
-# 1. 从 PID 文件 kill
+# 1. PID file
 if (Test-Path $PidFile) {
     $Pids = Get-Content $PidFile | ConvertFrom-Json
     foreach ($key in @("backend","frontend")) {
         $pid_val = $Pids.$key
         if ($pid_val) {
-            try {
-                Stop-Process -Id $pid_val -Force -ErrorAction Stop
-                Write-Host "   $key (PID $pid_val) killed"
-                $killed = $true
-            } catch { }
+            try { Stop-Process -Id $pid_val -Force -ErrorAction Stop; Write-Host "  $key (PID $pid_val) stopped" -ForegroundColor Green; $found = $true }
+            catch {}
         }
     }
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
 }
 
-# 2. 按端口兜底 kill
+# 2. Port scan fallback
 foreach ($port in @("8000","5173")) {
     $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     foreach ($conn in $conns) {
-        try {
-            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction Stop
-            Write-Host "   port $port (PID $($conn.OwningProcess)) killed"
-            $killed = $true
-        } catch { }
+        try { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction Stop; Write-Host "  port $port (PID $($conn.OwningProcess)) stopped" -ForegroundColor Green; $found = $true }
+        catch {}
     }
 }
 
-if (-not $killed) {
-    Write-Host "   No services found running."
-} else {
-    Write-Host "✅ Stopped." -ForegroundColor Green
-}
+if (-not $found) { Write-Host "  Nothing to stop." -ForegroundColor DarkGray }
+Write-Host ""
