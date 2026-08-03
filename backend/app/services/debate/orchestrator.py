@@ -201,12 +201,17 @@ class DebateOrchestrator:
 
 {context_data}
 
-请给出：1.投资价值判断（引用上方数据） 2.核心理由 3.主要风险 4.建议操作"""
+请给出详细分析（每部分至少3-5句话）：
+1. 投资价值判断（引用上方数据）
+2. 核心理由（至少3条）
+3. 主要风险
+4. 建议操作"""
 
         response = await self.llm.chat([
             LLMMessage(role="system", content=system),
             LLMMessage(role="user", content=user_content),
-        ], max_tokens=8192)  # 避免 4096 默认截断（现代价值分析 agent 的 6 维框架回复较长）
+        ], max_tokens=8192)
+        logger.info(f"Agent {agent['name']}: finish_reason={response.finish_reason}, content_len={len(response.content)}")
         return AgentOpinion(
             agent_id=agent["id"], agent_name=agent["name"], content=response.content
         )
