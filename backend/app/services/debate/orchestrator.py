@@ -206,7 +206,7 @@ class DebateOrchestrator:
         response = await self.llm.chat([
             LLMMessage(role="system", content=system),
             LLMMessage(role="user", content=user_content),
-        ])
+        ], max_tokens=8192)  # 避免 4096 默认截断（现代价值分析 agent 的 6 维框架回复较长）
         return AgentOpinion(
             agent_id=agent["id"], agent_name=agent["name"], content=response.content
         )
@@ -225,7 +225,7 @@ class DebateOrchestrator:
                     role="user",
                     content=f"以下是其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。引用数据支撑你的反驳。",
                 ),
-            ])
+            ], max_tokens=8192)
             opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=response.content))
         return DebateRound(round_type="challenge", opinions=opinions)
 
@@ -243,7 +243,7 @@ class DebateOrchestrator:
                     role="user",
                     content=f"其他投资者对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。用数据论证。",
                 ),
-            ])
+            ], max_tokens=8192)
             opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=response.content))
         return DebateRound(round_type="response", opinions=opinions)
 
@@ -272,5 +272,5 @@ class DebateOrchestrator:
                 role="user",
                 content=f"标的：{target.get('name', '')}\n\n辩论内容：\n{''.join(all_content)}",
             ),
-        ])
+        ], max_tokens=8192)
         return response.content

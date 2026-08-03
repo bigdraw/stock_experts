@@ -52,12 +52,22 @@ async def start_debate(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Start a multi-agent debate (blocking, returns full result)."""
+    """Start a multi-agent debate (blocking, returns full result).
+
+    带缓存复用：同一 stock + 同一 agent 组合，7 天内的结果直接返回缓存。
+    """
     agents, target_info = await _prepare_debate(req, db, current_user)
+
+    # 缓存检查
+    from app.services.analysis_cache import get_cached_analysis, set_cached_analysis
+    cached = await get_cached_analysis(db, target_info["code"], list(req.agent_ids), "debate")
+    if cached:
+        return cached
+
     llm = llm_manager.get()
     orchestrator = DebateOrchestrator(llm, db=db)
     result = await orchestrator.run_debate(agents, target_info, max_rounds=req.rounds)
-    return {
+    response = {
         "rounds": [
             {
                 "round_type": r.round_type,
@@ -67,6 +77,11 @@ async def start_debate(
         ],
         "summary": result.summary,
     }
+
+    # 写入缓存
+    await set_cached_analysis(db, target_info["code"], list(req.agent_ids), response, "debate")
+    await db.commit()
+    return response
 
 
 @router.post("/start-stream")
