@@ -79,6 +79,15 @@ export const backtestApi = {
 export const debateApi = {
   start: (agentIds: number[], targetType: string, targetId: string, rounds: number = 3) =>
     apiClient.post<DebateResult>('/debate/start', { agent_ids: agentIds, target_type: targetType, target_id: targetId, rounds }),
+  startStream: (agentIds: number[], targetType: string, targetId: string, rounds: number = 3) =>
+    fetch('/api/v1/debate/start-stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${localStorage.getItem('token')}`,
+      },
+      body: JSON.stringify({ agent_ids: agentIds, target_type: targetType, target_id: targetId, rounds }),
+    }),
 }
 
 // Books

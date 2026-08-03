@@ -48,11 +48,30 @@ class DebateOrchestrator:
         target_info: dict,
         max_rounds: int = 3,
     ) -> DebateResult:
-        """Run a full debate."""
-        # 预取数据（一次性，所有 agent 共享）
-        context_data = await self._prepare_context(target_info)
+        """Run a full debate (blocking, returns complete result)."""
+        async for _ in self.run_debate_stream(agents, target_info, max_rounds):
+            pass  # drain the generator
+        return DebateResult(rounds=self._stream_history, summary=self._stream_summary)
 
+    _stream_history: list = []
+    _stream_summary: str = ""
+
+    async def run_debate_stream(
+        self,
+        agents: list[dict],
+        target_info: dict,
+        max_rounds: int = 3,
+    ):
+        """Async generator: yields DebateRound after each round, then summary string.
+
+        Usage:
+            async for item in orchestrator.run_debate_stream(...):
+                if isinstance(item, DebateRound): ...
+                elif isinstance(item, str): # summary
+        """
+        context_data = await self._prepare_context(target_info)
         history: list[DebateRound] = []
+
         for round_num in range(max_rounds):
             if round_num == 0:
                 debate_round = await self._round_analysis(agents, target_info, context_data)
@@ -62,9 +81,12 @@ class DebateOrchestrator:
                 debate_round = await self._round_response(agents, history)
             history.append(debate_round)
             logger.info(f"Debate round {round_num + 1} ({debate_round.round_type}) completed")
+            yield debate_round
 
         summary = await self._summarize(agents, target_info, history)
-        return DebateResult(rounds=history, summary=summary)
+        self._stream_history = history
+        self._stream_summary = summary
+        yield summary
 
     async def _prepare_context(self, target: dict) -> str:
         """预取数据：价值分析 + 联网搜索（所有 agent 共享，不重复拉取）。"""
