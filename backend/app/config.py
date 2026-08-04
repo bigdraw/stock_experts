@@ -8,6 +8,16 @@ import yaml
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
+# 从 backend/.env 加载环境变量（.env 已 gitignore，密钥不入 git）。
+# 放模块顶部，确保后续 os.environ.get / _expand_env_vars 能读到 .env 值。
+# 本模块被 main.py 首先导入，时机早于任何 env 读取。
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+except Exception:  # python-dotenv 未装时静默跳过（不影响 ${VAR} 注入路径）
+    pass
+
 # Match ${VAR_NAME} references in config values. We deliberately do NOT use
 # os.path.expandvars here because it silently turns an undefined ${VAR} into
 # an empty string — which would wipe api_key/secret_key placeholders without

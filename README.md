@@ -74,7 +74,14 @@ bash scripts/stop.sh       # Linux / macOS
 # 后端
 cd backend && uv sync
 cp config.example.yaml config.yaml
-export LLM_API_KEY=your-key
+# 方式 A：放 backend/.env（已 gitignore，推荐；config.py 启动时自动 load_dotenv）
+cat > .env <<'EOF'
+LLM_API_KEY=your-llm-key
+TAVILY_API_KEY=your-tavily-key   # 辩论 FactBook 行业/宏观采集 + /agent/web-search；无 key 自动降级 DuckDuckGo
+EOF
+# 方式 B：用环境变量
+export LLM_API_KEY=your-llm-key
+export TAVILY_API_KEY=your-tavily-key
 uv run uvicorn app.main:app --reload --port 8000
 
 # 前端
