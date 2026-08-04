@@ -23,13 +23,24 @@ class Base(DeclarativeBase):
 
 
 async def get_db() -> AsyncSession:
-    """Dependency: get async database session."""
+    """Dependency: get async database session.
+
+    客户端中途断连（SSE 长流如辩论/对话）会触发 ASGI 取消请求任务，抛
+    CancelledError（BaseException 子类，不被 except Exception 捕获）。若此时
+    session 处于 flush 中途会进入 rollback-pending，依赖 finally 的 commit 会
+    抛 PendingRollbackError，rollback 又可能撞"no active connection"二次刷屏。
+    此处捕获 BaseException（含 CancelledError）做尽力 rollback（吞掉 rollback
+    自身错误），原异常照常上抛，让上层（ASGI）按取消语义收尾。
+    """
     async with async_session_factory() as session:
         try:
             yield session
             await session.commit()
-        except Exception:
-            await session.rollback()
+        except BaseException:
+            try:
+                await session.rollback()
+            except BaseException:
+                pass
             raise
 
 

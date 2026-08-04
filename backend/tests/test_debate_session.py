@@ -52,6 +52,15 @@ async def _fake_run_debate_stream(self, agents, target_info, max_rounds):
     yield "测试总结：多空分歧。"
 
 
+async def _cancel_after_round1_stream(self, agents, target_info, max_rounds):
+    """桩：yield 第1轮后抛 CancelledError，模拟客户端中途断连。"""
+    yield DebateRound(
+        round_type="analysis",
+        opinions=[AgentOpinion(agent_id=agents[0]["id"], agent_name=agents[0]["name"], content="第1轮观点")],
+    )
+    raise asyncio.CancelledError()
+
+
 async def _main() -> int:
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
     tmp.close()
@@ -162,9 +171,104 @@ async def _main() -> int:
     return 0 if not failures else 1
 
 
+async def _cancel_main() -> int:
+    """模拟客户端中途断连（orchestrator 第1轮后抛 CancelledError）：
+    会话壳 + 已 commit 的第1轮 opinion 应持久保留，不应抛 PendingRollbackError 刷屏。
+    """
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp.name}", future=True)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with factory() as db:
+        db.add(User(username="debate_cancel", email="c@c.com",
+                    password_hash=hash_password("pw"), role="user", is_active=True))
+        db.add(Agent(id=1, name="测试A", type="master", system_prompt="A", description=""))
+        db.add(Agent(id=2, name="测试B", type="master", system_prompt="B", description=""))
+        db.add(Stock(code="600519", name="贵州茅台", market="SH", is_active=True))
+        await db.commit()
+
+    async def _gdb():
+        async with factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except BaseException:
+                try:
+                    await session.rollback()
+                except BaseException:
+                    pass
+                raise
+
+    app.dependency_overrides[get_db] = _gdb
+    orig_gen = DebateOrchestrator.run_debate_stream
+    orig_get = llm_mod.llm_manager.get
+    DebateOrchestrator.run_debate_stream = _cancel_after_round1_stream
+    llm_mod.llm_manager.get = lambda: type("L", (), {})()
+
+    failures: list[str] = []
+
+    def check(label, cond):
+        print(f"  {'PASS' if cond else 'FAIL'}: {label}")
+        if not cond:
+            failures.append(label)
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            tok = (await c.post("/api/v1/auth/login",
+                                json={"username": "debate_cancel", "password": "pw"})).json()["access_token"]
+            h = {"Authorization": f"Bearer {tok}"}
+            # CancelledError 在生成器内被吞掉，HTTP 仍应正常结束（200），不应抛
+            r = await c.post("/api/v1/debate/start-stream", headers=h,
+                             json={"agent_ids": [1, 2], "target_type": "stock",
+                                   "target_id": "600519", "rounds": 2})
+            check("cancel: start-stream 不抛（200）", r.status_code == 200)
+
+            session_id = None
+            round_count = 0
+            for block in r.text.split("\n\n"):
+                lines = block.strip().split("\n")
+                if len(lines) < 2:
+                    continue
+                ev = lines[0].replace("event: ", "")
+                if ev == "session":
+                    import json as _j
+                    session_id = _j.loads(lines[1].replace("data: ", "")).get("session_id")
+                elif ev == "round":
+                    round_count += 1
+            check("cancel: 收到 session 事件", session_id is not None)
+            check("cancel: 第1轮已下发", round_count >= 1)
+
+            # 已 commit 的会话壳 + 第1轮 opinion 应持久保留
+            r = await c.get(f"/api/v1/chat/sessions/{session_id}", headers=h)
+            sess = r.json()
+            check("cancel: 会话仍存在", r.status_code == 200 and sess.get("type") == "debate")
+            msgs = sess.get("messages", [])
+            check("cancel: user 消息保留", any(m["role"] == "user" for m in msgs))
+            check("cancel: 第1轮 opinion 保留",
+                  any(m["role"] == "assistant" and (m.get("meta") or {}).get("round_num") == 1 for m in msgs))
+    finally:
+        DebateOrchestrator.run_debate_stream = orig_gen
+        llm_mod.llm_manager.get = orig_get
+        app.dependency_overrides.clear()
+        await engine.dispose()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+    print(f"\n{'ALL PASSED' if not failures else 'FAILURES: ' + str(failures)}")
+    return 0 if not failures else 1
+
+
 async def test_debate_session():
     assert await _main() == 0
 
 
+async def test_debate_cancel():
+    assert await _cancel_main() == 0
+
+
 if __name__ == "__main__":
-    sys.exit(asyncio.run(_main()))
+    sys.exit(0 if asyncio.run(_main()) == 0 and asyncio.run(_cancel_main()) == 0 else 1)

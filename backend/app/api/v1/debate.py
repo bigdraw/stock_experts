@@ -1,5 +1,6 @@
 """Debate API routes."""
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -128,7 +129,8 @@ async def start_debate_stream(
         session_id=session_id, role="user", content=user_prompt,
         stocks_detected=[code] if code else [],
     ))
-    await db.flush()
+    # 会话 + user 消息立即落盘——辩论流很长，客户端中途断连也要保留会话壳
+    await db.commit()
 
     async def event_stream():
         round_num = 0
@@ -155,7 +157,8 @@ async def start_debate_stream(
                             meta={"round_type": item.round_type, "round_num": round_num,
                                   "agent_id": op.agent_id, "agent_name": op.agent_name},
                         ))
-                    await db.flush()
+                    # 每轮 commit（非 flush）——客户端断连时已完成轮次仍持久
+                    await db.commit()
                     yield f"event: round\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
                 elif isinstance(item, str):
                     # summary 落库
@@ -164,14 +167,26 @@ async def start_debate_stream(
                         agents_used=["总结"],
                         meta={"round_type": "summary", "round_num": round_num + 1},
                     ))
-                    await db.flush()
+                    await db.commit()
                     yield f"event: summary\ndata: {json.dumps({'summary': item}, ensure_ascii=False)}\n\n"
             yield "event: done\ndata: {}\n\n"
-        except Exception as e:
-            yield f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
-        finally:
             session.last_message_at = datetime.now()
             await db.commit()
+        except asyncio.CancelledError:
+            # 客户端断连（刷新/离开页面）：回滚未完成事务，正常结束流，
+            # 不让 CancelledError 传到 get_db 的 commit 撞 rollback-pending 刷屏。
+            # 已 commit 的轮次与会话壳持久保留。
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            # 不 re-raise：流优雅结束
+        except Exception as e:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            yield f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         event_stream(),
