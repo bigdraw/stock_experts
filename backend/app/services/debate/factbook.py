@@ -34,9 +34,13 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.stock import DailyQuote, Stock
+from app.models.stock import DailyQuote, FinancialReport, Stock
 from app.services.data.akshare_provider import AkShareProvider
-from app.services.data.cache import ensure_financial_reports, ensure_full_daily_quotes
+from app.services.data.cache import (
+    ensure_daily_quotes,
+    ensure_financial_reports,
+    ensure_full_daily_quotes,
+)
 from app.services.data.value_analysis import analyze
 from app.services.signals.regime import RegimeDetector
 
@@ -69,24 +73,25 @@ class FactBook:
         """
         stock = await db.get(Stock, stock_code)
         name = stock.name if stock else stock_code
+        industry_fb = stock.industry or stock.sector if stock else None
         facts: dict[str, Any] = {
             "stock_code": stock_code,
             "stock_name": name,
             "collected_at": datetime.now().isoformat(timespec="seconds"),
         }
 
-        # 1. 价值分析全量（含 trend 20期 + dividends）——复用 value_analysis
+        # 1. 价值分析全量（含 trend 20期 + dividends）——复用 value_analysis，失败重试+快照兜底
         facts["value_analysis"] = await self._collect_value_analysis(stock_code, db)
 
-        # 2. K线趋势（5年，与价值分析时间窗口对齐）——复用 ensure_full_daily_quotes
+        # 2. K线趋势（5年，与价值分析时间窗口对齐）——复用 ensure_full_daily_quotes，失败重试+短窗口兜底
         facts["kline"] = await self._collect_kline(stock_code, db)
 
-        # 3. 行业动态 + 宏观政策（web_search）
-        facts["industry"] = await self._collect_industry(name)
+        # 3. 行业动态 + 宏观政策（web_search，失败重试；行业空则用公司行业字段兜底）
+        facts["industry"] = await self._collect_industry(name, industry_fb)
         facts["macro"] = await self._collect_macro()
 
-        # 4. 市场状态（沪深300 regime）——复用 RegimeDetector
-        facts["market_regime"] = await self._collect_regime()
+        # 4. 市场状态（沪深300 regime）——沪深300不可用则用个股自身趋势代理
+        facts["market_regime"] = await self._collect_regime(stock_code, db)
 
         # 5. 客观校验（完整性/时效性/逻辑一致性）
         facts["validation"] = self._validate(facts)
@@ -96,68 +101,115 @@ class FactBook:
     # ─────────────────────────── 采集器 ───────────────────────────
 
     async def _collect_value_analysis(self, code: str, db: AsyncSession) -> dict[str, Any]:
-        """复用 value_analysis.analyze：6维 + trend20期 + dividends + growth CAGR。"""
-        try:
-            await ensure_financial_reports(db, code, provider=self.provider)
-            await db.commit()
-            va = await analyze(db, code, provider=self.provider)
-            if "error" in va:
-                logger.warning(f"FactBook: value_analysis returned error for {code}: {va['error']}")
-                return {"_error": va["error"]}
-            return va
-        except Exception as e:
-            logger.warning(f"FactBook: value_analysis failed for {code}: {e}")
-            return {"_error": str(e)}
+        """复用 value_analysis.analyze：6维 + trend20期 + dividends + growth CAGR。
+
+        远端/网络偶发失败 → 重试 3 次；仍失败则取 Latest 快照 + 最近一期周期财报
+        的最小指标兜底（至少有估值/ROE/EPS），不让 value_analysis 整块缺失。
+        """
+        last_err = None
+        for attempt in range(3):
+            try:
+                await ensure_financial_reports(db, code, provider=self.provider)
+                await db.commit()
+                va = await analyze(db, code, provider=self.provider)
+                if "error" not in va:
+                    return va
+                last_err = va["error"]
+                logger.warning(f"FactBook: value_analysis attempt {attempt + 1}/3 error: {last_err}")
+            except Exception as e:
+                last_err = e
+                logger.warning(f"FactBook: value_analysis attempt {attempt + 1}/3 failed: {e!r}")
+        logger.warning(f"FactBook: value_analysis fallback to minimal snapshot for {code}: {last_err!r}")
+        return await self._value_analysis_fallback(code, db)
+
+    async def _value_analysis_fallback(self, code: str, db: AsyncSession) -> dict[str, Any]:
+        """兜底：analyze 全失败时，从 FinancialReport 取 Latest 快照 + 最近周期财报。"""
+        snap = (await db.execute(
+            select(FinancialReport).where(
+                FinancialReport.stock_code == code, FinancialReport.report_type == "Latest"
+            ).order_by(FinancialReport.report_date.desc()).limit(1)
+        )).scalar_one_or_none()
+        periodic = (await db.execute(
+            select(FinancialReport).where(
+                FinancialReport.stock_code == code, FinancialReport.report_type != "Latest"
+            ).order_by(FinancialReport.report_date.desc()).limit(1)
+        )).scalar_one_or_none()
+        latest, valuation = {}, {}
+        if periodic:
+            latest = {
+                "report_date": str(periodic.report_date) if periodic.report_date else None,
+                "roe": periodic.roe, "eps": periodic.eps, "bps": periodic.bps,
+                "revenue": periodic.revenue, "net_profit": periodic.net_profit,
+                "debt_ratio": periodic.debt_ratio,
+            }
+        if snap:
+            valuation = {"pe": snap.per, "pb": snap.pb, "price": snap.price}
+        if not latest and not valuation:
+            return {"_error": f"value_analysis 全部失败且无快照可兜底: {code}"}
+        return {"latest": latest, "valuation": valuation, "_fallback": "minimal_snapshot"}
 
     async def _collect_kline(self, code: str, db: AsyncSession) -> dict[str, Any]:
         """取 K线，提取趋势摘要。时间窗口与价值分析一致：5年。
 
-        不注入全量数千根日K（浪费 token），只注入统计摘要：
-        - 近 1/3/6/12 月 + 5 年涨跌幅、5 年年化、5 年最大回撤
-        - 是否近 5 年新高/新低
-        - 量比（近20日均量 vs 5年均量）
-        - 周/月K趋势方向（近 13/26/52 周；近 6/12 月）
+        层1：全量5年日K，重试3次；层2兜底：120日短窗口（akshare 近期数据更稳，
+        摘要自动对短数据返回 None 字段）。两层都失败才 _error。
         """
+        last_err = None
+        for attempt in range(3):
+            try:
+                await ensure_full_daily_quotes(db, code, provider=self.provider)
+                await db.flush()
+                summary = await self._kline_summarize(code, db)
+                if "_error" not in summary:
+                    return summary
+                last_err = summary["_error"]
+            except Exception as e:
+                last_err = e
+                logger.warning(f"FactBook: kline full attempt {attempt + 1}/3 failed: {e!r}")
+        logger.warning(f"FactBook: kline fallback to 120d window for {code}: {last_err!r}")
         try:
-            await ensure_full_daily_quotes(db, code, provider=self.provider)
+            await ensure_daily_quotes(db, code, days=120, provider=self.provider)
             await db.flush()
-            rows = (
-                await db.execute(
-                    select(DailyQuote.date, DailyQuote.close, DailyQuote.volume)
-                    .where(DailyQuote.stock_code == code)
-                    .order_by(DailyQuote.date.asc())
-                )
-            ).all()
-            if not rows:
-                return {"_error": "无日K数据"}
-
-            df = pd.DataFrame(rows, columns=["date", "close", "volume"]).dropna(subset=["close"])
-            if df.empty:
-                return {"_error": "无有效收盘价"}
-            df["date"] = pd.to_datetime(df["date"])
-
-            daily_summary = self._kline_daily_summary(df)
-            weekly_summary = self._kline_period_summary(df, "W", {"近13周": 13, "近26周": 26, "近52周": 52})
-            monthly_summary = self._kline_period_summary(
-                df, "ME", {"近6月": 6, "近12月": 12, "近60月(5年)": 60}
-            )
-
-            # 缺口检查：最近30个交易日缺失天数（交易日应连续，缺口>5 警告）
-            recent_30 = df.sort_values("date").tail(30)
-            gaps = 0
-            if len(recent_30) > 1:
-                diffs = recent_30["date"].diff().dt.days
-                # 跨周内 >3 天、跨周 >4 天算缺口（排除周末）
-                gaps = int(((diffs > 4) & (diffs <= 7)).sum() + (diffs > 7).sum())
-
-            return {
-                "daily": {"summary": daily_summary, "missing_days_30d": gaps},
-                "weekly": {"summary": weekly_summary},
-                "monthly": {"summary": monthly_summary},
-            }
+            summary = await self._kline_summarize(code, db)
+            if "_error" not in summary:
+                summary["_fallback"] = "120d_window"
+                return summary
         except Exception as e:
-            logger.warning(f"FactBook: kline failed for {code}: {e}")
-            return {"_error": str(e)}
+            logger.warning(f"FactBook: kline 120d fallback failed: {e!r}")
+        return {"_error": f"kline 全量+短窗口均失败: {last_err!r}"}
+
+    async def _kline_summarize(self, code: str, db: AsyncSession) -> dict[str, Any]:
+        """从 DB 读日K → 趋势摘要（日/周/月 + 缺口）。短数据自动返回 None 字段。"""
+        rows = (
+            await db.execute(
+                select(DailyQuote.date, DailyQuote.close, DailyQuote.volume)
+                .where(DailyQuote.stock_code == code)
+                .order_by(DailyQuote.date.asc())
+            )
+        ).all()
+        if not rows:
+            return {"_error": "无日K数据"}
+        df = pd.DataFrame(rows, columns=["date", "close", "volume"]).dropna(subset=["close"])
+        if df.empty:
+            return {"_error": "无有效收盘价"}
+        df["date"] = pd.to_datetime(df["date"])
+
+        daily_summary = self._kline_daily_summary(df)
+        weekly_summary = self._kline_period_summary(df, "W", {"近13周": 13, "近26周": 26, "近52周": 52})
+        monthly_summary = self._kline_period_summary(
+            df, "ME", {"近6月": 6, "近12月": 12, "近60月(5年)": 60}
+        )
+        # 缺口检查：最近30个交易日缺失天数
+        recent_30 = df.sort_values("date").tail(30)
+        gaps = 0
+        if len(recent_30) > 1:
+            diffs = recent_30["date"].diff().dt.days
+            gaps = int(((diffs > 4) & (diffs <= 7)).sum() + (diffs > 7).sum())
+        return {
+            "daily": {"summary": daily_summary, "missing_days_30d": gaps},
+            "weekly": {"summary": weekly_summary},
+            "monthly": {"summary": monthly_summary},
+        }
 
     def _kline_daily_summary(self, df: pd.DataFrame) -> dict[str, Any]:
         """日K趋势摘要：多周期涨跌 + 年化 + 回撤 + 高低点 + 量比。"""
@@ -227,22 +279,30 @@ class FactBook:
                 out[label] = None
         return out
 
-    async def _collect_industry(self, stock_name: str) -> str:
-        """web_search 搜行业动态（竞争格局/行业增速）。"""
-        return await self._web_search(f"{stock_name} 行业分析 竞争格局 行业增速 2026")
+    async def _collect_industry(self, stock_name: str, industry_fallback: str | None = None) -> str:
+        """web_search 搜行业动态（竞争格局/行业增速）。搜索为空时用公司行业字段兜底。"""
+        res = await self._web_search(f"{stock_name} 行业分析 竞争格局 行业增速 2026")
+        if res:
+            return res
+        if industry_fallback:
+            return f"（联网搜索为空，兜底取公司行业字段）行业：{industry_fallback}"
+        return ""
 
     async def _collect_macro(self) -> str:
         """web_search 搜宏观政策（货币政策/利率/CPI）。"""
         return await self._web_search("中国 A股 宏观经济 货币政策 利率 CPI 最新 2026")
 
-    async def _collect_regime(self) -> dict[str, Any]:
-        """沪深300市场状态检测（bull/bear/choppy/transitional）。"""
+    async def _collect_regime(self, code: str | None = None, db: AsyncSession | None = None) -> dict[str, Any]:
+        """沪深300市场状态检测（bull/bear/choppy/transitional）。
+
+        沪深300 拉不到（akshare 指数端偶发断连）→ 兜底用个股自身 60 日收盘做
+        趋势代理（RegimeDetector 对任意价格序列都适用），标注 _fallback。
+        """
         try:
             quotes = await self._fetch_index_quotes(_HS300_INDEX, days=70)
             if len(quotes) < 51:
-                return {"_error": f"沪深300样本不足({len(quotes)}), 需≥51"}
+                raise ValueError(f"沪深300样本不足({len(quotes)}), 需≥51")
             prices = pd.Series([float(q) for q in quotes], name="close")
-            # ATR派生波动率作为 vix 代理：20日年化波动
             ret = prices.pct_change().dropna()
             vol_proxy = float(ret.tail(20).std() * (252 ** 0.5) * 100) if len(ret) >= 20 else 20.0
             detector = RegimeDetector()
@@ -250,8 +310,26 @@ class FactBook:
             res["volatility_proxy"] = round(vol_proxy, 2)
             return res
         except Exception as e:
-            logger.warning(f"FactBook: regime failed: {e}")
-            return {"_error": str(e)}
+            logger.warning(f"FactBook: regime 沪深300 failed: {e!r}, try stock-proxy fallback")
+            # 兜底：用个股自身 60 日收盘做趋势代理
+            if code and db:
+                try:
+                    rows = (await db.execute(
+                        select(DailyQuote.close).where(DailyQuote.stock_code == code)
+                        .order_by(DailyQuote.date.desc()).limit(60)
+                    )).scalars().all()
+                    if len(rows) >= 51:
+                        prices = pd.Series([float(r) for r in rows][::-1], name="close")
+                        ret = prices.pct_change().dropna()
+                        vol_proxy = float(ret.tail(20).std() * (252 ** 0.5) * 100) if len(ret) >= 20 else 20.0
+                        res = RegimeDetector().classify(prices, vix_level=vol_proxy, breadth_ratio=None)
+                        res["volatility_proxy"] = round(vol_proxy, 2)
+                        res["_fallback"] = "stock_proxy"
+                        res["_note"] = f"沪深300不可用({e!r}), 用个股自身60日趋势代理"
+                        return res
+                except Exception as e2:
+                    logger.warning(f"FactBook: regime stock-proxy fallback failed: {e2!r}")
+            return {"_error": f"沪深300+个股代理均失败: {e!r}"}
 
     async def _fetch_index_quotes(self, index_code: str, days: int) -> list[float]:
         """拉取指数近 N 日收盘（akshare index_zh_a_hist）。
