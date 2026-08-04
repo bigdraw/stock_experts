@@ -25,7 +25,8 @@ const router = createRouter({
         { path: 'backtest', name: 'BacktestCreate', component: () => import('../views/BacktestCreate.vue') },
         { path: 'backtest/results/:id', name: 'BacktestResult', component: () => import('../views/BacktestResult.vue') },
         // 辩论已集成进 chat（ChatHome 内多 agent 气泡 + 直播流式）；/debate 重定向到 chat 并自动开辩论弹窗
-        { path: 'debate', redirect: { name: 'ChatHome', query: { debate: '1' } } },
+        // 保留 name:'DebateCreate' 让 AppLayout 侧栏菜单 router.push({name}) 仍可达
+        { path: 'debate', name: 'DebateCreate', redirect: { name: 'ChatHome', query: { debate: '1' } } },
         { path: 'books', name: 'BookManager', component: () => import('../views/BookManager.vue') },
         { path: 'alerts', name: 'AlertManager', component: () => import('../views/AlertManager.vue') },
         { path: 'settings', name: 'Settings', component: () => import('../views/Settings.vue') },

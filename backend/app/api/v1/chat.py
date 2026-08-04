@@ -152,10 +152,17 @@ async def delete_session(
     session_id: int,
     db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user),
 ):
-    """删除会话。"""
+    """删除会话——同时删其所有消息，避免孤儿消息被复用 id 的新会话"复活"。
+
+    依赖 FK CASCADE（database.py 已开 PRAGMA foreign_keys=ON），但显式删消息作双保险
+    （兼容旧连接/未开 FK 的环境）。
+    """
+    from sqlalchemy import delete as sa_delete
+
     session = await db.get(ChatSession, session_id)
     if not session or session.user_id != current_user.id:
         return {"error": "会话不存在"}
+    await db.execute(sa_delete(ChatMessage).where(ChatMessage.session_id == session_id))
     await db.delete(session)
     await db.commit()
     return {"status": "deleted"}

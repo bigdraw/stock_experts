@@ -259,11 +259,11 @@ async function scrollToBottom() {
 .chat-shell { display: flex; height: 100%; width: 100%; background: var(--bg-base); }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
 .msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 24px 16px 16vh; }
+.msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 20px 16px 14vh; display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
 
-.welcome { display: flex; flex-direction: column; min-height: 100%; }
-.welcome-spacer { flex: 1; }
-.welcome-content { display: flex; flex-direction: column; align-items: center; padding-bottom: max(4vh, 16px); gap: 12px; }
+/* 欢迎页：撑满滚动区、内容垂直居中（不再浮在上中部留大块空白） */
+.welcome { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.welcome-content { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 0; }
 .welcome-icon { font-size: 40px; }
 .welcome-title { font-size: 22px; font-weight: 600; }
 .welcome-desc { font-size: 14px; color: var(--text-tertiary); text-align: center; }
@@ -275,10 +275,11 @@ async function scrollToBottom() {
 .suggestion:hover { opacity: 0.85; border-color: var(--primary); color: var(--primary); }
 .quick-nav { display: flex; gap: 8px; margin-top: 8px; }
 
-.msg-row { padding: 4px 0; margin-bottom: 4px; }
+/* 消息行：拉大间距，避免气泡边框贴边"踩脚" */
+.msg-row { padding: 2px 0; margin-bottom: 10px; }
 .msg-row.user { display: flex; justify-content: flex-end; }
 .user-bubble {
-  background: var(--bubble-user); color: var(--text-primary); padding: 8px 12px;
+  background: var(--bubble-user); color: var(--text-primary); padding: 10px 14px;
   border-radius: var(--radius-md); max-width: 75%; word-wrap: break-word; white-space: pre-wrap;
   font-size: 15px; line-height: 1.6;
 }
@@ -288,25 +289,26 @@ async function scrollToBottom() {
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
 .retry-bar { margin-top: 8px; }
 
-/* 辩论 agent 气泡：左侧色条 + agent 名 + 轮次标签 */
+/* 辩论 agent 气泡：左侧色条 + agent 名 + 轮次标签；拉大内边距与下间距 */
 .debate-bubble {
   border-left: 3px solid var(--primary); background: var(--bg-surface);
-  border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 8px;
+  border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 12px;
 }
-.debate-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.debate-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .debate-agent { font-weight: 700; font-size: 14px; }
 
-/* 总结气泡：高亮框 */
+/* 总结气泡：与上方气泡拉开距离，加左边色条与 agent 气泡呼应 */
 .summary-bubble {
-  border: 1px solid var(--border-medium); background: var(--bg-elevated);
-  border-radius: var(--radius-md); padding: 12px 16px; margin-top: 12px;
+  border: 1px solid var(--border-medium); border-left: 3px solid var(--primary);
+  background: var(--bg-elevated); border-radius: var(--radius-md);
+  padding: 14px 16px; margin: 16px 0 12px;
 }
-.summary-head { font-weight: 700; font-size: 14px; margin-bottom: 8px; color: var(--primary); }
+.summary-head { font-weight: 700; font-size: 14px; margin-bottom: 10px; color: var(--primary); }
 
-/* FactBook 折叠面板 */
+/* FactBook 折叠面板：与上下气泡拉开距离 */
 .factbook-panel {
   border: 1px dashed var(--border-medium); border-radius: var(--radius-md);
-  background: var(--bg-surface); margin: 8px 0; overflow: hidden;
+  background: var(--bg-surface); margin: 12px 0; overflow: hidden;
 }
 .factbook-head {
   display: flex; justify-content: space-between; align-items: center; cursor: pointer;
@@ -314,7 +316,7 @@ async function scrollToBottom() {
 }
 .factbook-head:hover { background: var(--bg-elevated); }
 .factbook-toggle { font-size: 12px; color: var(--primary); }
-.factbook-body { padding: 0 14px 12px; max-height: 420px; overflow-y: auto; border-top: 1px solid var(--border-subtle); }
+.factbook-body { padding: 10px 14px 14px; max-height: 420px; overflow-y: auto; border-top: 1px solid var(--border-subtle); }
 
 .error-bubble {
   background: rgba(231, 76, 60, 0.12); border: 1px solid rgba(231, 76, 60, 0.3);

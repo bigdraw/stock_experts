@@ -1,5 +1,6 @@
 """Database engine and session management."""
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -10,6 +11,17 @@ engine = create_async_engine(
     echo=False,
     future=True,
 )
+
+# SQLite 默认关闭外键约束 → ChatMessage.session_id 的 ondelete="CASCADE" 不生效，
+# 删 ChatSession 时消息成孤儿；新会话复用被删 id（SQLite 无 AUTOINCREMENT 时会复用
+# 末尾 id）会"复活"旧对话。每条连接打开时开 PRAGMA foreign_keys=ON 修复。
+@event.listens_for(engine.sync_engine, "connect")
+def _enable_sqlite_fk(dbapi_conn, _connection_record):
+    if engine.dialect.name == "sqlite":
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
 
 async_session_factory = async_sessionmaker(
     engine,
