@@ -94,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { NTag, useMessage } from 'naive-ui'
 import { ChatbubblesOutline, SearchOutline } from '@vicons/ionicons5'
 import { agentsApi, debateApi, stocksApi } from '../api'
@@ -114,11 +114,15 @@ const rounds = ref<any[]>([])
 const summary = ref('')
 
 // 标的搜索（代码/名称/拼音/首字母——复用 /stocks/search 后端能力）
+// 模式参考 PortfolioDetail：纯 options（无自定义 render）+ handleSelect 锁定 + 正则抽码
 const targetInput = ref('600519')
 const stockOptions = ref<any[]>([])
 const searching = ref(false)
 const selectedStock = ref<Stock | null>(null)
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
+// 选中标志：naive-ui AutoComplete 选中后会同步触发 update:value(option.label)，
+// 用此标志区分"选中自带更新"与"用户键入"，避免选中后立刻清空已选
+let selecting = false
 
 const AGENT_COLORS = ['#e94560', '#0f9b8e', '#f5a623', '#5856d6', '#007aff', '#34c759', '#ff9500', '#af52de']
 
@@ -128,38 +132,28 @@ function agentColor(name: string): string {
   return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length]
 }
 
-// 股票搜索：debounce 300ms，下拉展示 代码+名称+市场
+// 股票搜索：debounce 300ms，下拉纯文本选项（代码 + 名称）
 function handleStockSearch(value: string) {
   if (searchTimeout) clearTimeout(searchTimeout)
-  // 选中后 naive-ui AutoComplete 会用 option.label 同步触发一次 update:value；
-  // 当该值等于已选 code 时属"选中自带更新"，保留已选、不重搜（避免清空选择）
-  if (selectedStock.value && value === selectedStock.value.code) return
+  // 选中触发的同步 update（值=label），跳过：保留已选、不重搜、不清空
+  if (selecting) {
+    selecting = false
+    return
+  }
+  // 用户键入新内容 → 清掉旧选择，重新搜索
+  selectedStock.value = null
   if (!value || !value.trim()) {
     stockOptions.value = []
     return
   }
-  // 用户键入新内容（与已选 code 不同）→ 清掉旧选择，重新搜索
-  selectedStock.value = null
   searchTimeout = setTimeout(async () => {
     searching.value = true
     try {
       const res = await stocksApi.search(value.trim(), 20)
       stockOptions.value = (res.data || []).map((stock: Stock) => ({
-        // label 用于"选中后填入输入框的值"——设为 code，确保输入框得到正确代码
-        // （naive-ui AutoComplete 默认 clearAfterSelect=false 会把 label 填进输入框）
-        label: stock.code,
+        label: `${stock.code} ${stock.name}`,
         value: stock.code,
         stock,
-        // dropdown 展示走自定义 render（代码+名称+市场），不受 label 影响
-        render: () => h('div', { class: 'stock-option-item' }, [
-          h(NTag, { size: 'small', type: 'info', round: true }, { default: () => stock.code }),
-          h('span', { class: 'stock-option-name' }, stock.name),
-          h(NTag, {
-            size: 'tiny',
-            type: stock.market === 'SH' ? 'success' : 'warning',
-            round: true,
-          }, { default: () => stock.market }),
-        ]),
       }))
     } catch (e: any) {
       console.error('Stock search failed:', e.response?.data || e.message)
@@ -170,12 +164,12 @@ function handleStockSearch(value: string) {
   }, 300)
 }
 
-// 选中候选 → 锁定该股票 code 作为辩论 target
+// 选中候选 → 锁定该股票；置 selecting 标志，使紧随其后的 update:value(label) 不清空已选
 function handleStockSelect(code: string) {
+  selecting = true
   const opt = stockOptions.value.find((o) => o.value === code)
   if (opt?.stock) {
     selectedStock.value = opt.stock
-    targetInput.value = opt.stock.code
   }
 }
 
@@ -189,10 +183,16 @@ onMounted(async () => {
 
 async function handleStart() {
   if (selectedAgentIds.value.length < 2) return
-  // 优先用"已选中候选"的 code；未选中时回退到输入框原文（可能是手输的合法 code）
-  const code = selectedStock.value?.code || targetInput.value.trim()
+  // 解析标的代码：优先已选中候选的 code；否则从输入框正则抽 6 位代码
+  // （naive-ui AutoComplete 选中后会把 label="code name" 填进输入框，需抽码，参考 PortfolioDetail）
+  let code = selectedStock.value?.code || ''
   if (!code) {
-    message.warning('请先选择分析标的')
+    const input = targetInput.value.trim()
+    const m = input.match(/^\d{6}/) || input.match(/\d{6}/)
+    code = m ? m[0] : ''
+  }
+  if (!code) {
+    message.warning('请先选择分析标的（输入代码/名称/拼音后从下拉选）')
     return
   }
 
