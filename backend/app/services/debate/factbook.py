@@ -46,8 +46,10 @@ logger = logging.getLogger(__name__)
 _HS300_INDEX = "000300"
 # K线时间窗口与价值分析对齐：5年
 _KLINE_YEARS = 5
-# 财报过期阈值（最新一期距今 > 此天数 → 警告）
-_REPORT_STALE_DAYS = 120
+# 财报过期阈值：按 report_date（报告期末日，非披露日）算，Q1 期末 3/31 到 8 月初约
+# 126 天。Q1 是季报披露后到 H1 披露前的正常"最新"，120 天会误报。调到 150 天，
+# Q1 要到 8 月底才告警（届时 H1 通常已披露），仍能抓到真过期（半年以上无新报）。
+_REPORT_STALE_DAYS = 150
 
 
 class FactBook:
@@ -252,44 +254,66 @@ class FactBook:
             return {"_error": str(e)}
 
     async def _fetch_index_quotes(self, index_code: str, days: int) -> list[float]:
-        """拉取指数近 N 日收盘（akshare index_zh_a_hist）。"""
+        """拉取指数近 N 日收盘（akshare index_zh_a_hist）。
+
+        akshare 指数端点偶发 RemoteDisconnected（远端掐连接），重试最多 3 次，
+        并复用 akshare_provider 的 _bypass_proxy 绕过代理（与个股数据拉取一致）。
+        """
         import akshare as ak
+
+        from app.services.data.akshare_provider import _bypass_proxy, _restore_proxy
 
         end = date.today().strftime("%Y%m%d")
         start = (date.today() - timedelta(days=int(days * 1.8))).strftime("%Y%m%d")
-        df = await asyncio.to_thread(
-            ak.index_zh_a_hist, symbol=index_code, period="daily", start_date=start, end_date=end
-        )
+        df = None
+        for attempt in range(3):
+            original = _bypass_proxy()
+            try:
+                df = await asyncio.to_thread(
+                    ak.index_zh_a_hist, symbol=index_code, period="daily",
+                    start_date=start, end_date=end,
+                )
+                if df is not None and not df.empty:
+                    break
+            except Exception as e:
+                logger.warning(f"FactBook: index fetch attempt {attempt + 1}/3 failed: {e!r}")
+            finally:
+                _restore_proxy(original)
         if df is None or df.empty:
             return []
         col = "收盘" if "收盘" in df.columns else df.columns[-1]
         return df[col].astype(float).tolist()
 
     async def _web_search(self, query: str) -> str:
-        """调 web-search 逻辑（tavily 优先，DuckDuckGo 备选）。"""
+        """调 web-search 逻辑（tavily 优先，DuckDuckGo 备选）。
+
+        tavily/duckduckgo 经 httpx，远端偶发 RemoteDisconnected → 重试最多 2 次。
+        """
         tavily_key = os.environ.get("TAVILY_API_KEY")
         if tavily_key:
-            try:
-                async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.post(
-                        "https://api.tavily.com/search",
-                        json={"api_key": tavily_key, "query": query, "max_results": 3, "include_answer": True},
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        return (data.get("answer", "") or "") + "\n" + "\n".join(
-                            f"- {r.get('title', '')}: {r.get('content', '')[:150]}" for r in data.get("results", [])
+            for attempt in range(2):
+                try:
+                    async with httpx.AsyncClient(timeout=15) as client:
+                        resp = await client.post(
+                            "https://api.tavily.com/search",
+                            json={"api_key": tavily_key, "query": query, "max_results": 3, "include_answer": True},
                         )
-            except Exception as e:
-                logger.debug(f"tavily search failed: {e}")
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            return (data.get("answer", "") or "") + "\n" + "\n".join(
+                                f"- {r.get('title', '')}: {r.get('content', '')[:150]}" for r in data.get("results", [])
+                            )
+                except Exception as e:
+                    logger.warning(f"tavily search attempt {attempt + 1}/2 failed: {e!r}")
 
         # DuckDuckGo fallback
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    "https://api.duckduckgo.com/",
-                    params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-                )
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.get(
+                        "https://api.duckduckgo.com/",
+                        params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
+                    )
                 if resp.status_code == 200:
                     data = resp.json()
                     results = []
@@ -298,9 +322,10 @@ class FactBook:
                     for topic in (data.get("RelatedTopics") or [])[:3]:
                         if isinstance(topic, dict) and topic.get("Text"):
                             results.append(topic["Text"][:150])
-                    return "\n".join(results) if results else ""
-        except Exception as e:
-            logger.debug(f"duckduckgo search failed: {e}")
+                    if results:
+                        return "\n".join(results)
+            except Exception as e:
+                logger.warning(f"duckduckgo search attempt {attempt + 1}/2 failed: {e!r}")
         return ""
 
     # ─────────────────────────── 客观校验 ───────────────────────────

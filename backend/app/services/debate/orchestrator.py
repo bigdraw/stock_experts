@@ -90,18 +90,31 @@ class DebateOrchestrator:
                     "agent_id": agent["id"], "agent_name": agent["name"],
                 }
                 messages = self._build_agent_messages(agent, round_type, target_info, context_data, history)
-                content, finish_reason = "", None
-                try:
-                    async for chunk in self.llm.chat_stream(messages, max_tokens=8192):
-                        if chunk.content:
-                            content += chunk.content
-                            yield {"type": "agent_token", "round_num": round_num + 1,
-                                   "agent_id": agent["id"], "delta": chunk.content}
-                        if chunk.finish_reason:
-                            finish_reason = chunk.finish_reason
-                except Exception as e:
-                    logger.exception(f"Agent {agent['name']} {round_type} failed")
-                    content = f"[本 agent 此轮调用失败: {e}]"
+                content, finish_reason, last_err = "", None, None
+                # 重试：远端（dashscope/akshare 等）偶发 RemoteDisconnected/ReadError，
+                # 多发于建连首 chunk 前。未产出 token 时重试最多 3 次；已产出部分 token
+                # 则保留不重试（流式无法续传，重试会重复发已 yield 的 token）。
+                for attempt in range(3):
+                    content, finish_reason = "", None
+                    try:
+                        async for chunk in self.llm.chat_stream(messages, max_tokens=8192):
+                            if chunk.content:
+                                content += chunk.content
+                                yield {"type": "agent_token", "round_num": round_num + 1,
+                                       "agent_id": agent["id"], "delta": chunk.content}
+                            if chunk.finish_reason:
+                                finish_reason = chunk.finish_reason
+                        last_err = None
+                        break  # 成功
+                    except Exception as e:
+                        last_err = e
+                        logger.warning(f"Agent {agent['name']} {round_type} attempt {attempt + 1}/3 failed: {e!r}")
+                        if content:
+                            break  # 已有部分输出，保留不重试
+                        continue  # 无输出，重试
+                if last_err and not content:
+                    logger.exception(f"Agent {agent['name']} {round_type} gave up after retries")
+                    content = f"[本 agent 此轮调用失败（重试 3 次仍错）: {last_err!r}]"
                 yield {
                     "type": "agent_done", "round_num": round_num + 1, "round_type": round_type,
                     "agent_id": agent["id"], "agent_name": agent["name"],

@@ -54,8 +54,8 @@ class OpenAICompatibleProvider(LLMProvider):
                 finish_reason=choice.get("finish_reason", "stop"),
             )
         except httpx.HTTPError as e:
-            logger.error(f"LLM provider error: {e}")
-            raise LLMProviderError(f"Failed to call LLM: {e}") from e
+            logger.error(f"LLM provider error: {e!r}")
+            raise LLMProviderError(f"Failed to call LLM: {e!r}") from e
 
     async def chat_stream(
         self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int = 4096, **kwargs
@@ -91,8 +91,8 @@ class OpenAICompatibleProvider(LLMProvider):
                         logger.warning(f"Failed to parse stream chunk: {e}")
                         continue
         except httpx.HTTPError as e:
-            logger.error(f"LLM provider stream error: {e}")
-            raise LLMProviderError(f"Failed to stream from LLM: {e}") from e
+            logger.error(f"LLM provider stream error: {e!r}")
+            raise LLMProviderError(f"Failed to stream from LLM: {e!r}") from e
 
     async def health_check(self) -> bool:
         """Check provider availability."""
