@@ -15,10 +15,12 @@
       <div
         v-for="s in filteredSessions"
         :key="s.id"
-        :class="['session-item', { active: !manageMode && s.id === chatStore.currentSessionId, manage: manageMode }]"
+        :class="['session-item', { active: !manageMode && s.id === chatStore.currentSessionId, manage: manageMode, checked: manageMode && checked.has(s.id) }]"
         @click="onItemClick(s)"
       >
-        <n-checkbox v-if="manageMode" :checked="checked.has(s.id)" @update:checked="(v) => toggleCheck(s.id, v)" class="session-check" />
+        <!-- 管理模式：整行可点切换勾选（大点击区），checkbox 纯显示——避免 checkbox 的
+             @update:checked 与行 @click 双触发互相抵消导致"点不中" -->
+        <n-checkbox v-if="manageMode" :checked="checked.has(s.id)" class="session-check" />
         <span class="session-title">{{ s.title }}</span>
         <n-tag v-if="s.type === 'debate'" size="tiny" type="warning" round class="type-tag">辩论</n-tag>
       </div>
@@ -95,7 +97,10 @@ async function batchDelete() {
 }
 .session-item:hover { background: var(--bg-surface); }
 .session-item.active { background: var(--bg-surface); }
+.session-item.manage { cursor: default; }
 .session-item.manage:hover { background: var(--bg-surface); }
+.session-item.checked { background: rgba(0, 212, 170, 0.12); }
+.session-item.checked:hover { background: rgba(0, 212, 170, 0.18); }
 .session-check { flex-shrink: 0; }
 .session-title {
   font-size: 14px; color: var(--text-secondary); overflow: hidden;
