@@ -8,6 +8,7 @@ export interface ChatMessageData {
   content: string
   agents_used?: string[]
   stocks_detected?: string[]
+  meta?: Record<string, any> | null
   created_at?: string
   streaming?: boolean
   error?: boolean
@@ -17,6 +18,7 @@ export interface ChatSessionData {
   id: number
   title: string
   agent_ids: number[]
+  type: 'chat' | 'debate'
   pinned: boolean
   last_message_at?: string
   messages?: ChatMessageData[]

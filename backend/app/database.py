@@ -34,6 +34,29 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create all tables."""
+    """Create all tables + lightweight column migrations for existing DBs.
+
+    create_all 只建缺失的表，不给已存在的表加列。新增列（如 chat_sessions.type、
+    chat_messages.meta）通过 ALTER TABLE ADD COLUMN 升级旧库；新库由 create_all 直建。
+    SQLite 支持 ADD COLUMN（带默认值），PRAGMA table_info 检查列存在性，幂等。
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_columns(conn)
+
+
+async def _migrate_columns(conn) -> None:
+    """幂等补列：对已存在的表追加后续版本新增的列。"""
+    from sqlalchemy import text
+
+    # chat_sessions.type（辩论会话标识：chat / debate）
+    rows = (await conn.execute(text("PRAGMA table_info(chat_sessions)"))).fetchall()
+    names = {r[1] for r in rows}
+    if "type" not in names:
+        await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN type VARCHAR(10) DEFAULT 'chat' NOT NULL"))
+
+    # chat_messages.meta（辩论 round/opinion 元数据 JSON）
+    rows = (await conn.execute(text("PRAGMA table_info(chat_messages)"))).fetchall()
+    names = {r[1] for r in rows}
+    if "meta" not in names:
+        await conn.execute(text("ALTER TABLE chat_messages ADD COLUMN meta JSON"))

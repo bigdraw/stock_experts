@@ -44,10 +44,16 @@
             </n-form-item>
           </n-gi>
         </n-grid>
-        <n-button type="primary" :loading="debating" :disabled="selectedAgentIds.length < 2"
-          @click="handleStart" size="large" block>
-          {{ debating ? '辩论进行中...' : '开始辩论' }}
-        </n-button>
+        <n-space>
+          <n-button v-if="reviewMode" size="large" @click="exitReview" quaternary>
+            ← 返回新辩论
+          </n-button>
+          <n-button type="primary" :loading="debating"
+            :disabled="reviewMode || selectedAgentIds.length < 2"
+            @click="handleStart" size="large" block>
+            {{ reviewMode ? '回看中（只读）' : debating ? '辩论进行中...' : '开始辩论' }}
+          </n-button>
+        </n-space>
       </n-form>
     </n-card>
 
@@ -95,13 +101,17 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { NTag, useMessage } from 'naive-ui'
 import { ChatbubblesOutline, SearchOutline } from '@vicons/ionicons5'
+import apiClient from '../api/client'
 import { agentsApi, debateApi, stocksApi } from '../api'
 import type { Agent, Stock } from '../types'
 import MarkdownRenderer from '../components/chat/MarkdownRenderer.vue'
 
 const message = useMessage()
+const route = useRoute()
+const router = useRouter()
 const agents = ref<Agent[]>([])
 const agentOptions = ref<{ label: string; value: number }[]>([])
 const selectedAgentIds = ref<number[]>([])
@@ -112,6 +122,13 @@ const progressText = ref('')
 // Computed-like refs for template
 const rounds = ref<any[]>([])
 const summary = ref('')
+// 回看模式：从 ?session= 加载历史辩论（只读），与"开新辩论"互斥
+const reviewMode = ref(false)
+const sessionId = ref<number | null>(null)
+
+const ROUND_LABELS: Record<string, string> = {
+  analysis: '独立分析', challenge: '质疑', response: '回应', summary: '总结',
+}
 
 // 标的搜索（代码/名称/拼音/首字母——复用 /stocks/search 后端能力）
 // 模式参考 PortfolioDetail：纯 options（无自定义 render）+ handleSelect 锁定 + 正则抽码
@@ -173,13 +190,66 @@ function handleStockSelect(code: string) {
   }
 }
 
+// 退出回看，回到新辩论表单
+function exitReview() {
+  reviewMode.value = false
+  sessionId.value = null
+  rounds.value = []
+  summary.value = ''
+  router.replace({ query: {} })
+}
+
 onMounted(async () => {
   try {
     const res = await agentsApi.list()
     agents.value = res.data
     agentOptions.value = res.data.map((a: Agent) => ({ label: a.name, value: a.id }))
   } catch {}
+  // 回看模式：URL 带 ?session= 则加载该 debate 会话的历史
+  const sid = route.query.session
+  if (sid) {
+    await loadDebateReview(Number(sid))
+  }
 })
+
+// 从持久化的 chat session 重建辩论 rounds/summary（支持刷新/重进回看）
+async function loadDebateReview(sid: number) {
+  try {
+    const res = await apiClient.get(`/chat/sessions/${sid}`)
+    const data = res.data
+    if (data?.error) {
+      message.warning('会话不存在')
+      return
+    }
+    sessionId.value = sid
+    reviewMode.value = true
+    // 按 meta.round_num 分组 assistant 消息 → rounds；meta.round_type==='summary' → summary
+    const byRound = new Map<number, any>()
+    for (const m of data.messages || []) {
+      const meta = m.meta || {}
+      if (m.role === 'assistant' && meta.round_type === 'summary') {
+        summary.value = m.content
+        continue
+      }
+      if (m.role === 'assistant' && meta.round_num != null) {
+        const r = byRound.get(meta.round_num) || {
+          round_type: meta.round_type,
+          round_label: ROUND_LABELS[meta.round_type] || meta.round_type,
+          round_num: meta.round_num,
+          opinions: [],
+        }
+        r.opinions.push({ agent_name: meta.agent_name || (m.agents_used || [])[0] || 'agent', content: m.content })
+        byRound.set(meta.round_num, r)
+      }
+    }
+    rounds.value = [...byRound.values()].sort((a, b) => a.round_num - b.round_num)
+    if (data.agent_ids?.length) {
+      selectedAgentIds.value = data.agent_ids
+    }
+  } catch (e: any) {
+    message.error('加载辩论历史失败：' + (e.response?.data?.detail || e.message))
+  }
+}
 
 async function handleStart() {
   if (selectedAgentIds.value.length < 2) return
@@ -224,7 +294,11 @@ async function handleStart() {
         const dataStr = lines[1]?.replace('data: ', '') || '{}'
         try {
           const data = JSON.parse(dataStr)
-          if (eventType === 'round') {
+          if (eventType === 'session') {
+            // 后端建了 debate 会话——记 id 并更新 URL，刷新即可回看
+            sessionId.value = data.session_id
+            router.replace({ query: { session: String(data.session_id) } })
+          } else if (eventType === 'round') {
             rounds.value.push(data)
             progressText.value = `第 ${rounds.value.length} 轮完成，正在下一轮...`
           } else if (eventType === 'summary') {

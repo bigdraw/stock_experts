@@ -74,6 +74,7 @@ async def list_sessions(
             "id": s.id,
             "title": s.title,
             "agent_ids": s.agent_ids or [],
+            "type": s.type or "chat",
             "pinned": s.pinned,
             "last_message_at": str(s.last_message_at) if s.last_message_at else None,
             "updated_at": str(s.updated_at),
@@ -114,11 +115,11 @@ async def get_session(
     messages = result.scalars().all()
     return {
         "id": session.id, "title": session.title, "agent_ids": session.agent_ids or [],
-        "pinned": session.pinned, "summary": session.summary,
+        "type": session.type or "chat", "pinned": session.pinned, "summary": session.summary,
         "messages": [
             {"id": m.id, "role": m.role, "content": m.content,
              "agents_used": m.agents_used or [], "stocks_detected": m.stocks_detected or [],
-             "created_at": str(m.created_at)}
+             "meta": m.meta, "created_at": str(m.created_at)}
             for m in messages
         ],
     }

@@ -9,9 +9,10 @@
         v-for="s in filteredSessions"
         :key="s.id"
         :class="['session-item', { active: s.id === chatStore.currentSessionId }]"
-        @click="chatStore.selectSession(s.id)"
+        @click="handleSelect(s)"
       >
         <span class="session-title">{{ s.title }}</span>
+        <n-tag v-if="s.type === 'debate'" size="tiny" type="warning" round class="type-tag">辩论</n-tag>
       </div>
       <div v-if="filteredSessions.length === 0" class="empty">暂无会话</div>
     </div>
@@ -20,10 +21,13 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { NButton, NInput } from 'naive-ui'
+import { useRouter } from 'vue-router'
+import { NButton, NInput, NTag } from 'naive-ui'
 import { useChatStore } from '../../stores/chat'
+import type { ChatSessionData } from '../../stores/chat'
 
 const chatStore = useChatStore()
+const router = useRouter()
 const searchText = ref('')
 
 const filteredSessions = computed(() => {
@@ -32,6 +36,15 @@ const filteredSessions = computed(() => {
 })
 
 function handleNewSession() { chatStore.createSession() }
+
+// debate 会话 → 跳辩论页回看；chat 会话 → 原地选中加载
+function handleSelect(s: ChatSessionData) {
+  if (s.type === 'debate') {
+    router.push({ name: 'DebateCreate', query: { session: String(s.id) } })
+  } else {
+    chatStore.selectSession(s.id)
+  }
+}
 </script>
 
 <style scoped>
@@ -52,5 +65,7 @@ function handleNewSession() { chatStore.createSession() }
   font-size: 14px; color: var(--text-secondary); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; display: block;
 }
+.type-tag { margin-left: 6px; flex-shrink: 0; }
+.session-item { align-items: center; }
 .empty { text-align: center; padding: 40px 0; color: var(--text-tertiary); font-size: 13px; }
 </style>

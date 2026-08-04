@@ -24,6 +24,9 @@ class ChatSession(Base):
     summary: Mapped[str | None] = mapped_column(Text)  # 上下文压缩摘要
     summary_upto_msg_id: Mapped[int | None] = mapped_column(Integer)  # 摘要到哪条消息
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 会话类型：chat（普通对话）/ debate（多 agent 辩论）。debate 会话在 chat 侧栏
+    # 以"辩论"标签展示，产物（rounds/summary）落为 ChatMessage，支持刷新/重进回看。
+    type: Mapped[str] = mapped_column(String(10), default="chat", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -42,4 +45,7 @@ class ChatMessage(Base):
     stocks_detected: Mapped[list] = mapped_column(JSON, default=list)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     is_compressed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 结构化元数据：辩论场景存 {round_type, round_num, agent_id, agent_name}；
+    # 普通对话留空。前端按 meta 重组辩论 rounds 渲染。
+    meta: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
