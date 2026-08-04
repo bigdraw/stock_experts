@@ -17,7 +17,25 @@
         <n-grid :cols="2" :x-gap="16">
           <n-gi>
             <n-form-item label="分析标的">
-              <n-input v-model:value="targetCode" placeholder="股票代码，如 600519" size="large" />
+              <n-auto-complete
+                v-model:value="targetInput"
+                :options="stockOptions"
+                :loading="searching"
+                placeholder="输入代码、名称、拼音或首字母（如 600519 / 茅台 / mtfy）"
+                clearable
+                size="large"
+                @update:value="handleStockSearch"
+                @select="handleStockSelect"
+              >
+                <template #prefix>
+                  <n-icon :size="18" color="#64748b"><SearchOutline /></n-icon>
+                </template>
+              </n-auto-complete>
+              <div v-if="selectedStock" class="selected-stock">
+                已选：<n-tag size="small" type="info" round>{{ selectedStock.code }}</n-tag>
+                <span class="selected-name">{{ selectedStock.name }}</span>
+                <n-tag size="tiny" :type="selectedStock.market === 'SH' ? 'success' : 'warning'" round>{{ selectedStock.market }}</n-tag>
+              </div>
             </n-form-item>
           </n-gi>
           <n-gi>
@@ -36,8 +54,8 @@
     <!-- 数据能力提示 -->
     <n-card class="action-card" size="small">
       <n-space align="center" :size="12">
-        <n-tag type="info" size="small" round>自动取数</n-tag>
-        <span style="font-size:13px; color:var(--text-tertiary)">辩论时自动拉取价值分析数据 + 联网搜索，agent 据此论证</span>
+        <n-tag type="info" size="small" round>FactBook 共享事实基础</n-tag>
+        <span style="font-size:13px; color:var(--text-tertiary)">辩论前自动采集：6维价值分析(trend20期+分红) + 5年K线趋势 + 行业动态 + 宏观政策 + 沪深300市场状态，所有 agent 基于同一事实论证</span>
       </n-space>
     </n-card>
 
@@ -76,26 +94,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useMessage } from 'naive-ui'
-import { ChatbubblesOutline } from '@vicons/ionicons5'
-import { agentsApi, debateApi } from '../api'
-import type { Agent } from '../types'
+import { ref, h, onMounted } from 'vue'
+import { NTag, useMessage } from 'naive-ui'
+import { ChatbubblesOutline, SearchOutline } from '@vicons/ionicons5'
+import { agentsApi, debateApi, stocksApi } from '../api'
+import type { Agent, Stock } from '../types'
 import MarkdownRenderer from '../components/chat/MarkdownRenderer.vue'
 
 const message = useMessage()
 const agents = ref<Agent[]>([])
 const agentOptions = ref<{ label: string; value: number }[]>([])
 const selectedAgentIds = ref<number[]>([])
-const targetCode = ref('600519')
 const roundCount = ref(3)
 const debating = ref(false)
 const progressText = ref('')
-const summaryText = ref('')
 
 // Computed-like refs for template
 const rounds = ref<any[]>([])
 const summary = ref('')
+
+// 标的搜索（代码/名称/拼音/首字母——复用 /stocks/search 后端能力）
+const targetInput = ref('600519')
+const stockOptions = ref<any[]>([])
+const searching = ref(false)
+const selectedStock = ref<Stock | null>(null)
+let searchTimeout: ReturnType<typeof setTimeout> | null = null
 
 const AGENT_COLORS = ['#e94560', '#0f9b8e', '#f5a623', '#5856d6', '#007aff', '#34c759', '#ff9500', '#af52de']
 
@@ -103,6 +126,51 @@ function agentColor(name: string): string {
   let hash = 0
   for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
   return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length]
+}
+
+// 股票搜索：debounce 300ms，下拉展示 代码+名称+市场
+function handleStockSearch(value: string) {
+  if (searchTimeout) clearTimeout(searchTimeout)
+  // 用户手动改输入 → 清掉已选标的（避免拿旧选择对应新输入）
+  selectedStock.value = null
+  if (!value || !value.trim()) {
+    stockOptions.value = []
+    return
+  }
+  searchTimeout = setTimeout(async () => {
+    searching.value = true
+    try {
+      const res = await stocksApi.search(value.trim(), 20)
+      stockOptions.value = (res.data || []).map((stock: Stock) => ({
+        label: `${stock.code} ${stock.name}`,
+        value: stock.code,
+        stock,
+        render: () => h('div', { class: 'stock-option-item' }, [
+          h(NTag, { size: 'small', type: 'info', round: true }, { default: () => stock.code }),
+          h('span', { class: 'stock-option-name' }, stock.name),
+          h(NTag, {
+            size: 'tiny',
+            type: stock.market === 'SH' ? 'success' : 'warning',
+            round: true,
+          }, { default: () => stock.market }),
+        ]),
+      }))
+    } catch (e: any) {
+      console.error('Stock search failed:', e.response?.data || e.message)
+      stockOptions.value = []
+    } finally {
+      searching.value = false
+    }
+  }, 300)
+}
+
+// 选中候选 → 锁定该股票 code 作为辩论 target
+function handleStockSelect(code: string) {
+  const opt = stockOptions.value.find((o) => o.value === code)
+  if (opt?.stock) {
+    selectedStock.value = opt.stock
+    targetInput.value = opt.stock.code
+  }
 }
 
 onMounted(async () => {
@@ -115,16 +183,21 @@ onMounted(async () => {
 
 async function handleStart() {
   if (selectedAgentIds.value.length < 2) return
-  if (!targetCode.value.trim()) return
+  // 优先用"已选中候选"的 code；未选中时回退到输入框原文（可能是手输的合法 code）
+  const code = selectedStock.value?.code || targetInput.value.trim()
+  if (!code) {
+    message.warning('请先选择分析标的')
+    return
+  }
 
   debating.value = true
   rounds.value = []
   summary.value = ''
-  progressText.value = '正在准备数据...'
+  progressText.value = '正在准备 FactBook 数据（价值分析/K线/行业/宏观/市场状态）...'
 
   try {
     const res = await debateApi.startStream(
-      selectedAgentIds.value, 'stock', targetCode.value.trim(), roundCount.value
+      selectedAgentIds.value, 'stock', code, roundCount.value
     )
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
@@ -209,4 +282,18 @@ async function handleStart() {
   background: var(--bg-elevated) !important; border: 1px solid var(--border-medium) !important;
   border-radius: var(--radius-lg) !important;
 }
+
+/* 标的搜索下拉项 */
+:deep(.stock-option-item) {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+}
+:deep(.stock-option-name) {
+  font-weight: 600; color: var(--text-primary); flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.selected-stock {
+  display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  font-size: 13px; color: var(--text-secondary);
+}
+.selected-name { font-weight: 600; color: var(--text-primary); }
 </style>

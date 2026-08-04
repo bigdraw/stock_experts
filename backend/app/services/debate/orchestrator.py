@@ -1,9 +1,9 @@
-"""Multi-agent debate orchestrator（增强版：注入价值分析数据 + 工具清单 + 联网搜索）。
+"""Multi-agent debate orchestrator（两阶段辩论）。
 
-agent 不再"盲评"——_agent_analyze 前：
-1. 调 value_analysis.analyze(db, code) 拿 6 维数据注入 user message（复用 chat.py 管线）
-2. 注入 /agent/tools 工具清单到 system_prompt（让 agent 知道可用工具）
-3. 如果标的需要新闻/行业动态 → 调 /agent/web-search 联网搜索注入
+阶段1（纯代码，FactBook）：拉取全量数据 + 客观校验，所有 agent 共享同一份事实基础。
+阶段2（LLM agent，基于 FactBook）：投资大师分析 → 质疑 → 回应 → 总结。
+
+agent 仍可在 system_prompt 里追加工具清单，按自己风格获取关注的其他信息。
 """
 
 import asyncio
@@ -11,6 +11,7 @@ import json
 import logging
 from dataclasses import dataclass
 
+from app.services.debate.factbook import FactBook
 from app.services.llm.provider import LLMMessage, LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -89,98 +90,42 @@ class DebateOrchestrator:
         yield summary
 
     async def _prepare_context(self, target: dict) -> str:
-        """预取数据：价值分析 + 联网搜索（所有 agent 共享，不重复拉取）。"""
-        parts = []
+        """阶段1：调 FactBook.collect() 拉全量数据 + 客观校验，格式化为共享事实基础。
 
-        # 1. 价值分析数据（复用 chat.py / value_analysis 管线）
+        所有 agent 看到同一份 FactBook（含 trend20期 + dividends + 5年K线趋势 +
+        行业动态 + 宏观政策 + 沪深300 regime + 校验结果）。不截断到固定字符数，
+        让 LLM 看到全量数据；K线只注入统计摘要而非数千根原始K线。
+        """
         if target.get("type") == "stock" and self.db:
             code = target.get("code", "")
             try:
-                from app.services.data.cache import ensure_financial_reports
-                from app.services.data.value_analysis import analyze
-
-                await ensure_financial_reports(self.db, code)
+                factbook = await FactBook().collect(code, self.db)
                 await self.db.commit()
-                va = await analyze(self.db, code)
-                if "error" not in va:
-                    parts.append("<stock_data>")
-                    parts.append(json.dumps(va.get("latest", {}), ensure_ascii=False, default=str)[:1200])
-                    parts.append(f"估值: {json.dumps(va.get('valuation', {}), ensure_ascii=False, default=str)}")
-                    parts.append(f"成长: {json.dumps(va.get('growth', {}), ensure_ascii=False, default=str)}")
-                    parts.append("</stock_data>")
-                    logger.info(f"Debate: injected value_analysis data for {code}")
+                logger.info(f"Debate: FactBook collected for {code} (status={factbook.get('validation', {}).get('status')})")
+                return FactBook().format(factbook)
             except Exception as e:
-                logger.warning(f"Debate: value_analysis failed for {code}: {e}")
-
-        # 2. 联网搜索（新闻/行业动态）
-        if target.get("type") == "stock":
-            code = target.get("code", "")
-            name = target.get("name", code)
-            try:
-                search_result = await self._web_search(f"{name} 股票 最新新闻 行业动态")
-                if search_result:
-                    parts.append(f"<web_search>\n{search_result}\n</web_search>")
-                    logger.info(f"Debate: injected web search for {name}")
-            except Exception as e:
-                logger.warning(f"Debate: web search failed: {e}")
-
-        return "\n".join(parts)
-
-    async def _web_search(self, query: str) -> str:
-        """调 /agent/web-search 逻辑（tavily 优先，DuckDuckGo 备选）。"""
-        import os
-
-        import httpx
-
-        tavily_key = os.environ.get("TAVILY_API_KEY")
-        if tavily_key:
-            try:
-                async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.post(
-                        "https://api.tavily.com/search",
-                        json={"api_key": tavily_key, "query": query, "max_results": 3, "include_answer": True},
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        return data.get("answer", "") + "\n" + "\n".join(
-                            f"- {r.get('title','')}: {r.get('content','')[:150]}" for r in data.get("results", [])
-                        )
-            except Exception:
-                pass
-
-        # DuckDuckGo fallback
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    "https://api.duckduckgo.com/",
-                    params={"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    results = []
-                    if data.get("AbstractText"):
-                        results.append(data["AbstractText"][:300])
-                    for topic in (data.get("RelatedTopics") or [])[:3]:
-                        if isinstance(topic, dict) and topic.get("Text"):
-                            results.append(topic["Text"][:150])
-                    return "\n".join(results) if results else ""
-        except Exception:
-            pass
-        return ""
+                logger.warning(f"Debate: FactBook collection failed for {code}: {e}")
+                # 降级：注入最小事实
+                name = target.get("name", code)
+                return f"<data_warnings>FactBook 采集失败: {e}</data_warnings>\n<target>标的: {name}（{code}）</target>"
+        # 非 stock 标的：仅注入基本描述
+        name = target.get("name", "")
+        return f"<target>标的: {name}</target>\n<data_warnings>非个股标的，未采集 FactBook</data_warnings>"
 
     def _build_system_prompt(self, agent: dict) -> str:
-        """注入工具清单到 agent system_prompt（让 agent 知道可用工具）。"""
+        """注入工具清单到 agent system_prompt（让 agent 知道可用工具 + 已注入数据）。"""
         system = agent["system_prompt"]
-        # 工具描述（精简版，不让 system_prompt 过长）
         tool_desc = (
-            "\n\n--- 可用工具（数据已自动获取注入下方，你可以引用这些数据）---\n"
-            "value_analysis: 估值/盈利/财务安全/现金流/成长性/分红（6维）\n"
-            "web_search: 联网搜索公司新闻/行业动态（已自动搜索注入）\n"
-            "quotes_kline: 历史K线（日/周/月/季/年）\n"
-            "financials: 周期财报历史\n"
-            "quant_backtest_run: 策略回测\n"
-            "quant_risk_dashboard: 组合风险看板\n"
-            "--- 以上数据已自动获取并注入下方的 <stock_data> / <web_search> 标签中 ---"
+            "\n\n--- 共享事实基础（FactBook，已自动采集注入下方 user 消息）---\n"
+            "<data_warnings>: 数据质量告警（财报时效/K线缺口/字段缺失）——先看这个再引用数据\n"
+            "<value_analysis>: 6维估值/盈利/财务安全/现金流/成长性 + trend 20期财报序列 + dividends\n"
+            "<kline_summary>: 5年K线趋势（涨跌/年化/最大回撤/高低点/量比/周月线方向）\n"
+            "<industry>: 行业动态与竞争格局（web_search）\n"
+            "<macro>: 宏观政策/利率/CPI（web_search）\n"
+            "<market_regime>: 沪深300市场状态（bull/bear/choppy/transitional）\n"
+            "--- 以上为统一事实基础，所有 agent 看到相同数据；你可引用其中任何一节 ---\n"
+            "--- 如需补充特色数据，仍可调用：quotes_kline（历史K线）/ financials（周期财报）/"
+            "quant_backtest_run（回测）/ quant_risk_dashboard（组合风险看板）---"
         )
         return system + tool_desc
 
@@ -196,13 +141,14 @@ class DebateOrchestrator:
         user_content = f"""请基于你的投资理念，分析以下投资标的：
 
 标的：{target.get("name", "")}（{target.get("code", "")}）
-关键数据：
-{json.dumps(target.get("data", {}), ensure_ascii=False, indent=2)}
+基础信息：{json.dumps(target.get("data", {}), ensure_ascii=False, indent=2)}
+
+以下是本次辩论的共享事实基础（FactBook），所有参与者看到相同数据；请引用其中相关节做论证：
 
 {context_data}
 
-请给出详细分析（每部分至少3-5句话）：
-1. 投资价值判断（引用上方数据）
+请给出详细分析（每部分至少3-5句话，**必须引用 FactBook 中的数据**——可结合估值/财报trend/K线趋势/行业/宏观/市场状态）：
+1. 投资价值判断（引用具体数据）
 2. 核心理由（至少3条）
 3. 主要风险
 4. 建议操作"""
