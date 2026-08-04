@@ -61,39 +61,52 @@ class DebateOrchestrator:
         agents: list[dict],
         target_info: dict,
         max_rounds: int = 3,
+        *,
+        resume: dict | None = None,
     ):
-        """流式辩论生成器：yield 结构化事件 dict（不再是 DebateRound/str）。
+        """流式辩论生成器：yield 结构化事件 dict。
 
         事件类型：
-          {"type":"factbook","content": str}                          # 共享事实基础（用户也可见）
+          {"type":"factbook","content"}                                   # 共享事实基础
           {"type":"agent_start","round_num","round_type","agent_id","agent_name"}
-          {"type":"agent_token","round_num","agent_id","delta"}        # token 增量（逐字回流）
+          {"type":"agent_token","round_num","agent_id","delta"}            # token 逐字回流
           {"type":"agent_done","round_num","round_type","agent_id","agent_name","content","finish_reason"}
-          {"type":"summary_start"}
-          {"type":"summary_token","delta"}
-          {"type":"summary_done","content"}
+          {"type":"agent_failed","round_num","round_type","agent_id","agent_name","error"}  # 失败→暂停等重试
+          {"type":"summary_start"} / {"type":"summary_token","delta"} / {"type":"summary_done","content"}
+          {"type":"summary_failed","error"}                                # 总结失败→暂停
 
-        每个 agent 顺序发言、token 实时回流——用户逐字看到每个 agent 的回答，
-        不必等整轮全部答完。单个 agent 调用失败（超时/LLM 错误）替换为错误占位、
-        不中断整场辩论。
+        状态管理：每个 agent 先 agent_start（前端显示"思考中"），首 token 到达转内容流，
+        完成 agent_done；失败（重试3次仍错）发 agent_failed 后 **return 暂停**——不自动跳过，
+        等前端原地点重试（调 resume-stream 端点，从失败点继续，已完成的 agent 跳过）。
         """
-        context_data = await self._prepare_context(target_info)
-        yield {"type": "factbook", "content": context_data}
+        if resume:
+            history: list[DebateRound] = list(resume.get("history") or [])
+            completed: set = resume.get("completed") or set()
+            context_data: str = resume.get("context") or ""
+            summary_done_flag: bool = resume.get("summary_done", False)
+            if not context_data:
+                context_data = await self._prepare_context(target_info)
+        else:
+            context_data = await self._prepare_context(target_info)
+            yield {"type": "factbook", "content": context_data}
+            history, completed, summary_done_flag = [], set(), False
 
-        history: list[DebateRound] = []
         for round_num in range(max_rounds):
             round_type = "analysis" if round_num == 0 else ("challenge" if round_num % 2 == 1 else "response")
-            opinions: list[AgentOpinion] = []
+            # 确保 history 对应槽位存在（resume 时已完成轮可能已预填）
+            if len(history) <= round_num:
+                history.append(DebateRound(round_type=round_type, opinions=[]))
+            elif history[round_num].round_type != round_type:
+                history[round_num] = DebateRound(round_type=round_type, opinions=history[round_num].opinions)
             for agent in agents:
+                if (round_num + 1, agent["id"]) in completed:
+                    continue  # resume 跳过已完成
                 yield {
                     "type": "agent_start", "round_num": round_num + 1, "round_type": round_type,
                     "agent_id": agent["id"], "agent_name": agent["name"],
                 }
                 messages = self._build_agent_messages(agent, round_type, target_info, context_data, history)
                 content, finish_reason, last_err = "", None, None
-                # 重试：远端（dashscope/akshare 等）偶发 RemoteDisconnected/ReadError，
-                # 多发于建连首 chunk 前。未产出 token 时重试最多 3 次；已产出部分 token
-                # 则保留不重试（流式无法续传，重试会重复发已 yield 的 token）。
                 for attempt in range(3):
                     content, finish_reason = "", None
                     try:
@@ -105,25 +118,32 @@ class DebateOrchestrator:
                             if chunk.finish_reason:
                                 finish_reason = chunk.finish_reason
                         last_err = None
-                        break  # 成功
+                        break
                     except Exception as e:
                         last_err = e
                         logger.warning(f"Agent {agent['name']} {round_type} attempt {attempt + 1}/3 failed: {e!r}")
                         if content:
                             break  # 已有部分输出，保留不重试
-                        continue  # 无输出，重试
+                        continue
                 if last_err and not content:
-                    logger.exception(f"Agent {agent['name']} {round_type} gave up after retries")
-                    content = f"[本 agent 此轮调用失败（重试 3 次仍错）: {last_err!r}]"
+                    logger.exception(f"Agent {agent['name']} {round_type} gave up; emit agent_failed + pause")
+                    yield {
+                        "type": "agent_failed", "round_num": round_num + 1, "round_type": round_type,
+                        "agent_id": agent["id"], "agent_name": agent["name"],
+                        "error": f"{last_err!r}",
+                    }
+                    return  # 暂停，等前端重试（resume-stream 从此 agent 继续）
                 yield {
                     "type": "agent_done", "round_num": round_num + 1, "round_type": round_type,
                     "agent_id": agent["id"], "agent_name": agent["name"],
                     "content": content, "finish_reason": finish_reason,
                 }
-                opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=content))
-            history.append(DebateRound(round_type=round_type, opinions=opinions))
+                history[round_num].opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=content))
             logger.info(f"Debate round {round_num + 1} ({round_type}) completed")
 
+        # 总结（resume 时若已完成则跳过）
+        if summary_done_flag:
+            return
         yield {"type": "summary_start"}
         summary = ""
         try:
@@ -134,8 +154,9 @@ class DebateOrchestrator:
                     summary += chunk.content
                     yield {"type": "summary_token", "delta": chunk.content}
         except Exception as e:
-            logger.exception("Debate summary failed")
-            summary = f"[总结失败: {e}]"
+            logger.exception("Debate summary failed; emit summary_failed + pause")
+            yield {"type": "summary_failed", "error": f"{e!r}"}
+            return
         yield {"type": "summary_done", "content": summary}
         self._stream_history = history
         self._stream_summary = summary

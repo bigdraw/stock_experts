@@ -202,16 +202,13 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 直播辩论：在 chat 会话里流式渲染多 agent 气泡（agent_start/token/done + summary_*）。
-  // 后端 POST /debate/start-stream 即建 type=debate 会话并流式产出事件。
+  // 直播辩论：在 chat 会话里流式渲染多 agent 气泡。agent 失败发 agent_failed 后
+  // 后端暂停（不发 done），前端把该气泡标 error + 显示原地重试按钮；点重试调
+  // resumeDebate 从失败处继续（已完成的 agent 跳过）。
   async function startDebate(agentIds: number[], targetCode: string, targetName: string, rounds: number) {
     messages.value = []
     streaming.value = true
     abortController = new AbortController()
-    const agentMsgIdx = new Map<string, number>()  // "round_num:agent_id" → messages 下标
-    let summaryIdx = -1
-    let sessionId: number | null = null
-
     try {
       const token = localStorage.getItem('token')
       const res = await fetch('/api/v1/debate/start-stream', {
@@ -221,66 +218,7 @@ export const useChatStore = defineStore('chat', () => {
         signal: abortController.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const reader = res.body!.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        let idx
-        while ((idx = buffer.indexOf('\n\n')) >= 0) {
-          const block = buffer.slice(0, idx)
-          buffer = buffer.slice(idx + 2)
-          const lines = block.split('\n')
-          const ev = lines[0]?.replace('event: ', '') || ''
-          const dataStr = lines[1]?.replace('data: ', '') || '{}'
-          try {
-            const data = JSON.parse(dataStr)
-            if (ev === 'session') {
-              const sid: number = data.session_id
-              sessionId = sid
-              currentSessionId.value = sid
-              localStorage.setItem('chat_session_id', String(sid))
-              if (!sessions.value.find(s => s.id === sid)) {
-                sessions.value.unshift({
-                  id: sid, title: `辩论：${targetName}(${targetCode})`,
-                  agent_ids: agentIds, type: 'debate', pinned: false,
-                })
-              }
-            } else if (ev === 'factbook') {
-              messages.value.push({ role: 'system', content: data.content, meta: { round_type: 'factbook' } })
-            } else if (ev === 'agent_start') {
-              messages.value.push({
-                role: 'assistant', content: '', streaming: true,
-                agents_used: [data.agent_name],
-                meta: { round_type: data.round_type, round_num: data.round_num, agent_id: data.agent_id, agent_name: data.agent_name },
-              })
-              agentMsgIdx.set(`${data.round_num}:${data.agent_id}`, messages.value.length - 1)
-            } else if (ev === 'agent_token') {
-              const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
-              if (i != null) messages.value[i].content += data.delta
-            } else if (ev === 'agent_done') {
-              const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
-              if (i != null) { messages.value[i].content = data.content; messages.value[i].streaming = false }
-            } else if (ev === 'summary_start') {
-              messages.value.push({
-                role: 'assistant', content: '', streaming: true,
-                agents_used: ['总结'], meta: { round_type: 'summary' },
-              })
-              summaryIdx = messages.value.length - 1
-            } else if (ev === 'summary_token') {
-              if (summaryIdx >= 0) messages.value[summaryIdx].content += data.delta
-            } else if (ev === 'summary_done') {
-              if (summaryIdx >= 0) { messages.value[summaryIdx].content = data.content; messages.value[summaryIdx].streaming = false }
-            } else if (ev === 'error') {
-              messages.value.push({ role: 'system', content: `⚠️ ${data.message || '辩论出错'}`, meta: { round_type: 'error' } })
-            }
-          } catch (e) {
-            console.error('Debate SSE parse error', e)
-          }
-        }
-      }
+      await _streamDebate(res, { agentIds, targetName, targetCode })
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         messages.value.push({ role: 'system', content: `⚠️ 辩论失败：${e.message}`, meta: { round_type: 'error' } })
@@ -288,8 +226,129 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       streaming.value = false
       abortController = null
-      if (sessionId) await loadSessions()  // 刷新侧栏（标题/最新态）
+      await loadSessions()
     }
+  }
+
+  // 原地重试：从失败的 agent 处继续。resume 模式下 agent_start 会重置已有失败气泡。
+  async function resumeDebate() {
+    if (!currentSessionId.value) return
+    streaming.value = true
+    abortController = new AbortController()
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/v1/debate/sessions/${currentSessionId.value}/resume-stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        signal: abortController.signal,
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      await _streamDebate(res, { isResume: true })
+    } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        messages.value.push({ role: 'system', content: `⚠️ 重试失败：${e.message}`, meta: { round_type: 'error' } })
+      }
+    } finally {
+      streaming.value = false
+      abortController = null
+      await loadSessions()
+    }
+  }
+
+  // 共享 SSE 驱动：处理 start/resume 两路事件流。agent_failed/summary_failed → 暂停。
+  async function _streamDebate(res: Response, opts: { isResume?: boolean, agentIds?: number[], targetName?: string, targetCode?: string } = {}) {
+    const isResume = !!opts.isResume
+    const agentMsgIdx = new Map<string, number>()
+    let summaryIdx = -1
+    let sessionId: number | null = null
+    const reader = res.body!.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let stopped = false
+    while (!stopped) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, idx)
+        buffer = buffer.slice(idx + 2)
+        const lines = block.split('\n')
+        const ev = lines[0]?.replace('event: ', '') || ''
+        const dataStr = lines[1]?.replace('data: ', '') || '{}'
+        try {
+          const data = JSON.parse(dataStr)
+          if (ev === 'session') {
+            const sid: number = data.session_id
+            sessionId = sid
+            currentSessionId.value = sid
+            localStorage.setItem('chat_session_id', String(sid))
+            if (!isResume && !sessions.value.find(s => s.id === sid)) {
+              sessions.value.unshift({
+                id: sid, title: `辩论：${opts.targetName}(${opts.targetCode})`,
+                agent_ids: opts.agentIds || [], type: 'debate', pinned: false,
+              })
+            }
+          } else if (ev === 'factbook') {
+            messages.value.push({ role: 'system', content: data.content, meta: { round_type: 'factbook' } })
+          } else if (ev === 'agent_start') {
+            const key = `${data.round_num}:${data.agent_id}`
+            // resume：找已有失败气泡重置（content 清空、streaming 重新 true、清 error）
+            const existIdx = isResume
+              ? messages.value.findIndex(m => m.meta?.round_num === data.round_num && m.meta?.agent_id === data.agent_id && m.meta?.round_type === data.round_type)
+              : -1
+            if (existIdx >= 0) {
+              messages.value[existIdx].content = ''
+              messages.value[existIdx].streaming = true
+              messages.value[existIdx].error = false
+              agentMsgIdx.set(key, existIdx)
+            } else {
+              messages.value.push({
+                role: 'assistant', content: '', streaming: true,
+                agents_used: [data.agent_name],
+                meta: { round_type: data.round_type, round_num: data.round_num, agent_id: data.agent_id, agent_name: data.agent_name },
+              })
+              agentMsgIdx.set(key, messages.value.length - 1)
+            }
+          } else if (ev === 'agent_token') {
+            const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
+            if (i != null) messages.value[i].content += data.delta
+          } else if (ev === 'agent_done') {
+            const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
+            if (i != null) { messages.value[i].content = data.content; messages.value[i].streaming = false }
+          } else if (ev === 'agent_failed') {
+            const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
+            if (i != null) {
+              messages.value[i].streaming = false
+              messages.value[i].error = true
+              messages.value[i].meta = { ...(messages.value[i].meta || {}), error: data.error }
+            }
+            stopped = true  // 暂停，等前端重试
+          } else if (ev === 'summary_start') {
+            let si = messages.value.findIndex(m => m.meta?.round_type === 'summary')
+            if (si < 0) {
+              messages.value.push({ role: 'assistant', content: '', streaming: true, agents_used: ['总结'], meta: { round_type: 'summary' } })
+              si = messages.value.length - 1
+            } else {
+              messages.value[si].content = ''; messages.value[si].streaming = true; messages.value[si].error = false
+            }
+            summaryIdx = si
+          } else if (ev === 'summary_token') {
+            if (summaryIdx >= 0) messages.value[summaryIdx].content += data.delta
+          } else if (ev === 'summary_done') {
+            if (summaryIdx >= 0) { messages.value[summaryIdx].content = data.content; messages.value[summaryIdx].streaming = false }
+          } else if (ev === 'summary_failed') {
+            if (summaryIdx >= 0) { messages.value[summaryIdx].streaming = false; messages.value[summaryIdx].error = true }
+            stopped = true
+          } else if (ev === 'error') {
+            messages.value.push({ role: 'system', content: `⚠️ ${data.message || '辩论出错'}`, meta: { round_type: 'error' } })
+          }
+        } catch (e) {
+          console.error('Debate SSE parse error', e)
+        }
+      }
+    }
+    return sessionId
   }
 
   async function retryLastMessage(agentIds: number[] = []) {
@@ -311,6 +370,6 @@ export const useChatStore = defineStore('chat', () => {
   return {
     sessions, currentSessionId, currentSession, messages, streaming,
     loadSessions, createSession, selectSession, deleteSession, deleteSessions, renameSession,
-    sendMessage, startDebate, stopStreaming, retryLastMessage,
+    sendMessage, startDebate, resumeDebate, stopStreaming, retryLastMessage,
   }
 })

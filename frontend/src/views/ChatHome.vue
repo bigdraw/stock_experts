@@ -57,8 +57,18 @@
                   <n-tag size="tiny" round>{{ roundLabel(msg.meta.round_type) }} · 第{{ msg.meta.round_num }}轮</n-tag>
                 </div>
                 <div class="assistant-content">
-                  <MarkdownRenderer v-if="msg.content" :content="msg.content" />
-                  <span v-if="msg.streaming" class="cursor">▋</span>
+                  <!-- 思考中：agent_start 后未到首 token → 脉动提示，区分"卡死/失败" -->
+                  <div v-if="msg.streaming && !msg.content" class="thinking">
+                    <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
+                    <span class="think-text">{{ msg.meta.agent_name }} 思考中…</span>
+                  </div>
+                  <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
+                  <span v-if="msg.streaming && msg.content" class="cursor">▋</span>
+                </div>
+                <!-- 失败：原地重试按钮，成功后继续 -->
+                <div v-if="msg.error && !msg.streaming" class="retry-bar">
+                  <n-tag size="tiny" type="error" round>调用失败</n-tag>
+                  <n-button size="small" type="primary" secondary :loading="chatStore.streaming" @click="retryDebate">原地重试</n-button>
                 </div>
               </div>
             </div>
@@ -67,8 +77,16 @@
               <div class="summary-bubble">
                 <div class="summary-head">📝 辩论总结</div>
                 <div class="assistant-content">
-                  <MarkdownRenderer v-if="msg.content" :content="msg.content" />
-                  <span v-if="msg.streaming" class="cursor">▋</span>
+                  <div v-if="msg.streaming && !msg.content" class="thinking">
+                    <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
+                    <span class="think-text">总结中…</span>
+                  </div>
+                  <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
+                  <span v-if="msg.streaming && msg.content" class="cursor">▋</span>
+                </div>
+                <div v-if="msg.error && !msg.streaming" class="retry-bar">
+                  <n-tag size="tiny" type="error" round>总结失败</n-tag>
+                  <n-button size="small" type="primary" secondary :loading="chatStore.streaming" @click="retryDebate">原地重试</n-button>
                 </div>
               </div>
             </div>
@@ -241,6 +259,10 @@ async function handleRetry() {
   await chatStore.retryLastMessage(selectedAgents.value.map(a => a.id))
   await scrollToBottom()
 }
+async function retryDebate() {
+  await chatStore.resumeDebate()
+  await scrollToBottom()
+}
 async function handleSend() {
   if (!input.value.trim()) return
   const text = input.value; input.value = ''
@@ -287,7 +309,15 @@ async function scrollToBottom() {
 .assistant-content { color: var(--text-primary); font-size: 15px; line-height: 1.6; max-width: 100%; }
 .cursor { color: var(--primary); animation: blink 1s infinite; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
-.retry-bar { margin-top: 8px; }
+.retry-bar { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+
+/* 思考中：三点脉动，让用户明确区分"思考中/失败/卡死" */
+.thinking { display: flex; align-items: center; gap: 6px; color: var(--text-tertiary); font-size: 13px; padding: 2px 0; }
+.think-text { margin-left: 2px; }
+.think-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); opacity: 0.4; animation: thinkpulse 1.2s infinite ease-in-out; }
+.think-dot:nth-child(2) { animation-delay: 0.2s; }
+.think-dot:nth-child(3) { animation-delay: 0.4s; }
+@keyframes thinkpulse { 0%,80%,100%{opacity:0.3; transform:scale(0.8)} 40%{opacity:1; transform:scale(1.1)} }
 
 /* 辩论 agent 气泡：左侧色条 + agent 名 + 轮次标签；拉大内边距与下间距 */
 .debate-bubble {

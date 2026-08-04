@@ -36,7 +36,7 @@ from app.services.llm import manager as llm_mod  # noqa: E402
 from app.utils.security import hash_password  # noqa: E402
 
 
-async def _fake_run_debate_stream(self, agents, target_info, max_rounds):
+async def _fake_run_debate_stream(self, agents, target_info, max_rounds, **kwargs):
     """桩：yield 结构化事件（factbook + 2 agent token 流 + summary 流），不打 LLM。"""
     yield {"type": "factbook", "content": "<target>测试 FactBook</target>"}
     for a in agents:
@@ -51,7 +51,17 @@ async def _fake_run_debate_stream(self, agents, target_info, max_rounds):
     yield {"type": "summary_done", "content": "测试总结：多空分歧。"}
 
 
-async def _cancel_after_round1_stream(self, agents, target_info, max_rounds):
+async def _fail_first_agent_stream(self, agents, target_info, max_rounds, **kwargs):
+    """桩：factbook + 第1个 agent 失败（agent_failed）→ 暂停，不发 done。"""
+    yield {"type": "factbook", "content": "<target>fb</target>"}
+    a = agents[0]
+    yield {"type": "agent_start", "round_num": 1, "round_type": "analysis",
+           "agent_id": a["id"], "agent_name": a["name"]}
+    yield {"type": "agent_failed", "round_num": 1, "round_type": "analysis",
+           "agent_id": a["id"], "agent_name": a["name"], "error": "LLMProviderError('RemoteDisconnected')"}
+
+
+async def _cancel_after_round1_stream(self, agents, target_info, max_rounds, **kwargs):
     """桩：yield factbook + 第1个 agent 的 done 后抛 CancelledError，模拟客户端中途断连。"""
     yield {"type": "factbook", "content": "<target>fb</target>"}
     a = agents[0]
@@ -281,5 +291,118 @@ async def test_debate_cancel():
     assert await _cancel_main() == 0
 
 
+async def _resume_main() -> int:
+    """agent 失败 → start-stream 暂停（agent_failed，无 done）；resume-stream 从失败处继续成功。"""
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp.name}", future=True)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with factory() as db:
+        db.add(User(username="debate_res", email="r@r.com",
+                    password_hash=hash_password("pw"), role="user", is_active=True))
+        db.add(Agent(id=1, name="测试A", type="master", system_prompt="A", description=""))
+        db.add(Agent(id=2, name="测试B", type="master", system_prompt="B", description=""))
+        db.add(Stock(code="600519", name="贵州茅台", market="SH", is_active=True))
+        await db.commit()
+
+    async def _gdb():
+        async with factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except BaseException:
+                try:
+                    await session.rollback()
+                except BaseException:
+                    pass
+                raise
+
+    app.dependency_overrides[get_db] = _gdb
+    orig_gen = DebateOrchestrator.run_debate_stream
+    orig_get = llm_mod.llm_manager.get
+    llm_mod.llm_manager.get = lambda: type("L", (), {})()
+
+    failures: list[str] = []
+
+    def check(label, cond):
+        print(f"  {'PASS' if cond else 'FAIL'}: {label}")
+        if not cond:
+            failures.append(label)
+
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            tok = (await c.post("/api/v1/auth/login",
+                                json={"username": "debate_res", "password": "pw"})).json()["access_token"]
+            h = {"Authorization": f"Bearer {tok}"}
+
+            # 1. start-stream：第1个 agent 失败 → agent_failed + 暂停（无 done）
+            DebateOrchestrator.run_debate_stream = _fail_first_agent_stream
+            r = await c.post("/api/v1/debate/start-stream", headers=h,
+                             json={"agent_ids": [1, 2], "target_type": "stock",
+                                   "target_id": "600519", "rounds": 1})
+            events = []
+            sid = None
+            for block in r.text.split("\n\n"):
+                lines = block.strip().split("\n")
+                if len(lines) < 2:
+                    continue
+                ev = lines[0].replace("event: ", "")
+                if ev == "session":
+                    sid = __import__("json").loads(lines[1].replace("data: ", "")).get("session_id")
+                events.append(ev)
+            check("start: 200", r.status_code == 200)
+            check("start: 收到 agent_failed", "agent_failed" in events)
+            check("start: 失败后无 done（暂停）", "done" not in events)
+            check("start: 暴露 session_id", sid is not None)
+
+            # 失败的 agent 不应落 agent_done 消息
+            r = await c.get(f"/api/v1/chat/sessions/{sid}", headers=h)
+            msgs = r.json().get("messages", [])
+            check("start: 失败 agent 无 done 消息",
+                  not any(m["role"] == "assistant" for m in msgs))
+
+            # 2. resume-stream：换成功桩，从失败处继续 → agent_done + summary + done
+            DebateOrchestrator.run_debate_stream = _fake_run_debate_stream
+            r = await c.post(f"/api/v1/debate/sessions/{sid}/resume-stream", headers=h)
+            events2 = []
+            has_done = False
+            for block in r.text.split("\n\n"):
+                lines = block.strip().split("\n")
+                if len(lines) < 2:
+                    continue
+                ev = lines[0].replace("event: ", "")
+                events2.append(ev)
+                if ev == "done":
+                    has_done = True
+            check("resume: 200", r.status_code == 200)
+            check("resume: 收到 agent_done", "agent_done" in events2)
+            check("resume: 收到 summary_done", "summary_done" in events2)
+            check("resume: 完成（done）", has_done)
+
+            # resume 后 agent 消息已落库
+            r = await c.get(f"/api/v1/chat/sessions/{sid}", headers=h)
+            msgs2 = r.json().get("messages", [])
+            check("resume: agent 消息落库", any(m["role"] == "assistant" and (m.get("meta") or {}).get("round_type") == "analysis" for m in msgs2))
+            check("resume: summary 落库", any(m["role"] == "assistant" and (m.get("meta") or {}).get("round_type") == "summary" for m in msgs2))
+    finally:
+        DebateOrchestrator.run_debate_stream = orig_gen
+        llm_mod.llm_manager.get = orig_get
+        app.dependency_overrides.clear()
+        await engine.dispose()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+    print(f"\n{'ALL PASSED' if not failures else 'FAILURES: ' + str(failures)}")
+    return 0 if not failures else 1
+
+
+async def test_debate_resume():
+    assert await _resume_main() == 0
+
+
 if __name__ == "__main__":
-    sys.exit(0 if asyncio.run(_main()) == 0 and asyncio.run(_cancel_main()) == 0 else 1)
+    sys.exit(0 if asyncio.run(_main()) == 0 and asyncio.run(_cancel_main()) == 0 and asyncio.run(_resume_main()) == 0 else 1)
