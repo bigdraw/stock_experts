@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
@@ -20,6 +21,7 @@ from app.services.llm.manager import llm_manager
 from app.utils.exceptions import BadRequestException, NotFoundException
 
 router = APIRouter(prefix="/debate", tags=["debate"])
+logger = logging.getLogger(__name__)
 
 ROUND_TYPE_LABELS = {"analysis": "独立分析", "challenge": "质疑", "response": "回应"}
 
@@ -176,12 +178,14 @@ async def start_debate_stream(
             # 客户端断连（刷新/离开页面）：回滚未完成事务，正常结束流，
             # 不让 CancelledError 传到 get_db 的 commit 撞 rollback-pending 刷屏。
             # 已 commit 的轮次与会话壳持久保留。
+            logger.info(f"Debate stream cancelled by client after round {round_num}")
             try:
                 await db.rollback()
             except Exception:
                 pass
             # 不 re-raise：流优雅结束
         except Exception as e:
+            logger.exception(f"Debate stream error after round {round_num}")
             try:
                 await db.rollback()
             except Exception:

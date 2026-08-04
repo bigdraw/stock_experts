@@ -280,6 +280,7 @@ async function handleStart() {
     const reader = res.body!.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let hadError = false
 
     while (true) {
       const { done, value } = await reader.read()
@@ -307,12 +308,13 @@ async function handleStart() {
           } else if (eventType === 'done') {
             progressText.value = '辩论完成'
           } else if (eventType === 'error') {
+            hadError = true
             message.error(data.message || '辩论出错')
           }
         } catch {}
       }
     }
-    message.success('辩论完成')
+    if (!hadError) message.success('辩论完成')
   } catch (e: any) {
     message.error(e.message || '辩论失败')
   } finally {

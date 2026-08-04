@@ -113,19 +113,26 @@ class DebateOrchestrator:
         return f"<target>标的: {name}</target>\n<data_warnings>非个股标的，未采集 FactBook</data_warnings>"
 
     def _build_system_prompt(self, agent: dict) -> str:
-        """注入工具清单到 agent system_prompt（让 agent 知道可用工具 + 已注入数据）。"""
+        """追加 FactBook 说明 + 反 ReAct 幻觉约束到 agent system_prompt。
+
+        关键：不向 agent 宣称"可调用工具"——orchestrator 没有真正的 tool-calling
+        循环，宣称工具会诱导 agent 把 tavily_search(...) 等调用语法写成文本输出
+        （ReAct 幻觉），最终分析结论缺失。行业/宏观数据已由 FactBook 在代码层
+        自动采集注入，agent 直接引用即可。
+        """
         system = agent["system_prompt"]
         tool_desc = (
-            "\n\n--- 共享事实基础（FactBook，已自动采集注入下方 user 消息）---\n"
-            "<data_warnings>: 数据质量告警（财报时效/K线缺口/字段缺失）——先看这个再引用数据\n"
+            "\n\n--- 共享事实基础（FactBook，已自动采集，注入下方 user 消息）---\n"
+            "<data_warnings>: 数据质量告警（财报时效/K线缺口/字段缺失）——先看再引用\n"
             "<value_analysis>: 6维估值/盈利/财务安全/现金流/成长性 + trend 20期财报序列 + dividends\n"
             "<kline_summary>: 5年K线趋势（涨跌/年化/最大回撤/高低点/量比/周月线方向）\n"
-            "<industry>: 行业动态与竞争格局（web_search）\n"
-            "<macro>: 宏观政策/利率/CPI（web_search）\n"
+            "<industry>: 行业动态与竞争格局（已自动联网采集）\n"
+            "<macro>: 宏观政策/利率/CPI（已自动联网采集）\n"
             "<market_regime>: 沪深300市场状态（bull/bear/choppy/transitional）\n"
-            "--- 以上为统一事实基础，所有 agent 看到相同数据；你可引用其中任何一节 ---\n"
-            "--- 如需补充特色数据，仍可调用：quotes_kline（历史K线）/ financials（周期财报）/"
-            "quant_backtest_run（回测）/ quant_risk_dashboard（组合风险看板）---"
+            "--- 以上为统一事实基础，所有 agent 看到相同数据 ---\n"
+            "--- 重要：行业/宏观/新闻数据已由 FactBook 自动采集，你无需也无法调用外部工具。"
+            "直接基于已注入数据分析，禁止输出工具调用语法（如 tavily_search(...)、"
+            "web_search(...)），禁止模拟搜索/调用过程，直接给出分析结论。 ---"
         )
         return system + tool_desc
 
