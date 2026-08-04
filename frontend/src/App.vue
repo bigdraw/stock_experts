@@ -46,9 +46,12 @@ const themeOverrides: GlobalThemeOverrides = {
     borderRadiusSmall: '6px',
   },
   Button: {
-    colorPrimary: 'linear-gradient(135deg, #00d4aa 0%, #6366f1 100%)',
-    colorHoverPrimary: 'linear-gradient(135deg, #00f4c4 0%, #818cf8 100%)',
-    colorPressedPrimary: 'linear-gradient(135deg, #00b490 0%, #4f46e5 100%)',
+    // naive-ui 的 colorPrimary 等必须是纯色——其内部 changeColor 会派生
+    // hover/pressed/focus 变体，传 gradient 会抛 [seemly/rgba] Invalid color value
+    // 导致整页崩白。gradient 视觉改走 CSS background-image（见下方 .n-button--primary-type）。
+    colorPrimary: '#00d4aa',
+    colorHoverPrimary: '#00f4c4',
+    colorPressedPrimary: '#00b490',
     borderPrimary: 'none',
     borderHoverPrimary: 'none',
     borderPressedPrimary: 'none',
@@ -141,6 +144,19 @@ body {
 /* 全局发光效果 */
 .glow-primary {
   box-shadow: 0 0 20px rgba(0, 212, 170, 0.3);
+}
+
+/* 主按钮 gradient 视觉（naive-ui 颜色系统用纯色，gradient 走 CSS background-image
+   叠在 background-color 之上，避免 changeColor 处理 gradient 崩白） */
+.n-button.n-button--primary-type:not(.n-button--disabled) {
+  background-image: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%);
+}
+.n-button.n-button--primary-type:not(.n-button--disabled):hover {
+  background-image: linear-gradient(135deg, #00f4c4 0%, #818cf8 100%);
+}
+.n-button.n-button--primary-type:not(.n-button--disabled):active,
+.n-button.n-button--primary-type:not(.n-button--disabled):focus {
+  background-image: linear-gradient(135deg, #00b490 0%, #4f46e5 100%);
 }
 
 .glow-info {
