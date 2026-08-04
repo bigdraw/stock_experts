@@ -5,7 +5,7 @@
 
     <!-- 主区：纵向 flex，消息区 flex:1 滚动，输入栏同级沉底 -->
     <div class="chat-main">
-      <!-- 消息区：flex:1 + overflow:auto，输入栏永远在视口底部 -->
+      <!-- 消息区 -->
       <div class="msg-scroll" ref="msgList">
         <div class="msg-inner">
           <!-- 空状态 -->
@@ -22,23 +22,63 @@
                 <n-button size="small" secondary @click="$router.push('/stocks')">股票</n-button>
                 <n-button size="small" secondary @click="$router.push('/portfolios')">组合</n-button>
                 <n-button size="small" secondary @click="$router.push('/backtest')">回测</n-button>
-                <n-button size="small" secondary @click="$router.push('/debate')">辩论</n-button>
+                <n-button size="small" type="primary" secondary @click="showDebateModal = true">辩论</n-button>
               </div>
             </div>
           </div>
 
-          <!-- 消息列表 -->
+          <!-- 消息列表（meta-aware：辩论 agent 气泡 / 总结 / FactBook / 普通 chat） -->
           <template v-for="(msg, i) in chatStore.messages" :key="i">
+            <!-- 用户消息 -->
             <div v-if="msg.role === 'user'" class="msg-row user">
               <div class="bubble user-bubble">{{ msg.content }}</div>
             </div>
+            <!-- FactBook 输入事实基础（可折叠，让用户看到喂给 agent 的数据） -->
+            <div v-else-if="msg.meta?.round_type === 'factbook'" class="msg-row">
+              <div class="factbook-panel">
+                <div class="factbook-head" @click="toggleFactbook(i)">
+                  <span>📊 输入事实基础（FactBook，所有 agent 共享）</span>
+                  <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
+                </div>
+                <div v-if="factbookOpen[i]" class="factbook-body">
+                  <MarkdownRenderer v-if="msg.content" :content="msg.content" />
+                </div>
+              </div>
+            </div>
+            <!-- 错误提示 -->
+            <div v-else-if="msg.meta?.round_type === 'error'" class="msg-row">
+              <div class="error-bubble">{{ msg.content }}</div>
+            </div>
+            <!-- 辩论 agent 气泡（分析/质疑/回应） -->
+            <div v-else-if="msg.meta?.round_type && msg.meta.round_type !== 'summary'" class="msg-row assistant">
+              <div class="debate-bubble" :style="{ borderLeftColor: agentColor(msg.meta.agent_name || '') }">
+                <div class="debate-head">
+                  <span class="debate-agent" :style="{ color: agentColor(msg.meta.agent_name || '') }">{{ msg.meta.agent_name }}</span>
+                  <n-tag size="tiny" round>{{ roundLabel(msg.meta.round_type) }} · 第{{ msg.meta.round_num }}轮</n-tag>
+                </div>
+                <div class="assistant-content">
+                  <MarkdownRenderer v-if="msg.content" :content="msg.content" />
+                  <span v-if="msg.streaming" class="cursor">▋</span>
+                </div>
+              </div>
+            </div>
+            <!-- 总结气泡 -->
+            <div v-else-if="msg.meta?.round_type === 'summary'" class="msg-row assistant">
+              <div class="summary-bubble">
+                <div class="summary-head">📝 辩论总结</div>
+                <div class="assistant-content">
+                  <MarkdownRenderer v-if="msg.content" :content="msg.content" />
+                  <span v-if="msg.streaming" class="cursor">▋</span>
+                </div>
+              </div>
+            </div>
+            <!-- 普通 chat assistant 气泡 -->
             <div v-else class="msg-row assistant">
               <div v-if="msg.agents_used?.length" class="msg-agents">{{ msg.agents_used.map(a => '@'+a).join(' ') }}</div>
               <div class="assistant-content">
                 <MarkdownRenderer v-if="msg.content" :content="msg.content" />
                 <span v-if="msg.streaming" class="cursor">▋</span>
               </div>
-              <!-- 重试按钮：LLM 失败时显示 -->
               <div v-if="msg.error && !msg.streaming" class="retry-bar">
                 <n-button size="small" type="primary" secondary @click="handleRetry">重试</n-button>
               </div>
@@ -47,11 +87,14 @@
         </div>
       </div>
 
-      <!-- 输入栏：flex 同级，不 absolute，不随消息滚 -->
+      <!-- 输入栏 -->
       <div class="input-area">
         <div class="input-container">
-          <div v-if="selectedAgents.length" class="agent-tags">
-            <n-tag v-for="a in selectedAgents" :key="a.id" closable size="small" @close="removeAgent(a.id)" type="info">{{ '@'+a.name }}</n-tag>
+          <div class="input-toolbar">
+            <n-button size="small" tertiary @click="showDebateModal = true">⚖️ 开始辩论</n-button>
+            <div v-if="selectedAgents.length" class="agent-tags">
+              <n-tag v-for="a in selectedAgents" :key="a.id" closable size="small" @close="removeAgent(a.id)" type="info">{{ '@'+a.name }}</n-tag>
+            </div>
           </div>
           <div class="input-row">
             <n-input
@@ -69,25 +112,117 @@
         </div>
       </div>
     </div>
+
+    <!-- 辩论发起弹窗：选 agent + 标的 + 轮数 → 直播进当前 chat 会话 -->
+    <n-modal v-model:show="showDebateModal" preset="card" title="开始多 Agent 辩论" style="max-width: 560px;">
+      <n-form>
+        <n-form-item label="参与 Agent（≥2）">
+          <n-select v-model:value="debateAgentIds" multiple filterable :options="agentOptions"
+            placeholder="选择投资大师" />
+        </n-form-item>
+        <n-form-item label="分析标的">
+          <n-auto-complete
+            v-model:value="debateTargetInput"
+            :options="debateStockOptions"
+            :loading="debateSearching"
+            placeholder="输入代码/名称/拼音/首字母（如 600519 / 茅台 / mtfy）"
+            clearable
+            @update:value="onDebateSearch"
+            @select="onDebateSelect"
+          />
+          <div v-if="debateSelectedStock" class="debate-selected">
+            已选：<n-tag size="small" type="info" round>{{ debateSelectedStock.code }}</n-tag>
+            <span class="debate-selected-name">{{ debateSelectedStock.name }}</span>
+          </div>
+        </n-form-item>
+        <n-form-item label="辩论轮数">
+          <n-input-number v-model:value="debateRounds" :min="1" :max="5" />
+        </n-form-item>
+        <div class="debate-actions">
+          <n-button @click="showDebateModal = false">取消</n-button>
+          <n-button type="primary" :disabled="debateAgentIds.length < 2 || !debateCode" :loading="chatStore.streaming" @click="startDebate">开始辩论</n-button>
+        </div>
+      </n-form>
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { NButton, NTag, NInput } from 'naive-ui'
+import { NButton, NTag, NInput, NModal, NForm, NFormItem, NSelect, NAutoComplete, NInputNumber } from 'naive-ui'
 import { useChatStore } from '../stores/chat'
 import SessionSidebar from '../components/chat/SessionSidebar.vue'
 import MarkdownRenderer from '../components/chat/MarkdownRenderer.vue'
 import apiClient from '../api/client'
+import { stocksApi } from '../api'
+import type { Agent, Stock } from '../types'
 
 const chatStore = useChatStore()
 const route = useRoute()
 const input = ref('')
 const msgList = ref<HTMLElement | null>(null)
-const agentList = ref<any[]>([])
-const selectedAgents = ref<any[]>([])
+const agentList = ref<Agent[]>([])
+const selectedAgents = ref<Agent[]>([])
 const suggestions = ['分析 600519 的估值和盈利能力', '@巴菲特 茅台值不值得买', '分析我的投资组合风险']
+
+const agentOptions = computed(() => agentList.value.map(a => ({ label: a.name, value: a.id })))
+
+const AGENT_COLORS = ['#e94560', '#0f9b8e', '#f5a623', '#5856d6', '#007aff', '#34c759', '#ff9500', '#af52de']
+function agentColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
+  return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length]
+}
+const ROUND_LABELS: Record<string, string> = { analysis: '独立分析', challenge: '质疑', response: '回应', summary: '总结', factbook: '事实基础' }
+function roundLabel(t: string) { return ROUND_LABELS[t] || t }
+
+// FactBook 折叠态
+const factbookOpen = ref<Record<number, boolean>>({})
+function toggleFactbook(i: number) { factbookOpen.value[i] = !factbookOpen.value[i] }
+
+// 辩论弹窗
+const showDebateModal = ref(false)
+const debateAgentIds = ref<number[]>([])
+const debateTargetInput = ref('')
+const debateStockOptions = ref<any[]>([])
+const debateSearching = ref(false)
+const debateSelectedStock = ref<Stock | null>(null)
+const debateRounds = ref(3)
+let debateSearchTimeout: ReturnType<typeof setTimeout> | null = null
+let debateSelecting = false
+
+const debateCode = computed(() => debateSelectedStock.value?.code || '')
+
+function onDebateSearch(value: string) {
+  if (debateSearchTimeout) clearTimeout(debateSearchTimeout)
+  // 选中触发的同步 update（值=code），跳过：保留已选、不重搜
+  if (debateSelecting) { debateSelecting = false; return }
+  debateSelectedStock.value = null
+  if (!value || !value.trim()) { debateStockOptions.value = []; return }
+  debateSearchTimeout = setTimeout(async () => {
+    debateSearching.value = true
+    try {
+      const res = await stocksApi.search(value.trim(), 20)
+      debateStockOptions.value = (res.data || []).map((s: Stock) => ({ label: `${s.code} ${s.name}`, value: s.code, stock: s }))
+    } catch { debateStockOptions.value = [] }
+    finally { debateSearching.value = false }
+  }, 300)
+}
+function onDebateSelect(code: string) {
+  debateSelecting = true
+  const opt = debateStockOptions.value.find(o => o.value === code)
+  if (opt?.stock) { debateSelectedStock.value = opt.stock; debateTargetInput.value = opt.stock.code }
+}
+
+async function startDebate() {
+  const code = debateSelectedStock.value?.code
+  const name = debateSelectedStock.value?.name || code || ''
+  if (debateAgentIds.value.length < 2 || !code) return
+  showDebateModal.value = false
+  await chatStore.startDebate(debateAgentIds.value, code, name, debateRounds.value)
+  await scrollToBottom()
+}
 
 onMounted(async () => {
   await chatStore.loadSessions()
@@ -95,6 +230,8 @@ onMounted(async () => {
   if (sid) await chatStore.selectSession(parseInt(sid as string))
   else if (chatStore.currentSessionId) await chatStore.selectSession(chatStore.currentSessionId)
   try { agentList.value = (await apiClient.get('/chat/agents')).data } catch {}
+  // /debate 重定向带 ?debate=1 → 自动开辩论弹窗
+  if (route.query.debate === '1') showDebateModal.value = true
 })
 
 function removeAgent(id: number) { selectedAgents.value = selectedAgents.value.filter(a => a.id !== id) }
@@ -119,111 +256,83 @@ async function scrollToBottom() {
 </script>
 
 <style scoped>
-/* 整体：横向 flex，侧边栏 + 主区 */
-.chat-shell {
-  display: flex;
-  height: 100%;
-  width: 100%;
-  background: var(--bg-base);
-}
+.chat-shell { display: flex; height: 100%; width: 100%; background: var(--bg-base); }
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 24px 16px 16vh; }
 
-/* 主区：纵向 flex（消息区 flex:1 + 输入栏同级） */
-.chat-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  height: 100%;
-}
-
-/* 消息滚动区：flex:1 + minHeight:0（关键！让 flex 子项可收缩） */
-.msg-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-/* 消息内容：居中限宽 960px（LobeChat 风格） */
-.msg-inner {
-  max-width: var(--chat-max-width);
-  margin: 0 auto;
-  padding: 24px 16px 16vh;  /* 底部留 16vh 让最后一条消息不被输入栏遮挡 */
-}
-
-/* ===== 空状态（LobeChat AgentHome 风格） ===== */
-.welcome {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-.welcome-spacer { flex: 1; }  /* 顶部弹簧把内容压到下半部 */
-.welcome-content {
-  display: flex; flex-direction: column; align-items: center;
-  padding-bottom: max(4vh, 16px); gap: 12px;
-}
+.welcome { display: flex; flex-direction: column; min-height: 100%; }
+.welcome-spacer { flex: 1; }
+.welcome-content { display: flex; flex-direction: column; align-items: center; padding-bottom: max(4vh, 16px); gap: 12px; }
 .welcome-icon { font-size: 40px; }
 .welcome-title { font-size: 22px; font-weight: 600; }
 .welcome-desc { font-size: 14px; color: var(--text-tertiary); text-align: center; }
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 600px; margin-top: 8px; }
 .suggestion {
-  padding: 8px 16px; border-radius: 48px;  /* 药丸形 */
-  background: var(--bg-surface); border: 1px solid var(--border-medium);
-  color: var(--text-secondary); font-size: 13px; cursor: pointer;
-  transition: opacity var(--transition);
+  padding: 8px 16px; border-radius: 48px; background: var(--bg-surface); border: 1px solid var(--border-medium);
+  color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: opacity var(--transition);
 }
 .suggestion:hover { opacity: 0.85; border-color: var(--primary); color: var(--primary); }
 .quick-nav { display: flex; gap: 8px; margin-top: 8px; }
 
-/* ===== 消息行（LobeChat 风格） ===== */
 .msg-row { padding: 4px 0; margin-bottom: 4px; }
 .msg-row.user { display: flex; justify-content: flex-end; }
-
-/* 用户气泡：有背景，圆角，LobeChat 风格 */
 .user-bubble {
-  background: var(--bubble-user);  /* rgba(255,255,255,0.08) */
-  color: var(--text-primary);
-  padding: 8px 12px;
-  border-radius: var(--radius-md);  /* 12px */
-  max-width: 75%;
-  word-wrap: break-word;
-  white-space: pre-wrap;
-  font-size: 15px;
-  line-height: 1.6;
+  background: var(--bubble-user); color: var(--text-primary); padding: 8px 12px;
+  border-radius: var(--radius-md); max-width: 75%; word-wrap: break-word; white-space: pre-wrap;
+  font-size: 15px; line-height: 1.6;
 }
-
-/* assistant：无气泡背景，直接显示在聊天区（LobeChat 风格） */
 .msg-agents { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
-.assistant-content {
-  color: var(--text-primary);
-  font-size: 15px;
-  line-height: 1.6;
-  max-width: 100%;
-}
+.assistant-content { color: var(--text-primary); font-size: 15px; line-height: 1.6; max-width: 100%; }
 .cursor { color: var(--primary); animation: blink 1s infinite; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
-
 .retry-bar { margin-top: 8px; }
 
-/* ===== 输入栏：flex 同级，不 absolute ===== */
-.input-area {
-  flex-shrink: 0;  /* 不被压缩 */
-  padding: 8px 16px 16px;
-  background: var(--bg-base);
-  border-top: 1px solid var(--border-subtle);
+/* 辩论 agent 气泡：左侧色条 + agent 名 + 轮次标签 */
+.debate-bubble {
+  border-left: 3px solid var(--primary); background: var(--bg-surface);
+  border-radius: var(--radius-md); padding: 10px 14px; margin-bottom: 8px;
 }
-.input-container {
-  max-width: var(--chat-max-width);  /* 与消息列同宽居中 */
-  margin: 0 auto;
+.debate-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.debate-agent { font-weight: 700; font-size: 14px; }
+
+/* 总结气泡：高亮框 */
+.summary-bubble {
+  border: 1px solid var(--border-medium); background: var(--bg-elevated);
+  border-radius: var(--radius-md); padding: 12px 16px; margin-top: 12px;
 }
-.agent-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.summary-head { font-weight: 700; font-size: 14px; margin-bottom: 8px; color: var(--primary); }
+
+/* FactBook 折叠面板 */
+.factbook-panel {
+  border: 1px dashed var(--border-medium); border-radius: var(--radius-md);
+  background: var(--bg-surface); margin: 8px 0; overflow: hidden;
+}
+.factbook-head {
+  display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+  padding: 10px 14px; font-size: 13px; color: var(--text-secondary); font-weight: 600;
+}
+.factbook-head:hover { background: var(--bg-elevated); }
+.factbook-toggle { font-size: 12px; color: var(--primary); }
+.factbook-body { padding: 0 14px 12px; max-height: 420px; overflow-y: auto; border-top: 1px solid var(--border-subtle); }
+
+.error-bubble {
+  background: rgba(231, 76, 60, 0.12); border: 1px solid rgba(231, 76, 60, 0.3);
+  color: #e74c3c; padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
+}
+
+.input-area { flex-shrink: 0; padding: 8px 16px 16px; background: var(--bg-base); border-top: 1px solid var(--border-subtle); }
+.input-container { max-width: var(--chat-max-width); margin: 0 auto; }
+.input-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.agent-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .input-row { display: flex; align-items: flex-end; gap: 8px; }
 .chat-input {
-  background: var(--bg-surface) !important;
-  border-radius: var(--radius-md) !important;
-  padding: 10px 16px !important;
-  border: 1px solid var(--border-medium) !important;
-  flex: 1;
+  background: var(--bg-surface) !important; border-radius: var(--radius-md) !important;
+  padding: 10px 16px !important; border: 1px solid var(--border-medium) !important; flex: 1;
 }
 .chat-input :deep(.n-input__textarea-el) { color: var(--text-primary) !important; }
+
+.debate-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.debate-selected { margin-top: 6px; font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+.debate-selected-name { font-weight: 600; color: var(--text-primary); }
 </style>

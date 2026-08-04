@@ -6,7 +6,6 @@
 agent 仍可在 system_prompt 里追加工具清单，按自己风格获取关注的其他信息。
 """
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass
@@ -63,31 +62,70 @@ class DebateOrchestrator:
         target_info: dict,
         max_rounds: int = 3,
     ):
-        """Async generator: yields DebateRound after each round, then summary string.
+        """流式辩论生成器：yield 结构化事件 dict（不再是 DebateRound/str）。
 
-        Usage:
-            async for item in orchestrator.run_debate_stream(...):
-                if isinstance(item, DebateRound): ...
-                elif isinstance(item, str): # summary
+        事件类型：
+          {"type":"factbook","content": str}                          # 共享事实基础（用户也可见）
+          {"type":"agent_start","round_num","round_type","agent_id","agent_name"}
+          {"type":"agent_token","round_num","agent_id","delta"}        # token 增量（逐字回流）
+          {"type":"agent_done","round_num","round_type","agent_id","agent_name","content","finish_reason"}
+          {"type":"summary_start"}
+          {"type":"summary_token","delta"}
+          {"type":"summary_done","content"}
+
+        每个 agent 顺序发言、token 实时回流——用户逐字看到每个 agent 的回答，
+        不必等整轮全部答完。单个 agent 调用失败（超时/LLM 错误）替换为错误占位、
+        不中断整场辩论。
         """
         context_data = await self._prepare_context(target_info)
+        yield {"type": "factbook", "content": context_data}
+
         history: list[DebateRound] = []
-
         for round_num in range(max_rounds):
-            if round_num == 0:
-                debate_round = await self._round_analysis(agents, target_info, context_data)
-            elif round_num % 2 == 1:
-                debate_round = await self._round_challenge(agents, history)
-            else:
-                debate_round = await self._round_response(agents, history)
-            history.append(debate_round)
-            logger.info(f"Debate round {round_num + 1} ({debate_round.round_type}) completed")
-            yield debate_round
+            round_type = "analysis" if round_num == 0 else ("challenge" if round_num % 2 == 1 else "response")
+            opinions: list[AgentOpinion] = []
+            for agent in agents:
+                yield {
+                    "type": "agent_start", "round_num": round_num + 1, "round_type": round_type,
+                    "agent_id": agent["id"], "agent_name": agent["name"],
+                }
+                messages = self._build_agent_messages(agent, round_type, target_info, context_data, history)
+                content, finish_reason = "", None
+                try:
+                    async for chunk in self.llm.chat_stream(messages, max_tokens=8192):
+                        if chunk.content:
+                            content += chunk.content
+                            yield {"type": "agent_token", "round_num": round_num + 1,
+                                   "agent_id": agent["id"], "delta": chunk.content}
+                        if chunk.finish_reason:
+                            finish_reason = chunk.finish_reason
+                except Exception as e:
+                    logger.exception(f"Agent {agent['name']} {round_type} failed")
+                    content = f"[本 agent 此轮调用失败: {e}]"
+                yield {
+                    "type": "agent_done", "round_num": round_num + 1, "round_type": round_type,
+                    "agent_id": agent["id"], "agent_name": agent["name"],
+                    "content": content, "finish_reason": finish_reason,
+                }
+                opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=content))
+            history.append(DebateRound(round_type=round_type, opinions=opinions))
+            logger.info(f"Debate round {round_num + 1} ({round_type}) completed")
 
-        summary = await self._summarize(agents, target_info, history)
+        yield {"type": "summary_start"}
+        summary = ""
+        try:
+            async for chunk in self.llm.chat_stream(
+                self._summarize_messages(agents, target_info, history), max_tokens=8192
+            ):
+                if chunk.content:
+                    summary += chunk.content
+                    yield {"type": "summary_token", "delta": chunk.content}
+        except Exception as e:
+            logger.exception("Debate summary failed")
+            summary = f"[总结失败: {e}]"
+        yield {"type": "summary_done", "content": summary}
         self._stream_history = history
         self._stream_summary = summary
-        yield summary
 
     async def _prepare_context(self, target: dict) -> str:
         """阶段1：调 FactBook.collect() 拉全量数据 + 客观校验，格式化为共享事实基础。
@@ -136,16 +174,16 @@ class DebateOrchestrator:
         )
         return system + tool_desc
 
-    async def _round_analysis(self, agents: list[dict], target: dict, context_data: str = "") -> DebateRound:
-        """Round 1: independent analysis (parallel) with data injection."""
-        tasks = [self._agent_analyze(a, target, context_data) for a in agents]
-        opinions = await asyncio.gather(*tasks)
-        return DebateRound(round_type="analysis", opinions=list(opinions))
+    def _build_agent_messages(
+        self, agent: dict, round_type: str, target: dict, context_data: str, history: list[DebateRound],
+    ) -> list[LLMMessage]:
+        """按轮次类型构造单个 agent 的 LLM 消息（分析/质疑/回应）。
 
-    async def _agent_analyze(self, agent: dict, target: dict, context_data: str = "") -> AgentOpinion:
-        """分析标的——注入价值分析数据 + 工具清单。"""
+        合并原 _agent_analyze / _round_challenge / _round_response 的消息构造逻辑。
+        """
         system = self._build_system_prompt(agent)
-        user_content = f"""请基于你的投资理念，分析以下投资标的：
+        if round_type == "analysis":
+            user_content = f"""请基于你的投资理念，分析以下投资标的：
 
 标的：{target.get("name", "")}（{target.get("code", "")}）
 基础信息：{json.dumps(target.get("data", {}), ensure_ascii=False, indent=2)}
@@ -159,62 +197,27 @@ class DebateOrchestrator:
 2. 核心理由（至少3条）
 3. 主要风险
 4. 建议操作"""
-
-        response = await self.llm.chat([
-            LLMMessage(role="system", content=system),
-            LLMMessage(role="user", content=user_content),
-        ], max_tokens=8192)
-        logger.info(f"Agent {agent['name']}: finish_reason={response.finish_reason}, content_len={len(response.content)}")
-        return AgentOpinion(
-            agent_id=agent["id"], agent_name=agent["name"], content=response.content
-        )
-
-    async def _round_challenge(self, agents: list[dict], history: list[DebateRound]) -> DebateRound:
-        """Challenge round: each agent critiques others' views."""
-        last_round = history[-1]
-        opinions = []
-        for agent in agents:
+        elif round_type == "challenge":
+            last_round = history[-1]
             others = [op for op in last_round.opinions if op.agent_id != agent["id"]]
             others_text = "\n\n".join([f"【{op.agent_name}】: {op.content}" for op in others])
-            system = self._build_system_prompt(agent)
-            response = await self.llm.chat([
-                LLMMessage(role="system", content=system),
-                LLMMessage(
-                    role="user",
-                    content=f"以下是其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。引用数据支撑你的反驳。",
-                ),
-            ], max_tokens=8192)
-            opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=response.content))
-        return DebateRound(round_type="challenge", opinions=opinions)
-
-    async def _round_response(self, agents: list[dict], history: list[DebateRound]) -> DebateRound:
-        """Response round: each agent responds to challenges."""
-        challenge_round = history[-1]
-        opinions = []
-        for agent in agents:
+            user_content = f"以下是其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。引用数据支撑你的反驳。"
+        else:  # response
+            challenge_round = history[-1]
             challenges = [op for op in challenge_round.opinions if op.agent_id != agent["id"]]
             text = "\n\n".join([f"【{op.agent_name}的质疑】: {op.content}" for op in challenges])
-            system = self._build_system_prompt(agent)
-            response = await self.llm.chat([
-                LLMMessage(role="system", content=system),
-                LLMMessage(
-                    role="user",
-                    content=f"其他投资者对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。用数据论证。",
-                ),
-            ], max_tokens=8192)
-            opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=response.content))
-        return DebateRound(round_type="response", opinions=opinions)
+            user_content = f"其他投资者对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。用数据论证。"
+        return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user_content)]
 
-    async def _summarize(self, agents: list[dict], target: dict, history: list[DebateRound]) -> str:
-        """Neutral agent summarizes the debate."""
+    def _summarize_messages(self, agents: list[dict], target: dict, history: list[DebateRound]) -> list[LLMMessage]:
+        """构造总结 agent 的 LLM 消息。"""
         all_content = []
         for r in history:
             round_text = f"\n=== {r.round_type} ===\n"
             for op in r.opinions:
                 round_text += f"\n【{op.agent_name}】:\n{op.content}\n"
             all_content.append(round_text)
-
-        response = await self.llm.chat([
+        return [
             LLMMessage(
                 role="system",
                 content="""你是一位客观中立的投资分析总结专家。请综合辩论内容输出分析报告：
@@ -230,5 +233,4 @@ class DebateOrchestrator:
                 role="user",
                 content=f"标的：{target.get('name', '')}\n\n辩论内容：\n{''.join(all_content)}",
             ),
-        ], max_tokens=8192)
-        return response.content
+        ]

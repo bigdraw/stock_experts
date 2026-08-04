@@ -19,10 +19,13 @@ class OpenAICompatibleProvider(LLMProvider):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        # 分层超时：连接/池快速失败（10s），读超时给到 300s——LLM 慢生成（如 qwen
+        # ~28 tok/s，辩论 challenge/response 单次可达 1m45s+）不能卡在 120s 默认值
+        # 触发 ReadTimeout 中断整轮辩论。流式（chat_stream）因 token 持续回流不触发读超时。
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=120.0,
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=60.0, pool=10.0),
         )
 
     async def chat(

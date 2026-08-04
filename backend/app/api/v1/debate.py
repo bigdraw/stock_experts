@@ -16,7 +16,7 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.stock import Stock
 from app.models.user import User
 from app.schemas import DebateStartRequest
-from app.services.debate.orchestrator import DebateOrchestrator, DebateRound
+from app.services.debate.orchestrator import DebateOrchestrator
 from app.services.llm.manager import llm_manager
 from app.utils.exceptions import BadRequestException, NotFoundException
 
@@ -139,45 +139,49 @@ async def start_debate_stream(
         try:
             # 首事件：暴露 session_id（前端据此更新 URL / 关联会话）
             yield f"event: session\ndata: {json.dumps({'session_id': session_id}, ensure_ascii=False)}\n\n"
-            async for item in orchestrator.run_debate_stream(agents, target_info, req.rounds):
-                if isinstance(item, DebateRound):
-                    round_num += 1
-                    data = {
-                        "round_type": item.round_type,
-                        "round_label": ROUND_TYPE_LABELS.get(item.round_type, item.round_type),
-                        "round_num": round_num,
-                        "opinions": [
-                            {"agent_id": op.agent_id, "agent_name": op.agent_name, "content": op.content}
-                            for op in item.opinions
-                        ],
-                    }
-                    # 落库：每个 opinion 一条 assistant 消息（meta 带 round 结构）
-                    for op in item.opinions:
-                        db.add(ChatMessage(
-                            session_id=session_id, role="assistant", content=op.content,
-                            agents_used=[op.agent_name],
-                            meta={"round_type": item.round_type, "round_num": round_num,
-                                  "agent_id": op.agent_id, "agent_name": op.agent_name},
-                        ))
-                    # 每轮 commit（非 flush）——客户端断连时已完成轮次仍持久
-                    await db.commit()
-                    yield f"event: round\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-                elif isinstance(item, str):
-                    # summary 落库
+            async for ev in orchestrator.run_debate_stream(agents, target_info, req.rounds):
+                t = ev.get("type")
+                if t == "factbook":
+                    # FactBook 落 system 消息（meta 标记），用户回看也可见输入数据
                     db.add(ChatMessage(
-                        session_id=session_id, role="assistant", content=item,
+                        session_id=session_id, role="system", content=ev["content"],
+                        meta={"round_type": "factbook"},
+                    ))
+                    await db.commit()
+                    yield f"event: factbook\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
+                elif t == "agent_start":
+                    yield f"event: agent_start\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                elif t == "agent_token":
+                    yield f"event: agent_token\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                elif t == "agent_done":
+                    round_num = ev["round_num"]
+                    # 每个 agent 一条 assistant 消息（meta 带 round 结构）
+                    db.add(ChatMessage(
+                        session_id=session_id, role="assistant", content=ev["content"],
+                        agents_used=[ev["agent_name"]],
+                        meta={"round_type": ev["round_type"], "round_num": ev["round_num"],
+                              "agent_id": ev["agent_id"], "agent_name": ev["agent_name"]},
+                    ))
+                    await db.commit()
+                    yield f"event: agent_done\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+                elif t == "summary_start":
+                    yield "event: summary_start\ndata: {}\n\n"
+                elif t == "summary_token":
+                    yield f"event: summary_token\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"
+                elif t == "summary_done":
+                    db.add(ChatMessage(
+                        session_id=session_id, role="assistant", content=ev["content"],
                         agents_used=["总结"],
                         meta={"round_type": "summary", "round_num": round_num + 1},
                     ))
+                    session.last_message_at = datetime.now()
                     await db.commit()
-                    yield f"event: summary\ndata: {json.dumps({'summary': item}, ensure_ascii=False)}\n\n"
+                    yield f"event: summary_done\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
             yield "event: done\ndata: {}\n\n"
-            session.last_message_at = datetime.now()
-            await db.commit()
         except asyncio.CancelledError:
             # 客户端断连（刷新/离开页面）：回滚未完成事务，正常结束流，
             # 不让 CancelledError 传到 get_db 的 commit 撞 rollback-pending 刷屏。
-            # 已 commit 的轮次与会话壳持久保留。
+            # 已 commit 的 agent_done/factbook 与会话壳持久保留。
             logger.info(f"Debate stream cancelled by client after round {round_num}")
             try:
                 await db.rollback()

@@ -24,7 +24,8 @@ const router = createRouter({
         { path: 'filters', name: 'FilterLibrary', component: () => import('../views/FilterLibrary.vue') },
         { path: 'backtest', name: 'BacktestCreate', component: () => import('../views/BacktestCreate.vue') },
         { path: 'backtest/results/:id', name: 'BacktestResult', component: () => import('../views/BacktestResult.vue') },
-        { path: 'debate', name: 'DebateCreate', component: () => import('../views/DebateCreate.vue') },
+        // 辩论已集成进 chat（ChatHome 内多 agent 气泡 + 直播流式）；/debate 重定向到 chat 并自动开辩论弹窗
+        { path: 'debate', redirect: { name: 'ChatHome', query: { debate: '1' } } },
         { path: 'books', name: 'BookManager', component: () => import('../views/BookManager.vue') },
         { path: 'alerts', name: 'AlertManager', component: () => import('../views/AlertManager.vue') },
         { path: 'settings', name: 'Settings', component: () => import('../views/Settings.vue') },

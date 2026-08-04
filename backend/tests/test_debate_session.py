@@ -31,33 +31,36 @@ from app.main import app  # noqa: E402
 from app.models.agent import Agent  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.models.user import User  # noqa: E402
-from app.services.debate.orchestrator import (  # noqa: E402
-    AgentOpinion,
-    DebateOrchestrator,
-    DebateRound,
-)
+from app.services.debate.orchestrator import DebateOrchestrator  # noqa: E402
 from app.services.llm import manager as llm_mod  # noqa: E402
 from app.utils.security import hash_password  # noqa: E402
 
 
 async def _fake_run_debate_stream(self, agents, target_info, max_rounds):
-    """桩：直接 yield 一个分析轮 + 一段总结，不打 LLM/FactBook。"""
-    yield DebateRound(
-        round_type="analysis",
-        opinions=[
-            AgentOpinion(agent_id=agents[0]["id"], agent_name=agents[0]["name"], content="测试观点A"),
-            AgentOpinion(agent_id=agents[1]["id"], agent_name=agents[1]["name"], content="测试观点B"),
-        ],
-    )
-    yield "测试总结：多空分歧。"
+    """桩：yield 结构化事件（factbook + 2 agent token 流 + summary 流），不打 LLM。"""
+    yield {"type": "factbook", "content": "<target>测试 FactBook</target>"}
+    for a in agents:
+        yield {"type": "agent_start", "round_num": 1, "round_type": "analysis",
+               "agent_id": a["id"], "agent_name": a["name"]}
+        yield {"type": "agent_token", "round_num": 1, "agent_id": a["id"], "delta": f"观点{a['name']}"}
+        yield {"type": "agent_done", "round_num": 1, "round_type": "analysis",
+               "agent_id": a["id"], "agent_name": a["name"],
+               "content": f"观点{a['name']}", "finish_reason": "stop"}
+    yield {"type": "summary_start"}
+    yield {"type": "summary_token", "delta": "测试总结"}
+    yield {"type": "summary_done", "content": "测试总结：多空分歧。"}
 
 
 async def _cancel_after_round1_stream(self, agents, target_info, max_rounds):
-    """桩：yield 第1轮后抛 CancelledError，模拟客户端中途断连。"""
-    yield DebateRound(
-        round_type="analysis",
-        opinions=[AgentOpinion(agent_id=agents[0]["id"], agent_name=agents[0]["name"], content="第1轮观点")],
-    )
+    """桩：yield factbook + 第1个 agent 的 done 后抛 CancelledError，模拟客户端中途断连。"""
+    yield {"type": "factbook", "content": "<target>fb</target>"}
+    a = agents[0]
+    yield {"type": "agent_start", "round_num": 1, "round_type": "analysis",
+           "agent_id": a["id"], "agent_name": a["name"]}
+    yield {"type": "agent_token", "round_num": 1, "agent_id": a["id"], "delta": "第1轮观点"}
+    yield {"type": "agent_done", "round_num": 1, "round_type": "analysis",
+           "agent_id": a["id"], "agent_name": a["name"],
+           "content": "第1轮观点", "finish_reason": "stop"}
     raise asyncio.CancelledError()
 
 
@@ -113,8 +116,9 @@ async def _main() -> int:
 
             # 解析 SSE 事件
             session_id = None
-            rounds = []
-            summary = None
+            agent_dones = []
+            summary_done = None
+            has_factbook = False
             for block in r.text.split("\n\n"):
                 lines = block.strip().split("\n")
                 if len(lines) < 2:
@@ -128,15 +132,18 @@ async def _main() -> int:
                     continue
                 if ev == "session":
                     session_id = data.get("session_id")
-                elif ev == "round":
-                    rounds.append(data)
-                elif ev == "summary":
-                    summary = data.get("summary")
+                elif ev == "factbook":
+                    has_factbook = bool(data.get("content"))
+                elif ev == "agent_done":
+                    agent_dones.append(data)
+                elif ev == "summary_done":
+                    summary_done = data.get("content")
 
             check("session 事件暴露 session_id", session_id is not None)
-            check("至少 1 轮 round", len(rounds) >= 1)
-            check("round 含 opinions", bool(rounds[0].get("opinions")))
-            check("summary 事件", summary is not None)
+            check("factbook 事件下发", has_factbook)
+            check("2 条 agent_done", len(agent_dones) == 2)
+            check("agent_done 带 content", all(d.get("content") for d in agent_dones))
+            check("summary_done 事件", summary_done is not None)
 
             # GET /chat/sessions/{id} 回看
             r = await c.get(f"/api/v1/chat/sessions/{session_id}", headers=h)
@@ -145,6 +152,8 @@ async def _main() -> int:
             check("session type=debate", sess.get("type") == "debate")
             msgs = sess.get("messages", [])
             check("含 user 消息", any(m["role"] == "user" for m in msgs))
+            check("含 factbook system 消息",
+                  any(m["role"] == "system" and (m.get("meta") or {}).get("round_type") == "factbook" for m in msgs))
             assistant = [m for m in msgs if m["role"] == "assistant"]
             check("含 2 条 opinion 消息", sum(1 for m in assistant if (m.get("meta") or {}).get("round_type") == "analysis") == 2)
             check("含 1 条 summary 消息", sum(1 for m in assistant if (m.get("meta") or {}).get("round_type") == "summary") == 1)
@@ -226,7 +235,7 @@ async def _cancel_main() -> int:
             check("cancel: start-stream 不抛（200）", r.status_code == 200)
 
             session_id = None
-            round_count = 0
+            agent_done_count = 0
             for block in r.text.split("\n\n"):
                 lines = block.strip().split("\n")
                 if len(lines) < 2:
@@ -235,18 +244,20 @@ async def _cancel_main() -> int:
                 if ev == "session":
                     import json as _j
                     session_id = _j.loads(lines[1].replace("data: ", "")).get("session_id")
-                elif ev == "round":
-                    round_count += 1
+                elif ev == "agent_done":
+                    agent_done_count += 1
             check("cancel: 收到 session 事件", session_id is not None)
-            check("cancel: 第1轮已下发", round_count >= 1)
+            check("cancel: 第1个 agent_done 已下发", agent_done_count >= 1)
 
-            # 已 commit 的会话壳 + 第1轮 opinion 应持久保留
+            # 已 commit 的会话壳 + factbook + 第1个 agent_done opinion 应持久保留
             r = await c.get(f"/api/v1/chat/sessions/{session_id}", headers=h)
             sess = r.json()
             check("cancel: 会话仍存在", r.status_code == 200 and sess.get("type") == "debate")
             msgs = sess.get("messages", [])
             check("cancel: user 消息保留", any(m["role"] == "user" for m in msgs))
-            check("cancel: 第1轮 opinion 保留",
+            check("cancel: factbook 保留",
+                  any(m["role"] == "system" and (m.get("meta") or {}).get("round_type") == "factbook" for m in msgs))
+            check("cancel: 第1个 agent opinion 保留",
                   any(m["role"] == "assistant" and (m.get("meta") or {}).get("round_num") == 1 for m in msgs))
     finally:
         DebateOrchestrator.run_debate_stream = orig_gen

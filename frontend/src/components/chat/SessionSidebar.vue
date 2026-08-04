@@ -1,16 +1,24 @@
 <template>
   <div class="session-sidebar">
     <div class="sidebar-top">
-      <n-button block type="primary" size="small" @click="handleNewSession">+ 新对话</n-button>
+      <n-button v-if="!manageMode" block type="primary" size="small" @click="handleNewSession">+ 新对话</n-button>
+      <n-space v-else :size="6" class="manage-bar">
+        <n-button size="small" type="error" :disabled="!checked.size" @click="batchDelete">删除选中({{ checked.size }})</n-button>
+        <n-button size="small" quaternary @click="exitManage">取消</n-button>
+      </n-space>
     </div>
-    <n-input v-model:value="searchText" placeholder="搜索…" size="small" clearable class="search" />
+    <div class="search-row">
+      <n-input v-model:value="searchText" placeholder="搜索…" size="small" clearable class="search" />
+      <n-button v-if="!manageMode" size="tiny" quaternary class="manage-btn" @click="enterManage">管理</n-button>
+    </div>
     <div class="session-list">
       <div
         v-for="s in filteredSessions"
         :key="s.id"
-        :class="['session-item', { active: s.id === chatStore.currentSessionId }]"
-        @click="handleSelect(s)"
+        :class="['session-item', { active: !manageMode && s.id === chatStore.currentSessionId, manage: manageMode }]"
+        @click="onItemClick(s)"
       >
+        <n-checkbox v-if="manageMode" :checked="checked.has(s.id)" @update:checked="(v) => toggleCheck(s.id, v)" class="session-check" />
         <span class="session-title">{{ s.title }}</span>
         <n-tag v-if="s.type === 'debate'" size="tiny" type="warning" round class="type-tag">辩论</n-tag>
       </div>
@@ -20,15 +28,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { NButton, NInput, NTag } from 'naive-ui'
+import { ref, reactive, computed } from 'vue'
+import { NButton, NInput, NTag, NSpace, NCheckbox, useMessage } from 'naive-ui'
 import { useChatStore } from '../../stores/chat'
 import type { ChatSessionData } from '../../stores/chat'
 
 const chatStore = useChatStore()
-const router = useRouter()
+const message = useMessage()
 const searchText = ref('')
+const manageMode = ref(false)
+// 用 reactive Set 维持勾选态（collection reactivity）
+const checked = reactive(new Set<number>())
 
 const filteredSessions = computed(() => {
   if (!searchText.value) return chatStore.sessions
@@ -37,13 +47,33 @@ const filteredSessions = computed(() => {
 
 function handleNewSession() { chatStore.createSession() }
 
-// debate 会话 → 跳辩论页回看；chat 会话 → 原地选中加载
-function handleSelect(s: ChatSessionData) {
-  if (s.type === 'debate') {
-    router.push({ name: 'DebateCreate', query: { session: String(s.id) } })
-  } else {
-    chatStore.selectSession(s.id)
+function onItemClick(s: ChatSessionData) {
+  if (manageMode.value) {
+    toggleCheck(s.id, !checked.has(s.id))
+    return
   }
+  // debate 与 chat 会话都在 ChatHome 内联渲染（多 agent 气泡），不再跳 /debate 回看页
+  chatStore.selectSession(s.id)
+}
+
+function enterManage() {
+  manageMode.value = true
+  checked.clear()
+}
+function exitManage() {
+  manageMode.value = false
+  checked.clear()
+}
+function toggleCheck(id: number, v: boolean) {
+  if (v) checked.add(id); else checked.delete(id)
+}
+async function batchDelete() {
+  if (!checked.size) return
+  const ids = [...checked]
+  await chatStore.deleteSessions(ids)
+  message.success(`已删除 ${ids.length} 个会话`)
+  checked.clear()
+  if (chatStore.sessions.length === 0) manageMode.value = false
 }
 </script>
 
@@ -53,19 +83,24 @@ function handleSelect(s: ChatSessionData) {
   background: var(--bg-elevated); border-right: 1px solid var(--border-subtle);
 }
 .sidebar-top { padding: 12px; }
-.search { margin: 0 12px 8px; width: calc(100% - 24px); }
+.manage-bar { width: 100%; }
+.search-row { display: flex; align-items: center; gap: 4px; padding: 0 12px 8px; }
+.search { flex: 1; }
+.manage-btn { flex-shrink: 0; }
 .session-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
 .session-item {
   padding: 8px 12px; border-radius: var(--radius-sm); cursor: pointer;
   transition: background var(--transition); margin-bottom: 2px;
+  display: flex; align-items: center; gap: 6px;
 }
 .session-item:hover { background: var(--bg-surface); }
 .session-item.active { background: var(--bg-surface); }
+.session-item.manage:hover { background: var(--bg-surface); }
+.session-check { flex-shrink: 0; }
 .session-title {
   font-size: 14px; color: var(--text-secondary); overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; display: block;
+  text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
 }
-.type-tag { margin-left: 6px; flex-shrink: 0; }
-.session-item { align-items: center; }
+.type-tag { flex-shrink: 0; }
 .empty { text-align: center; padding: 40px 0; color: var(--text-tertiary); font-size: 13px; }
 </style>
