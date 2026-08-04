@@ -10,6 +10,7 @@ export interface ChatMessageData {
   stocks_detected?: string[]
   created_at?: string
   streaming?: boolean
+  error?: boolean
 }
 
 export interface ChatSessionData {
@@ -169,11 +170,23 @@ export const useChatStore = defineStore('chat', () => {
       } else {
         assistantMsg.content += `\n\n⚠️ ${e.message}`
         assistantMsg.streaming = false
+        assistantMsg.error = true
       }
     } finally {
       streaming.value = false
       abortController = null
     }
+  }
+
+  async function retryLastMessage(agentIds: number[] = []) {
+    // Find last user message, remove the failed assistant reply, resend
+    const lastUserIdx = [...messages.value].reverse().findIndex(m => m.role === 'user')
+    if (lastUserIdx < 0) return
+    const lastUser = messages.value[messages.value.length - 1 - lastUserIdx]
+    // Remove everything after the last user message (failed assistant reply)
+    messages.value = messages.value.slice(0, messages.value.length - lastUserIdx)
+    // Resend
+    await sendMessage(lastUser.content, agentIds)
   }
 
   function stopStreaming() {
@@ -184,6 +197,6 @@ export const useChatStore = defineStore('chat', () => {
   return {
     sessions, currentSessionId, currentSession, messages, streaming,
     loadSessions, createSession, selectSession, deleteSession, renameSession,
-    sendMessage, stopStreaming,
+    sendMessage, stopStreaming, retryLastMessage,
   }
 })

@@ -38,6 +38,10 @@
                 <MarkdownRenderer v-if="msg.content" :content="msg.content" />
                 <span v-if="msg.streaming" class="cursor">▋</span>
               </div>
+              <!-- 重试按钮：LLM 失败时显示 -->
+              <div v-if="msg.error && !msg.streaming" class="retry-bar">
+                <n-button size="small" type="primary" secondary @click="handleRetry">重试</n-button>
+              </div>
             </div>
           </template>
         </div>
@@ -95,6 +99,11 @@ onMounted(async () => {
 
 function removeAgent(id: number) { selectedAgents.value = selectedAgents.value.filter(a => a.id !== id) }
 function quickFill(text: string) { input.value = text }
+
+async function handleRetry() {
+  await chatStore.retryLastMessage(selectedAgents.value.map(a => a.id))
+  await scrollToBottom()
+}
 async function handleSend() {
   if (!input.value.trim()) return
   const text = input.value; input.value = ''
@@ -193,6 +202,8 @@ async function scrollToBottom() {
 }
 .cursor { color: var(--primary); animation: blink 1s infinite; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+
+.retry-bar { margin-top: 8px; }
 
 /* ===== 输入栏：flex 同级，不 absolute ===== */
 .input-area {
