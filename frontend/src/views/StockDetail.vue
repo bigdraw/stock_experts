@@ -446,7 +446,6 @@ function fmtStat(v: number | null | undefined): string {
   return (v * 100).toFixed(1) + '%'
 }
 
-const latestQuote = computed(() => quotes.value.length > 0 ? quotes.value[quotes.value.length - 1] : null)
 const latestFinancial = computed(() => {
   // Pick the most recent non-'Latest' (actual quarterly/annual) report by date.
   // Previously used .find() which returned the first array element regardless of
@@ -602,7 +601,7 @@ const bandOption = computed(() => {
   }
   if (anchor <= 0) return {}
 
-  const series = q.map(bar => [bar.date, bar.close / anchor])
+  const series: [string, number][] = q.map(bar => [bar.date, (bar.close ?? 0) / anchor])
   const vals = series.map(p => p[1]).filter(v => v > 0).sort((a, b) => a - b)
   if (vals.length < 30) return {}
   const pct = (p: number) => vals[Math.floor(p * vals.length)] || vals[vals.length - 1]
@@ -810,12 +809,6 @@ const dividendColumns = [
   { title: '转增', key: 'convert_ratio', width: 80, render: (r: any) => fmtNum(r.convert_ratio) },
   { title: '除权日', key: 'ex_date', width: 110 },
 ]
-
-function calculateAmplitude(quote: DailyQuote): string {
-  if (!quote.high || !quote.low || !quote.open) return '-'
-  const amplitude = ((quote.high - quote.low) / quote.open) * 100
-  return amplitude.toFixed(2) + '%'
-}
 
 async function loadData(stockCode: string) {
   stock.value = null

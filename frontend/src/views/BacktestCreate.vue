@@ -53,7 +53,7 @@
       <n-collapse>
         <n-collapse-item v-for="(strats, cat) in categories" :key="cat" :title="cat" :name="cat">
           <n-space vertical :size="8">
-            <div v-for="s in strats" :key="s.type" class="template-item" @click="useTemplate(s.type, s.name)">
+            <div v-for="s in strats" :key="s.type" class="template-item" @click="useTemplate(s.name)">
               <div class="template-head">
                 <b>{{ s.name }}</b>
                 <n-space :size="4">
@@ -143,25 +143,25 @@
         <n-gi>
           <div class="stat-box stat-box-success">
             <div class="stat-label">总收益率</div>
-            <div class="stat-value">{{ (result.total_return * 100).toFixed(2) }}%</div>
+            <div class="stat-value">{{ ((result.total_return ?? 0) * 100).toFixed(2) }}%</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="stat-box stat-box-error">
             <div class="stat-label">最大回撤</div>
-            <div class="stat-value">{{ (result.max_drawdown * 100).toFixed(2) }}%</div>
+            <div class="stat-value">{{ ((result.max_drawdown ?? 0) * 100).toFixed(2) }}%</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="stat-box stat-box-info">
             <div class="stat-label">夏普比率</div>
-            <div class="stat-value">{{ result.sharpe_ratio }}</div>
+            <div class="stat-value">{{ result.sharpe_ratio ?? '-' }}</div>
           </div>
         </n-gi>
         <n-gi>
           <div class="stat-box stat-box-warning">
             <div class="stat-label">胜率</div>
-            <div class="stat-value">{{ (result.win_rate * 100).toFixed(2) }}%</div>
+            <div class="stat-value">{{ ((result.win_rate ?? 0) * 100).toFixed(2) }}%</div>
           </div>
         </n-gi>
       </n-grid>
@@ -216,8 +216,7 @@ backtestApi.getCategories().then(res => {
   categories.value = res.data.categories
 }).catch(() => {})
 
-function useTemplate(type: string, name: string) {
-  name.value = name
+function useTemplate(name: string) {
   nlDesc.value = name
 }
 

@@ -20,11 +20,10 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { NButton, NInput, useDialog } from 'naive-ui'
+import { NButton, NInput } from 'naive-ui'
 import { useChatStore } from '../../stores/chat'
 
 const chatStore = useChatStore()
-const dialog = useDialog()
 const searchText = ref('')
 
 const filteredSessions = computed(() => {

@@ -110,7 +110,7 @@
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { NButton, NTag, NSpace, useMessage } from 'naive-ui'
+import { NButton, NTag, useMessage } from 'naive-ui'
 import { SearchOutline, AddOutline, EyeOutline, AddCircleOutline } from '@vicons/ionicons5'
 import { stocksApi, portfoliosApi } from '../api'
 import type { Stock, Portfolio, PortfolioDetail } from '../types'
@@ -380,7 +380,7 @@ function handleSearch(value: string) {
 }
 
 // 选中搜索结果时清空搜索框
-function handleSearchSelect(value: string) {
+function handleSearchSelect() {
   search.value = ''
   searchOptions.value = []
 }

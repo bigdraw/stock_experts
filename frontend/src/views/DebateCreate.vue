@@ -131,20 +131,26 @@ function agentColor(name: string): string {
 // 股票搜索：debounce 300ms，下拉展示 代码+名称+市场
 function handleStockSearch(value: string) {
   if (searchTimeout) clearTimeout(searchTimeout)
-  // 用户手动改输入 → 清掉已选标的（避免拿旧选择对应新输入）
-  selectedStock.value = null
+  // 选中后 naive-ui AutoComplete 会用 option.label 同步触发一次 update:value；
+  // 当该值等于已选 code 时属"选中自带更新"，保留已选、不重搜（避免清空选择）
+  if (selectedStock.value && value === selectedStock.value.code) return
   if (!value || !value.trim()) {
     stockOptions.value = []
     return
   }
+  // 用户键入新内容（与已选 code 不同）→ 清掉旧选择，重新搜索
+  selectedStock.value = null
   searchTimeout = setTimeout(async () => {
     searching.value = true
     try {
       const res = await stocksApi.search(value.trim(), 20)
       stockOptions.value = (res.data || []).map((stock: Stock) => ({
-        label: `${stock.code} ${stock.name}`,
+        // label 用于"选中后填入输入框的值"——设为 code，确保输入框得到正确代码
+        // （naive-ui AutoComplete 默认 clearAfterSelect=false 会把 label 填进输入框）
+        label: stock.code,
         value: stock.code,
         stock,
+        // dropdown 展示走自定义 render（代码+名称+市场），不受 label 影响
         render: () => h('div', { class: 'stock-option-item' }, [
           h(NTag, { size: 'small', type: 'info', round: true }, { default: () => stock.code }),
           h('span', { class: 'stock-option-name' }, stock.name),
