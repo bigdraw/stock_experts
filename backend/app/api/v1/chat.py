@@ -255,12 +255,12 @@ async def chat_stream(
                     f"【{m['role']}】: {m['content'][:600]}" for m in messages[-8:] if m["role"] in ("user", "assistant")
                 )
 
-                # 1. 数据获取 agent（LLM + tavily function-calling ReAct）：按用户问题主动检索+消化成数据摘要
+                # 1. 数据获取 agent（LLM + tavily function-calling ReAct）：复用辩论的 FACT_AGENT_SYSTEM（不评价只给数据）
+                from app.services.debate.factbook import FACT_AGENT_SYSTEM
                 yield "event: factbook_start\ndata: {}\n\n"
-                fact_system = (
-                    "你是一位客观中立的**数据获取 agent**——不持投资观点，不做买卖判断。"
-                    "根据用户问题，调用 tavily_search 获取必要的背景信息（公司/行业/宏观/分红/财报/价格等），"
-                    "然后整理成结构化数据摘要供投资大师引用。只列数据与事实，不评价。"
+                fact_system = FACT_AGENT_SYSTEM + (
+                    "\n\n**额外能力**：你可以根据用户问题调用 tavily_search 获取必要的信息（公司/行业/宏观/分红/财报等），"
+                    "然后按上述格式整理检索到的数据。检索结果与已有数据合并，缺失项标注。"
                 )
                 fact_messages = [
                     LLMMessage(role="system", content=fact_system),

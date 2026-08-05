@@ -10,7 +10,7 @@ import json
 import logging
 from dataclasses import dataclass
 
-from app.services.debate.factbook import FactBook
+from app.services.debate.factbook import FACT_AGENT_SYSTEM, FactBook
 from app.services.llm.provider import LLMMessage, LLMProvider
 
 logger = logging.getLogger(__name__)
@@ -236,37 +236,8 @@ class DebateOrchestrator:
         yield {"type": "factbook_done", "content": digest}
 
     def _fact_agent_messages(self, raw: dict, target: dict) -> list[LLMMessage]:
-        """事实 agent 的 LLM 消息：把原始数据**整理成数据点清单**（不评价、不精简数字）。
-
-        关键约束：输出**原始数据点**（数字/日期/序列），不要"解读""评价""特征"类判断。
-        禁止使用"稳健/优秀/深度价值/造血能力/强劲/偏贵/优秀/差"等评价性形容词。
-        只做"指标: 数值"的中性罗列，保留全部关键数字（含 trend 序列），不抽象掉。
-        """
-        system = (
-            "你是一位**数据整理 agent**——只整理原始数据为可读的数据点清单，"
-            "**不做任何评价、解读、判断**。你的输出是后续投资大师辩论的**事实依据**，"
-            "他们自己会判断；你只负责把数据原样、完整、分类罗列出来。\n\n"
-            "**绝对禁止**：\n"
-            "- 评价性形容词：稳健/优秀/深度价值/造血能力/强劲/偏贵/良好/差/健康 等。\n"
-            "- 解读句：如\"盈利能力优秀\"\"现金流稳健\"\"具备深度价值特征\"——全部删去。\n"
-            "- 投资建议、买卖判断。\n\n"
-            "**只允许**：\"指标: 数值\"形式的中性陈述 + 原始数字。例如：\n"
-            "  - ROE: 30.1%（2025）、28.5%（2024）、-19.1%（2021）\n"
-            "  - PE: 25.3 / PB: 8.1 / FCF yield: 6.2%\n"
-            "  - 近5年涨跌: +80.2% / 年化: +12.5% / 最大回撤: -25.4%\n\n"
-            "输出格式（markdown，每类**罗列全部关键数字**，含 trend 各期值；不要精简掉数字）：\n"
-            "## 标的（名称/代码/市场）\n## 估值（PE/PB/PS/PCF/FCF yield/Graham number，逐个数值）\n"
-            "## 盈利能力（ROE/ROIC/ROA/毛利率/净利率，含近 5-20 期 trend 数值序列）\n"
-            "## 财务安全（负债率/流动比/现金比/利息保障，逐期数值）\n"
-            "## 现金流（OCF/FCF/盈利质量/资本开支占OCF，逐期数值）\n"
-            "## 成长性（营收/净利/净资产 3y/5y CAGR 数值）\n"
-            "## 分红（股息率/派息率/连续年数/分红增速，数值）\n"
-            "## 技术面（近1/3/6/12月涨跌、5年年化、最大回撤、5年高低点、量比、周月线方向，数值）\n"
-            "## 行业（行业增速/竞争格局关键词，引用原文事实）\n## 宏观（CPI/PPI/利率/货币政策，原文事实）\n"
-            "## 市场状态（沪深300 regime + confidence + 波动率代理，数值）\n"
-            "## 数据缺失（哪些指标没取到/财报过期天数，如实标注）\n\n"
-            "再次：只列数字与中性事实，零评价。"
-        )
+        """事实 agent 的 LLM 消息：复用共享 FACT_AGENT_SYSTEM 提示词（不评价、只给数据）。"""
+        system = FACT_AGENT_SYSTEM
         user = f"标的：{target.get('name','')}（{target.get('code','')}）\n\n原始数据（JSON，含全量 trend 序列与 dividends）：\n{json.dumps(raw, ensure_ascii=False, default=str)}"
         return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)]
 
