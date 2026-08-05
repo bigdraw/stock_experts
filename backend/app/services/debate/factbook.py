@@ -316,7 +316,11 @@ class FactBook:
 
     async def _collect_industry(self, stock_name: str, industry_fallback: str | None = None) -> str:
         """web_search 搜行业动态（竞争格局/行业增速）。搜索为空时用公司行业字段兜底。"""
-        res = await self._web_search(f"{stock_name} 行业分析 竞争格局 行业增速 2026")
+        # 加 industry 字段约束搜索——避免公司名歧义导致搜到不相关行业（如维远股份→碳化硅）
+        query = f"{stock_name} 行业分析 竞争格局 行业增速 2026"
+        if industry_fallback:
+            query = f"{industry_fallback} 行业 {stock_name} 竞争格局 行业增速 2026"
+        res = await self._web_search(query)
         if res:
             return res
         if industry_fallback:

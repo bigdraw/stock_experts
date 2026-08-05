@@ -89,8 +89,17 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         # 所得税率近似（从利润表利润总额+净利润推）
         tax_rate = _TAX_RATE
         nopat = op_profit * (1 - tax_rate) if op_profit is not None else None
-        invested = (total_assets - current_liab) if (total_assets and current_liab) else None
-        roic = nopat / invested if (nopat is not None and invested and invested != 0) else None
+        # ROIC 投入资本 = 股东权益 + 非流动负债（= 总资产 - 流动负债 - 货币资金中超出经营需要的部分）
+        # 简化：equity + (total_liab - current_liab)；如果 total_liab 缺失则退回 total_assets - current_liab
+        if total_assets and current_liab:
+            non_current_liab = s.get("total_liab")
+            if non_current_liab is not None and non_current_liab >= current_liab:
+                invested = s.get("equity", 0) + (non_current_liab - current_liab) if s.get("equity") else (total_assets - current_liab)
+            else:
+                invested = total_assets - current_liab
+        else:
+            invested = None
+        roic = nopat / invested if (nopat is not None and invested and invested > 0) else None
         roa = net_profit / total_assets if (net_profit and total_assets) else None
         current_ratio = current_assets / current_liab if (current_assets and current_liab) else None
         cash_ratio = s.get("cash") / current_liab if (s.get("cash") and current_liab) else None

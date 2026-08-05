@@ -668,9 +668,24 @@ class AkShareProvider(DataProvider):
 
             # 以利润表报告日为基准（最全）
             dates = sorted(i["报告日"].unique().tolist())
+            # 现金流重复检测：同一 OFC 值在连续两期完全相同→数据源 bug，第二期置 None
+            prev_ocf = prev_capex = None
             out = []
             for rd in dates:
                 irow, brow, crow = i[i["报告日"] == rd].iloc[0], _row(b, rd), _row(c, rd)
+                ocf = _parse_cn_number(crow.get("经营活动产生的现金流量净额"))
+                capex = _parse_cn_number(
+                    crow.get("购建固定资产、无形资产和其他长期资产所支付的现金")
+                    or crow.get("购建固定资产、无形资产和其他长期资产支付的现金")
+                )
+                # 检测现金流重复（星徽股份 bug：2023Q1 与 2022Q1 OFC/FCF/capex 完全相同）
+                if ocf is not None and prev_ocf is not None and ocf == prev_ocf:
+                    logger.warning(f"Duplicate OCF detected for {code} at {rd} (same as prev period), setting to None")
+                    ocf = None
+                if capex is not None and prev_capex is not None and capex == prev_capex:
+                    logger.warning(f"Duplicate capex detected for {code} at {rd}, setting to None")
+                    capex = None
+                prev_ocf, prev_capex = ocf, capex
                 out.append({
                     "report_date": str(rd),
                     "total_assets": _parse_cn_number(brow.get("资产总计")),
@@ -690,10 +705,8 @@ class AkShareProvider(DataProvider):
                         irow.get("归属于母公司所有者的净利润") or irow.get("净利润")
                     ),
                     "interest_exp": _parse_cn_number(irow.get("利息费用") or irow.get("财务费用")),
-                    "ocf": _parse_cn_number(crow.get("经营活动产生的现金流量净额")),
-                    "capex": _parse_cn_number(
-                        crow.get("购建固定资产、无形资产和其他长期资产所支付的现金")
-                    ),
+                    "ocf": ocf,
+                    "capex": capex,
                     "div_paid": _parse_cn_number(
                         crow.get("分配股利、利润或偿付利息所支付的现金")
                     ),
@@ -714,7 +727,7 @@ class AkShareProvider(DataProvider):
     async def get_dividends(self, code: str) -> list[dict]:
         """取分红历史（派息比例等）。code 为 '600519' 形式。
 
-        主源 stock_dividend_cninfo；空时备选 stock_history_dividend_detail。
+        三源递进：cninfo → stock_history_dividend_detail → stock_history_dividend。
         """
         async with self._semaphore:
             try:
@@ -723,26 +736,46 @@ class AkShareProvider(DataProvider):
                 logger.error(f"Failed to fetch dividends(cninfo) for {code}: {e}")
                 df = None
             if df is None or len(df) == 0:
-                # 备选源：stock_history_dividend_detail（部分公司 cninfo 没有但这里有）
+                # 备选源1：stock_history_dividend_detail
                 try:
                     df = await asyncio.to_thread(self._fetch_dividends_detail_sync, code)
                 except Exception as e:
                     logger.warning(f"Failed to fetch dividends(detail) for {code}: {e}")
+                    df = None
+                if df is not None and len(df) > 0:
+                    out = []
+                    for _, row in df.iterrows():
+                        payout = _parse_cn_number(row.get("每10股派息(税前)")) or _parse_cn_number(row.get("每股派息额"))
+                        per_share = round(payout / 10, 4) if payout and "每10股" in str(row.index) else (round(payout, 4) if payout else None)
+                        if per_share is None and payout:
+                            per_share = round(payout / 10, 4)
+                        out.append({
+                            "announce_date": str(row.get("公告日", "")),
+                            "dividend_per_share": per_share,
+                            "stock_div_ratio": None,
+                            "convert_ratio": None,
+                            "ex_date": str(row.get("除权除息日", "")),
+                        })
+                    if out:
+                        return out
+            if df is None or len(df) == 0:
+                # 备选源2：stock_history_dividend（汇总形式，列名不同）
+                try:
+                    df2 = await asyncio.to_thread(self._fetch_dividends_summary_sync, code)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch dividends(summary) for {code}: {e}")
                     return []
-                if df is None or len(df) == 0:
+                if df2 is None or len(df2) == 0:
                     return []
-                # detail 源列名不同：每10股派息/除权除息日
                 out = []
-                for _, row in df.iterrows():
-                    payout = _parse_cn_number(row.get("每10股派息(税前)")) or _parse_cn_number(row.get("每股派息额"))
-                    per_share = round(payout / 10, 4) if payout and "每10股" in str(row.index) else (round(payout, 4) if payout else None)
-                    if per_share is None and payout:
-                        per_share = round(payout / 10, 4)  # 默认按每10股处理
+                for _, row in df2.iterrows():
+                    payout = _parse_cn_number(row.get("分红金额")) or _parse_cn_number(row.get("每股派息"))
+                    per_share = round(payout / 10, 4) if payout else None
                     out.append({
-                        "announce_date": str(row.get("公告日", "")),
+                        "announce_date": str(row.get("公告日期", "")),
                         "dividend_per_share": per_share,
-                        "stock_div_ratio": None,
-                        "convert_ratio": None,
+                        "stock_div_ratio": _parse_cn_number(row.get("送股")),
+                        "convert_ratio": _parse_cn_number(row.get("转增")),
                         "ex_date": str(row.get("除权除息日", "")),
                     })
                 return out
@@ -774,6 +807,15 @@ class AkShareProvider(DataProvider):
         try:
             prefix = "sh" if code[:1] in ("6", "9") else "sz"
             return ak.stock_history_dividend_detail(symbol=f"{prefix}{code}")
+        finally:
+            _restore_proxy(original_proxy)
+
+    def _fetch_dividends_summary_sync(self, code: str):
+        """第三备选分红源：stock_history_dividend（汇总形式，兜底）。"""
+        original_proxy = _bypass_proxy()
+        try:
+            prefix = "sh" if code[:1] in ("6", "9") else "sz"
+            return ak.stock_history_dividend(symbol=f"{prefix}{code}")
         finally:
             _restore_proxy(original_proxy)
 
