@@ -38,9 +38,9 @@
               <div class="factbook-panel">
                 <div class="factbook-head" @click="toggleFactbook(i)">
                   <span>📊 输入事实基础（事实 agent 消化，所有 agent 共享）{{ msg.streaming ? '· 消化中…' : '' }}</span>
-                  <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
+                  <span class="factbook-toggle">{{ isFactbookOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
                 </div>
-                <div v-if="factbookOpen[i]" class="factbook-body">
+                <div v-if="isFactbookOpen(i)" class="factbook-body">
                   <ThinkingDots v-if="msg.streaming && !msg.content" text="事实 agent 正在消化原始数据…" />
                   <template v-else>
                     <MarkdownRenderer v-if="msg.content" :content="msg.content" />
@@ -62,9 +62,9 @@
               <div class="factbook-panel">
                 <div class="factbook-head" @click="toggleFactbook(i)">
                   <span>✅ 数据检验报告{{ msg.streaming ? ' · 检验中…' : '' }}</span>
-                  <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
+                  <span class="factbook-toggle">{{ isFactbookOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
                 </div>
-                <div v-if="factbookOpen[i]" class="factbook-body">
+                <div v-if="isFactbookOpen(i)" class="factbook-body">
                   <ReasoningPanel v-if="reasoningText(msg)" :reasoning="reasoningText(msg)" :streaming="msg.streaming" :has-content="!!msg.content" />
                   <ThinkingDots v-if="msg.streaming && !msg.content && !reasoningText(msg)" text="数据检验中…" />
                   <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
@@ -77,9 +77,9 @@
               <div class="factbook-panel">
                 <div class="factbook-head" @click="toggleFactbook(i)">
                   <span>🔍 检索结果{{ msg.streaming ? ' · 检索中…' : '' }}</span>
-                  <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
+                  <span class="factbook-toggle">{{ isFactbookOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
                 </div>
-                <div v-if="factbookOpen[i]" class="factbook-body">
+                <div v-if="isFactbookOpen(i)" class="factbook-body">
                   <MarkdownRenderer v-if="msg.content" :content="msg.content" />
                 </div>
               </div>
@@ -304,7 +304,8 @@ function roundLabel(t: string) { return ROUND_LABELS[t] || t }
 
 // FactBook 折叠态
 const factbookOpen = ref<Record<number, boolean>>({})
-function toggleFactbook(i: number) { factbookOpen.value[i] = !factbookOpen.value[i] }
+function toggleFactbook(i: number) { factbookOpen.value[i] = !(factbookOpen.value[i] ?? true) }
+function isFactbookOpen(i: number): boolean { return factbookOpen.value[i] ?? true }
 
 // reasoningText helper（ReasoningPanel 组件管理自己的折叠态，这里只提取 reasoning 文本）
 function reasoningText(msg: any): string { return msg.reasoning || msg.meta?.reasoning || '' }
