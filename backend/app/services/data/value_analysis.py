@@ -170,9 +170,19 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
     if snap:
         market_cap = (snap.mktcap or 0) * 10000 if snap.mktcap else None  # 万元→元
         price = snap.price
-        valuation["pe"] = snap.per
+        # PE 用 TTM EPS（与 Graham 一致），而非年报 EPS；EPS≤0 时 PE 无意义→None
+        ttm_eps = _ttm("eps")
+        if price and ttm_eps and ttm_eps > 0:
+            valuation["pe"] = price / ttm_eps
+        elif snap.per is not None:
+            valuation["pe"] = snap.per  # 退回 Latest 快照的 PE（若 TTM 算不出）
         valuation["pb"] = snap.pb
-        if market_cap and latest.get("revenue"):
+        # PS 用 TTM 营收（与 PCF/FCF yield 口径一致），不用 Q1 年化
+        ttm_rev = _ttm("revenue")
+        if market_cap and ttm_rev:
+            valuation["ps"] = market_cap / ttm_rev
+        elif market_cap and latest.get("revenue"):
+            # TTM 算不出时退回年化（旧逻辑，比无值好）
             rd = latest["report_date"]
             ann_rev = latest["revenue"] * (
                 1 if rd.endswith("12-31") else 4 if rd.endswith("03-31")
@@ -185,9 +195,9 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         ttm_fcf = _ttm("fcf")
         if market_cap and ttm_fcf is not None:
             valuation["fcf_yield"] = ttm_fcf / market_cap
-        # Graham number = sqrt(22.5 * EPS_ttm * BVPS)；EPS 用 TTM，BVPS 用最新期末
+        # Graham number = sqrt(22.5 * EPS_ttm * BVPS)；EPS 用 TTM（已算），BVPS 用最新期末
         # EPS/BVPS ≤ 0 时 sqrt 负数会返回复数 → 跳过
-        ttm_eps = _ttm("eps")
+        # ttm_eps 已在上面计算（PE 用），这里复用
         if ttm_eps and ttm_eps > 0 and latest.get("bps") and latest["bps"] > 0:
             valuation["graham_number"] = (22.5 * ttm_eps * latest["bps"]) ** 0.5
 
