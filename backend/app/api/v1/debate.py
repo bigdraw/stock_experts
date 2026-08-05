@@ -149,11 +149,14 @@ async def start_debate_stream(
             ):
                 yield sse
         except asyncio.CancelledError:
-            logger.info(f"Debate stream cancelled by client (session {session_id})")
+            # 用户切页面（非点停止）→ SSE 连接断 → 不 rollback+stop，而是 commit+后台续跑
+            logger.info(f"Debate stream: client disconnect (session {session_id}); committing + background continuation")
             try:
-                await db.rollback()
+                await db.commit()  # 保留已完成的 agent_done/factbook（不 rollback）
             except Exception:
                 pass
+            # 后台续跑：用 resume 机制从已落库 messages 重建 → 继续到完成/暂停
+            asyncio.create_task(_finish_debate_background(session_id, agents, target_info, req.rounds))
         except Exception as e:
             logger.exception(f"Debate stream error (session {session_id})")
             try:
@@ -243,18 +246,15 @@ async def _translate_debate_events(ev_gen, session_id: int, session, db) -> Asyn
     yield "event: done\ndata: {}\n\n"
 
 
-@router.post("/sessions/{session_id}/resume-stream")
-async def resume_debate_stream(
-    session_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """原地重试：从失败的 agent 处继续辩论。重建 history/completed/context，调 orchestrator resume。"""
-    session = await db.get(ChatSession, session_id)
-    if not session or session.user_id != current_user.id or (session.type or "chat") != "debate":
-        return {"error": "辩论会话不存在"}
+async def _rebuild_resume(session_id: int, agents: list[dict], db: AsyncSession) -> dict | None:
+    """从已落库 messages 重建辩论 resume 态（共享：resume-stream 端点 + 后台续跑共用）。
 
-    # 从 messages 重建 resume 态 + 辩论参数
+    返回 {resume, target_info, rounds, session} 或 None（会话不存在）。
+    """
+    session = await db.get(ChatSession, session_id)
+    if not session or (session.type or "chat") != "debate":
+        return None
+
     msgs = (await db.execute(
         select(ChatMessage).where(
             ChatMessage.session_id == session_id, ChatMessage.is_compressed == False  # noqa: E712
@@ -288,18 +288,98 @@ async def resume_debate_stream(
         DebateRound(round_type=rounds_map[k]["round_type"], opinions=rounds_map[k]["opinions"])
         for k in sorted(rounds_map)
     ]
-
-    # 重建 agents + target_info
-    agent_rows = (await db.execute(select(Agent).where(Agent.id.in_(session.agent_ids or [])))).scalars().all()
-    agents = [{"id": a.id, "name": a.name, "system_prompt": a.system_prompt, "description": a.description or ""} for a in agent_rows]
     target_info = {
         "type": "stock", "code": target_code or "", "name": target_name or target_code or "",
         "data": {"code": target_code or "", "name": target_name or "", "market": ""},
     }
+    resume = {"history": history, "completed": completed, "context": context, "summary_done": summary_done}
+    return {"resume": resume, "target_info": target_info, "rounds": rounds, "session": session}
+
+
+async def _finish_debate_background(session_id: int, agents: list[dict], target_info: dict, max_rounds: int):
+    """后台续跑辩论（客户端断连后）：用独立 db + resume 机制续跑到完成/agent_failed→暂停。
+
+    无 SSE——只 persist（agent_done/summary_done 落库）。用户回来 selectSession 看到结果。
+    """
+    from app.database import async_session_factory
+
+    logger.info(f"Background debate {session_id}: starting (client disconnected)")
+    try:
+        async with async_session_factory() as db:
+            rebuilt = await _rebuild_resume(session_id, agents, db)
+            if not rebuilt:
+                logger.warning(f"Background debate {session_id}: no resume state")
+                return
+            session = rebuilt["session"]
+            resume = rebuilt["resume"]
+            target = rebuilt["target_info"]
+            rounds = rebuilt["rounds"]
+
+            llm = llm_manager.get()
+            orchestrator = DebateOrchestrator(llm, db=db)
+
+            round_num = 0
+            async for ev in orchestrator.run_debate_stream(agents, target, rounds, resume=resume):
+                t = ev.get("type")
+                if t == "collecting":
+                    continue  # 进度事件不持久化
+                elif t == "factbook_done":
+                    # 已在 live stream 落库（resume 时 context 从 DB 读），跳过
+                    continue
+                elif t == "agent_done":
+                    round_num = ev["round_num"]
+                    meta = {"round_type": ev["round_type"], "round_num": ev["round_num"],
+                            "agent_id": ev["agent_id"], "agent_name": ev["agent_name"]}
+                    if ev.get("reasoning"):
+                        meta["reasoning"] = ev["reasoning"]
+                    db.add(ChatMessage(
+                        session_id=session_id, role="assistant", content=ev["content"],
+                        agents_used=[ev["agent_name"]], meta=meta,
+                    ))
+                    await db.commit()
+                elif t == "summary_done":
+                    meta = {"round_type": "summary", "round_num": round_num + 1}
+                    if ev.get("reasoning"):
+                        meta["reasoning"] = ev["reasoning"]
+                    db.add(ChatMessage(
+                        session_id=session_id, role="assistant", content=ev["content"],
+                        agents_used=["总结"], meta=meta,
+                    ))
+                    session.last_message_at = datetime.now()
+                    await db.commit()
+                elif t in ("agent_failed", "summary_failed"):
+                    logger.info(f"Background debate {session_id}: paused at {t} (user can retry)")
+                    break
+            logger.info(f"Background debate {session_id}: completed")
+    except Exception as e:
+        logger.exception(f"Background debate {session_id} error: {e}")
+
+
+@router.post("/sessions/{session_id}/resume-stream")
+async def resume_debate_stream(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """原地重试：从失败的 agent 处继续辩论。用共享 _rebuild_resume 重建状态。"""
+    session = await db.get(ChatSession, session_id)
+    if not session or session.user_id != current_user.id or (session.type or "chat") != "debate":
+        return {"error": "辩论会话不存在"}
+
+    # 重建 agents（从 session.agent_ids）
+    agent_rows = (await db.execute(select(Agent).where(Agent.id.in_(session.agent_ids or [])))).scalars().all()
+    agents = [{"id": a.id, "name": a.name, "system_prompt": a.system_prompt, "description": a.description or ""} for a in agent_rows]
+
+    rebuilt = await _rebuild_resume(session_id, agents, db)
+    if not rebuilt:
+        return {"error": "辩论会话状态重建失败"}
+    session = rebuilt["session"]
+    resume = rebuilt["resume"]
+    target_info = rebuilt["target_info"]
+    rounds = rebuilt["rounds"]
 
     llm = llm_manager.get()
     orchestrator = DebateOrchestrator(llm, db=db)
-    resume = {"history": history, "completed": completed, "context": context, "summary_done": summary_done}
 
     async def event_stream():
         try:
