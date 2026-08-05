@@ -175,7 +175,10 @@ async def _translate_debate_events(ev_gen, session_id: int, session, db) -> Asyn
     round_num = 0
     async for ev in ev_gen:
         t = ev.get("type")
-        if t == "factbook_start":
+        if t == "collecting":
+            # FactBook 采集进度（正在获取价值分析/K线/行业/宏观/市场状态…）
+            yield f"event: collecting\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        elif t == "factbook_start":
             yield "event: factbook_start\ndata: {}\n\n"
         elif t == "factbook_token":
             yield f"event: factbook_token\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"

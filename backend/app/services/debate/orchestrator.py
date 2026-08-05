@@ -85,10 +85,23 @@ class DebateOrchestrator:
             context_data: str = resume.get("context") or ""
             summary_done_flag: bool = resume.get("summary_done", False)
             if not context_data:
-                context_data = await self._collect_raw_factbook(target_info)
+                # resume 但无 context（罕见）→ 重新采集（不流式，静默）
+                raw = None
+                async for ev in self._collect_raw_factbook(target_info):
+                    if ev.get("type") == "factbook_raw":
+                        raw = ev["raw"]
+                if raw is None:
+                    raw = {"_error": "FactBook 采集失败"}
         else:
-            # 阶段1：事实 agent 消化原始 FactBook → 归类精炼的 digest（流式产出）
-            raw = await self._collect_raw_factbook(target_info)
+            # 阶段1a：FactBook 数据采集（流式进度事件：正在获取价值分析/K线/行业/宏观/市场状态…）
+            raw = None
+            async for ev in self._collect_raw_factbook(target_info):
+                yield ev  # 透传 collecting 进度事件给前端
+                if ev.get("type") == "factbook_raw":
+                    raw = ev["raw"]
+            if raw is None:
+                raw = {"_error": "FactBook 采集失败"}
+            # 阶段1b：事实 agent 消化原始 FactBook → 归类精炼的 digest（流式产出）
             context_data = ""
             async for ev in self._stream_fact_agent(raw, target_info):
                 yield ev
@@ -194,24 +207,25 @@ class DebateOrchestrator:
                 history[round_num].opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=content))
             logger.info(f"Debate round {round_num + 1} ({round_type}) completed")
 
-    async def _collect_raw_factbook(self, target: dict) -> dict:
-        """阶段1：调 FactBook.collect() 拉全量原始数据 + 客观校验。
+    async def _collect_raw_factbook(self, target: dict):
+        """阶段1：调 FactBook.collect_streaming() 拉全量原始数据 + 进度事件 + 校验。
 
-        返回 raw dict（不格式化、不截断）——交给事实 agent（_stream_fact_agent）消化精炼。
+        生成器：yield {type:collecting, stage, message} 进度事件 + 最终 {type:factbook_raw, raw}。
         """
         if target.get("type") == "stock" and self.db:
             code = target.get("code", "")
             try:
-                factbook = await FactBook().collect(code, self.db)
+                async for ev in FactBook().collect_streaming(code, self.db):
+                    yield ev  # 透传 collecting 进度事件 + factbook_raw
                 await self.db.commit()
-                logger.info(f"Debate: FactBook collected for {code} (status={factbook.get('validation', {}).get('status')})")
-                return factbook
+                logger.info(f"Debate: FactBook collected for {code}")
             except Exception as e:
                 logger.warning(f"Debate: FactBook collection failed for {code}: {e}")
                 name = target.get("name", code)
-                return {"_error": str(e), "stock_name": name, "stock_code": code}
-        name = target.get("name", "")
-        return {"stock_name": name, "stock_code": target.get("code", ""), "_error": "非个股标的"}
+                yield {"type": "factbook_raw", "raw": {"_error": str(e), "stock_name": name, "stock_code": code}}
+        else:
+            name = target.get("name", "")
+            yield {"type": "factbook_raw", "raw": {"stock_name": name, "stock_code": target.get("code", ""), "_error": "非个股标的"}}
 
     async def _stream_fact_agent(self, raw: dict, target: dict):
         """阶段2：事实 agent（LLM，客观无投资观点）消化全部原始数据 → 归类精炼 digest。

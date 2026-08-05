@@ -344,6 +344,15 @@ export const useChatStore = defineStore('chat', () => {
                 agent_ids: opts.agentIds || [], type: 'debate', pinned: false,
               })
             }
+          } else if (ev === 'collecting') {
+            // FactBook 采集进度（正在获取价值分析/K线/行业/宏观/市场状态…）
+            let ci = buf.findIndex(m => m.meta?.round_type === 'collecting')
+            if (ci < 0) {
+              buf.push({ role: 'system', content: data.message, meta: { round_type: 'collecting', stage: data.stage } })
+            } else {
+              buf[ci].content = data.message
+              buf[ci].meta = { round_type: 'collecting', stage: data.stage }
+            }
           } else if (ev === 'factbook_start' || ev === 'factbook') {
             // 事实 agent 占位 system 气泡（写到 buf，不是 messages.value）
             let fbIdx = buf.findIndex(m => m.meta?.round_type === 'factbook')

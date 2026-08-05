@@ -49,6 +49,10 @@
                 </div>
               </div>
             </div>
+            <!-- FactBook 采集进度（正在获取价值分析/K线/行业/宏观/市场状态…） -->
+            <div v-else-if="msg.meta?.round_type === 'collecting'" class="msg-row">
+              <div class="collecting-status"><ThinkingDots :text="msg.content" /></div>
+            </div>
             <!-- 错误提示 -->
             <div v-else-if="msg.meta?.round_type === 'error'" class="msg-row">
               <div class="error-bubble">{{ msg.content }}</div>
@@ -457,6 +461,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .factbook-toggle { font-size: 12px; color: var(--primary); }
 .factbook-body { padding: 10px 14px 14px; max-height: 420px; overflow-y: auto; border-top: 1px solid var(--border-subtle); }
 
+.collecting-status { padding: 8px 12px; }
 .error-bubble {
   background: rgba(231, 76, 60, 0.12); border: 1px solid rgba(231, 76, 60, 0.3);
   color: #e74c3c; padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;

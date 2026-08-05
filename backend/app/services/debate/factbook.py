@@ -94,10 +94,17 @@ class FactBook:
         self.provider = provider or AkShareProvider()
 
     async def collect(self, stock_code: str, db: AsyncSession) -> dict[str, Any]:
-        """收集全量数据（复用现有端点逻辑）+ 客观校验。
+        """非流式 wrapper（向后兼容）：drain collect_streaming 取最终 raw。"""
+        async for ev in self.collect_streaming(stock_code, db):
+            if ev.get("type") == "factbook_raw":
+                return ev["raw"]
+        return {}
 
-        返回结构化 FactBook dict。所有采集器独立降级——失败项置空 +
-        在 validation.warnings 记录，不抛异常。
+    async def collect_streaming(self, stock_code: str, db: AsyncSession):
+        """流式采集：yield 进度事件 {type:collecting, stage, message} + 最终 {type:factbook_raw, raw}。
+
+        让用户在 15-30s 采集期间看到"正在获取价值分析…/K线…/行业…/宏观…/市场状态…"
+        而不是干等。所有采集器独立降级——失败项置空 + validation.warnings，不抛异常。
         """
         stock = await db.get(Stock, stock_code)
         name = stock.name if stock else stock_code
@@ -108,23 +115,23 @@ class FactBook:
             "collected_at": datetime.now().isoformat(timespec="seconds"),
         }
 
-        # 1. 价值分析全量（含 trend 20期 + dividends）——复用 value_analysis，失败重试+快照兜底
+        yield {"type": "collecting", "stage": "value_analysis", "message": "正在获取价值分析数据（财报/ROE/EPS/trend/分红）…"}
         facts["value_analysis"] = await self._collect_value_analysis(stock_code, db)
 
-        # 2. K线趋势（5年，与价值分析时间窗口对齐）——复用 ensure_full_daily_quotes，失败重试+短窗口兜底
+        yield {"type": "collecting", "stage": "kline", "message": "正在获取 5 年 K 线趋势…"}
         facts["kline"] = await self._collect_kline(stock_code, db)
 
-        # 3. 行业动态 + 宏观政策（web_search，失败重试；行业空则用公司行业字段兜底）
+        yield {"type": "collecting", "stage": "industry", "message": "正在搜索行业动态…"}
         facts["industry"] = await self._collect_industry(name, industry_fb)
+
+        yield {"type": "collecting", "stage": "macro", "message": "正在搜索宏观政策…"}
         facts["macro"] = await self._collect_macro()
 
-        # 4. 市场状态（沪深300 regime）——沪深300不可用则用个股自身趋势代理
+        yield {"type": "collecting", "stage": "regime", "message": "正在检测沪深 300 市场状态…"}
         facts["market_regime"] = await self._collect_regime(stock_code, db)
 
-        # 5. 客观校验（完整性/时效性/逻辑一致性）
         facts["validation"] = self._validate(facts)
-
-        return facts
+        yield {"type": "factbook_raw", "raw": facts}
 
     # ─────────────────────────── 采集器 ───────────────────────────
 
