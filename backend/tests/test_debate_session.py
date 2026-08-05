@@ -41,8 +41,10 @@ from app.utils.security import hash_password  # noqa: E402
 
 
 async def _fake_run_debate_stream(self, agents, target_info, max_rounds, **kwargs):
-    """桩：yield 结构化事件（factbook + 2 agent token 流 + summary 流），不打 LLM。"""
-    yield {"type": "factbook", "content": "<target>测试 FactBook</target>"}
+    """桩：yield 结构化事件（事实 agent 消化 + 2 agent + summary 流），不打 LLM。"""
+    yield {"type": "factbook_start"}
+    yield {"type": "factbook_token", "delta": "事实摘要"}
+    yield {"type": "factbook_done", "content": "<target>测试 FactBook</target>"}
     for a in agents:
         yield {"type": "agent_start", "round_num": 1, "round_type": "analysis",
                "agent_id": a["id"], "agent_name": a["name"]}
@@ -56,8 +58,9 @@ async def _fake_run_debate_stream(self, agents, target_info, max_rounds, **kwarg
 
 
 async def _fail_first_agent_stream(self, agents, target_info, max_rounds, **kwargs):
-    """桩：factbook + 第1个 agent 失败（agent_failed）→ 暂停，不发 done。"""
-    yield {"type": "factbook", "content": "<target>fb</target>"}
+    """桩：事实 agent 消化 + 第1个 agent 失败（agent_failed）→ 暂停，不发 done。"""
+    yield {"type": "factbook_start"}
+    yield {"type": "factbook_done", "content": "<target>fb</target>"}
     a = agents[0]
     yield {"type": "agent_start", "round_num": 1, "round_type": "analysis",
            "agent_id": a["id"], "agent_name": a["name"]}
@@ -66,8 +69,9 @@ async def _fail_first_agent_stream(self, agents, target_info, max_rounds, **kwar
 
 
 async def _cancel_after_round1_stream(self, agents, target_info, max_rounds, **kwargs):
-    """桩：yield factbook + 第1个 agent 的 done 后抛 CancelledError，模拟客户端中途断连。"""
-    yield {"type": "factbook", "content": "<target>fb</target>"}
+    """桩：yield 事实 + 第1个 agent 的 done 后抛 CancelledError，模拟客户端中途断连。"""
+    yield {"type": "factbook_start"}
+    yield {"type": "factbook_done", "content": "<target>fb</target>"}
     a = agents[0]
     yield {"type": "agent_start", "round_num": 1, "round_type": "analysis",
            "agent_id": a["id"], "agent_name": a["name"]}
@@ -146,8 +150,10 @@ async def _main() -> int:
                     continue
                 if ev == "session":
                     session_id = data.get("session_id")
-                elif ev == "factbook":
+                elif ev == "factbook_done":
                     has_factbook = bool(data.get("content"))
+                elif ev == "factbook_token":
+                    has_factbook = has_factbook or bool(data.get("delta"))
                 elif ev == "agent_done":
                     agent_dones.append(data)
                 elif ev == "summary_done":

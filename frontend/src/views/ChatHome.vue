@@ -37,11 +37,18 @@
             <div v-else-if="msg.meta?.round_type === 'factbook'" class="msg-row">
               <div class="factbook-panel">
                 <div class="factbook-head" @click="toggleFactbook(i)">
-                  <span>📊 输入事实基础（FactBook，所有 agent 共享）</span>
+                  <span>📊 输入事实基础（事实 agent 消化，所有 agent 共享）{{ msg.streaming ? '· 消化中…' : '' }}</span>
                   <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
                 </div>
                 <div v-if="factbookOpen[i]" class="factbook-body">
-                  <MarkdownRenderer v-if="msg.content" :content="msg.content" />
+                  <div v-if="msg.streaming && !msg.content" class="thinking">
+                    <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
+                    <span class="think-text">事实 agent 正在消化原始数据…</span>
+                  </div>
+                  <template v-else>
+                    <MarkdownRenderer v-if="msg.content" :content="msg.content" />
+                    <span v-if="msg.streaming" class="cursor">▋</span>
+                  </template>
                 </div>
               </div>
             </div>

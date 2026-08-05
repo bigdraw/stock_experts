@@ -260,6 +260,7 @@ export const useChatStore = defineStore('chat', () => {
     const isResume = !!opts.isResume
     const agentMsgIdx = new Map<string, number>()
     let summaryIdx = -1
+    let factbookIdx = -1
     let sessionId: number | null = null
     const reader = res.body!.getReader()
     const decoder = new TextDecoder()
@@ -289,8 +290,22 @@ export const useChatStore = defineStore('chat', () => {
                 agent_ids: opts.agentIds || [], type: 'debate', pinned: false,
               })
             }
-          } else if (ev === 'factbook') {
-            messages.value.push({ role: 'system', content: data.content, meta: { round_type: 'factbook' } })
+          } else if (ev === 'factbook_start' || ev === 'factbook') {
+            // 事实 agent 开始消化（或旧的单事件 factbook）→ 占位 system 气泡
+            let fbIdx = messages.value.findIndex(m => m.meta?.round_type === 'factbook')
+            if (fbIdx < 0) {
+              messages.value.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'factbook' } })
+              fbIdx = messages.value.length - 1
+              factbookIdx = fbIdx
+            } else {
+              messages.value[fbIdx].content = ''; messages.value[fbIdx].streaming = true; messages.value[fbIdx].error = false
+              factbookIdx = fbIdx
+            }
+            if (ev === 'factbook') { messages.value[fbIdx].content = data.content; messages.value[fbIdx].streaming = false }
+          } else if (ev === 'factbook_token') {
+            if (factbookIdx >= 0) messages.value[factbookIdx].content += data.delta
+          } else if (ev === 'factbook_done') {
+            if (factbookIdx >= 0) { messages.value[factbookIdx].content = data.content; messages.value[factbookIdx].streaming = false }
           } else if (ev === 'agent_start') {
             const key = `${data.round_num}:${data.agent_id}`
             // resume：找已有失败气泡重置（content 清空、streaming 重新 true、清 error）

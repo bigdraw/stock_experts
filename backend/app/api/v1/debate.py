@@ -175,13 +175,25 @@ async def _translate_debate_events(ev_gen, session_id: int, session, db) -> Asyn
     round_num = 0
     async for ev in ev_gen:
         t = ev.get("type")
-        if t == "factbook":
+        if t == "factbook_start":
+            yield "event: factbook_start\ndata: {}\n\n"
+        elif t == "factbook_token":
+            yield f"event: factbook_token\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"
+        elif t == "factbook_done":
+            # 事实 agent 消化完成的 digest 落 system 消息（回看可见）
             db.add(ChatMessage(
                 session_id=session_id, role="system", content=ev["content"],
                 meta={"round_type": "factbook"},
             ))
             await db.commit()
-            yield f"event: factbook\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
+            yield f"event: factbook_done\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
+        elif t == "factbook":  # 兼容旧的单事件 factbook
+            db.add(ChatMessage(
+                session_id=session_id, role="system", content=ev["content"],
+                meta={"round_type": "factbook"},
+            ))
+            await db.commit()
+            yield f"event: factbook_done\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
         elif t == "agent_start":
             yield f"event: agent_start\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
         elif t == "agent_token":

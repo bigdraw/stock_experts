@@ -85,10 +85,17 @@ class DebateOrchestrator:
             context_data: str = resume.get("context") or ""
             summary_done_flag: bool = resume.get("summary_done", False)
             if not context_data:
-                context_data = await self._prepare_context(target_info)
+                context_data = await self._collect_raw_factbook(target_info)
         else:
-            context_data = await self._prepare_context(target_info)
-            yield {"type": "factbook", "content": context_data}
+            # 阶段1：事实 agent 消化原始 FactBook → 归类精炼的 digest（流式产出）
+            raw = await self._collect_raw_factbook(target_info)
+            context_data = ""
+            async for ev in self._stream_fact_agent(raw, target_info):
+                yield ev
+                if ev.get("type") in ("factbook_done", "factbook"):
+                    context_data = ev.get("content", "")
+            if not context_data:
+                context_data = FactBook().format(raw)  # 兜底
             history, completed, summary_done_flag = [], set(), False
 
         # 轮次模型：第 1..N-1 轮 = 辩论（analysis → challenge/response 交替），
@@ -102,7 +109,7 @@ class DebateOrchestrator:
                 summary = ""
                 try:
                     async for chunk in self.llm.chat_stream(
-                        self._summarize_messages(agents, target_info, history), max_tokens=8192
+                        self._summarize_messages(agents, target_info, history, context_data), max_tokens=8192
                     ):
                         if chunk.content:
                             summary += chunk.content
@@ -168,12 +175,10 @@ class DebateOrchestrator:
                 history[round_num].opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=content))
             logger.info(f"Debate round {round_num + 1} ({round_type}) completed")
 
-    async def _prepare_context(self, target: dict) -> str:
-        """阶段1：调 FactBook.collect() 拉全量数据 + 客观校验，格式化为共享事实基础。
+    async def _collect_raw_factbook(self, target: dict) -> dict:
+        """阶段1：调 FactBook.collect() 拉全量原始数据 + 客观校验。
 
-        所有 agent 看到同一份 FactBook（含 trend20期 + dividends + 5年K线趋势 +
-        行业动态 + 宏观政策 + 沪深300 regime + 校验结果）。不截断到固定字符数，
-        让 LLM 看到全量数据；K线只注入统计摘要而非数千根原始K线。
+        返回 raw dict（不格式化、不截断）——交给事实 agent（_stream_fact_agent）消化精炼。
         """
         if target.get("type") == "stock" and self.db:
             code = target.get("code", "")
@@ -181,15 +186,53 @@ class DebateOrchestrator:
                 factbook = await FactBook().collect(code, self.db)
                 await self.db.commit()
                 logger.info(f"Debate: FactBook collected for {code} (status={factbook.get('validation', {}).get('status')})")
-                return FactBook().format(factbook)
+                return factbook
             except Exception as e:
                 logger.warning(f"Debate: FactBook collection failed for {code}: {e}")
-                # 降级：注入最小事实
                 name = target.get("name", code)
-                return f"<data_warnings>FactBook 采集失败: {e}</data_warnings>\n<target>标的: {name}（{code}）</target>"
-        # 非 stock 标的：仅注入基本描述
+                return {"_error": str(e), "stock_name": name, "stock_code": code}
         name = target.get("name", "")
-        return f"<target>标的: {name}</target>\n<data_warnings>非个股标的，未采集 FactBook</data_warnings>"
+        return {"stock_name": name, "stock_code": target.get("code", ""), "_error": "非个股标的"}
+
+    async def _stream_fact_agent(self, raw: dict, target: dict):
+        """阶段2：事实 agent（LLM，客观无投资观点）消化全部原始数据 → 归类精炼 digest。
+
+        流式产出 factbook_start / factbook_token(delta) / factbook_done(content=digest)。
+        digest 注入每个投资 agent 的每一轮，确保"标的+FactBook+关键信息"贯穿全程
+        （修 challenge/response/summary 轮丢 FactBook 的 bug）。LLM 失败兜底用 FactBook.format。
+        """
+        yield {"type": "factbook_start"}
+        digest = ""
+        try:
+            messages = self._fact_agent_messages(raw, target)
+            async for chunk in self.llm.chat_stream(messages, max_tokens=4096):
+                if chunk.content:
+                    digest += chunk.content
+                    yield {"type": "factbook_token", "delta": chunk.content}
+        except Exception as e:
+            logger.exception(f"Fact agent digest failed: {e!r}, fallback to FactBook.format")
+            digest = FactBook().format(raw)
+        if not digest:
+            digest = FactBook().format(raw)
+        yield {"type": "factbook_done", "content": digest}
+
+    def _fact_agent_messages(self, raw: dict, target: dict) -> list[LLMMessage]:
+        """事实 agent 的 LLM 消息：客观消化原始数据 → 分类关键信息。"""
+        system = (
+            "你是一位客观中立的**事实分析 agent**——不持任何投资观点，不做买卖判断。"
+            "你的任务是消化以下原始数据（可能含估值/财报trend/K线/行业/宏观/市场状态，部分可能缺失），"
+            "提炼出**投资决策最关键的信息**，分类输出，供后续投资大师辩论引用。\n\n"
+            "输出格式（markdown，每类给关键数字 + 一句话客观解读，不评价买卖）：\n"
+            "## 标的\n## 估值（PE/PB/PS/FCF yield/Graham number 等关键数）\n"
+            "## 盈利能力（ROE/ROIC/毛利率/趋势）\n## 财务安全（负债率/流动比/利息保障）\n"
+            "## 现金流（OCF/FCF/盈利质量）\n## 成长性（3y/5y CAGR）\n"
+            "## 技术面（近 1/3/6/12 月涨跌、5 年年化、最大回撤、是否新高/新低、量比）\n"
+            "## 行业动态（竞争格局/增速/政策）\n## 宏观（利率/CPI/货币政策）\n"
+            "## 市场状态（沪深300 regime）\n## 数据缺失与存疑（哪些没取到/可能过期）\n\n"
+            "重要：只陈述事实与数据，不做投资建议；引用具体数字；缺失项明确标注。"
+        )
+        user = f"标的：{target.get('name','')}（{target.get('code','')}）\n\n原始数据（JSON）：\n{json.dumps(raw, ensure_ascii=False, default=str)}"
+        return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)]
 
     def _build_system_prompt(self, agent: dict) -> str:
         """追加 FactBook 说明 + 反 ReAct 幻觉约束到 agent system_prompt。
@@ -225,35 +268,42 @@ class DebateOrchestrator:
         会导致"只回应排在自己前面的 agent"。用 history[round_num-1] 确保看到上一轮所有人。
         """
         system = self._build_system_prompt(agent)
+        # 每轮共享的头部：标的 + FactBook digest（修后续轮丢 FactBook 的 bug）
+        header = (
+            f"标的：{target.get('name', '')}（{target.get('code', '')}）\n\n"
+            f"--- FactBook（事实 agent 消化的关键信息，每轮共享，必须引用其中数据）---\n"
+            f"{context_data}\n--- FactBook 结束 ---\n"
+        )
         if round_type == "analysis":
-            user_content = f"""请基于你的投资理念，分析以下投资标的：
-
-标的：{target.get("name", "")}（{target.get("code", "")}）
-基础信息：{json.dumps(target.get("data", {}), ensure_ascii=False, indent=2)}
-
-以下是本次辩论的共享事实基础（FactBook），所有参与者看到相同数据；请引用其中相关节做论证：
-
-{context_data}
-
-请给出详细分析（每部分至少3-5句话，**必须引用 FactBook 中的数据**——可结合估值/财报trend/K线趋势/行业/宏观/市场状态）：
-1. 投资价值判断（引用具体数据）
-2. 核心理由（至少3条）
-3. 主要风险
-4. 建议操作"""
+            user_content = (
+                f"{header}\n请基于你的投资理念 + 上述 FactBook，分析该标的（每部分3-5句，"
+                "**必须引用 FactBook 具体数据**）：\n1. 投资价值判断\n2. 核心理由（≥3条）"
+                "\n3. 主要风险\n4. 建议操作"
+            )
         elif round_type == "challenge":
             prev_round = history[round_num - 1] if round_num - 1 < len(history) else history[-1]
             others = [op for op in prev_round.opinions if op.agent_id != agent["id"]]
-            others_text = "\n\n".join([f"【{op.agent_name}】: {op.content}" for op in others])
-            user_content = f"以下是上一轮其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。引用数据支撑你的反驳。"
+            others_text = "\n\n".join([f"【{op.agent_name}】: {op.content}" for op in others]) or "（无其他 agent 观点）"
+            user_content = (
+                f"{header}\n上一轮（{prev_round.round_type}）其他投资者的观点：\n\n{others_text}\n\n"
+                "请从你的投资理念出发，**围绕事实**对这些观点提出质疑。引导要求：\n"
+                "- 优先指出对方论据与 FactBook 数据的矛盾（如估值/ROE/现金流/K线趋势/行业/宏观对不上）。\n"
+                "- 质疑逻辑链条（因果跳跃、以偏概全、忽略周期/风险），引用具体数字支撑。\n"
+                "- 少做空泛观点、理念之争、人物/流派驳斥；不评价对方「对错」，只戳事实与逻辑漏洞。\n"
+                "- 若对方忽略了 FactBook 中某关键风险（如最大回撤/财报过期/分红不可持续），指出之。"
+            )
         else:  # response
             prev_round = history[round_num - 1] if round_num - 1 < len(history) else history[-1]
             challenges = [op for op in prev_round.opinions if op.agent_id != agent["id"]]
-            text = "\n\n".join([f"【{op.agent_name}的质疑】: {op.content}" for op in challenges])
-            user_content = f"其他投资者在上一轮对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。用数据论证。"
+            text = "\n\n".join([f"【{op.agent_name}的质疑】: {op.content}" for op in challenges]) or "（无质疑）"
+            user_content = (
+                f"{header}\n上一轮其他投资者对你的分析提出了以下质疑：\n\n{text}\n\n"
+                "请回应这些质疑，用 FactBook 数据论证。"
+            )
         return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user_content)]
 
-    def _summarize_messages(self, agents: list[dict], target: dict, history: list[DebateRound]) -> list[LLMMessage]:
-        """构造总结 agent 的 LLM 消息。"""
+    def _summarize_messages(self, agents: list[dict], target: dict, history: list[DebateRound], context_data: str = "") -> list[LLMMessage]:
+        """构造总结 agent 的 LLM 消息（含 FactBook + 标的 + 全部辩论）。"""
         all_content = []
         for r in history:
             round_text = f"\n=== {r.round_type} ===\n"
@@ -263,7 +313,7 @@ class DebateOrchestrator:
         return [
             LLMMessage(
                 role="system",
-                content="""你是一位客观中立的投资分析总结专家。请综合辩论内容输出分析报告：
+                content="""你是一位客观中立的投资分析总结专家。请综合辩论内容 + FactBook 事实，输出分析报告：
 ## 辩论总结
 ### 多方观点
 ### 空方观点
@@ -274,6 +324,10 @@ class DebateOrchestrator:
             ),
             LLMMessage(
                 role="user",
-                content=f"标的：{target.get('name', '')}\n\n辩论内容：\n{''.join(all_content)}",
+                content=(
+                    f"标的：{target.get('name', '')}（{target.get('code', '')}）\n\n"
+                    f"--- FactBook 关键信息 ---\n{context_data}\n--- FactBook 结束 ---\n\n"
+                    f"辩论内容：\n{''.join(all_content)}"
+                ),
             ),
         ]

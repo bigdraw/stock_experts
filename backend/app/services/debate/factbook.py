@@ -378,10 +378,9 @@ class FactBook:
                         )
                         if resp.status_code == 200:
                             data = resp.json()
-                            # 每条结果截到 600 字（[:150] 会句中断裂、信息错乱）；
-                            # answer + 3 条 × 600 字 ≈ 2k 字，注入 FactBook 供 agent 引用，不致过大。
+                            # 不截断原始结果——交给事实 agent 消化精炼（tavily content 本身是摘要，通常 <1k 字）
                             return (data.get("answer", "") or "") + "\n" + "\n".join(
-                                f"- {r.get('title', '')}: {r.get('content', '')[:600]}" for r in data.get("results", [])
+                                f"- {r.get('title', '')}: {r.get('content', '')}" for r in data.get("results", [])
                             )
                 except Exception as e:
                     logger.warning(f"tavily search attempt {attempt + 1}/2 failed: {e!r}")
@@ -398,10 +397,10 @@ class FactBook:
                     data = resp.json()
                     results = []
                     if data.get("AbstractText"):
-                        results.append(data["AbstractText"][:600])
+                        results.append(data["AbstractText"])
                     for topic in (data.get("RelatedTopics") or [])[:3]:
                         if isinstance(topic, dict) and topic.get("Text"):
-                            results.append(topic["Text"][:400])
+                            results.append(topic["Text"])
                     if results:
                         return "\n".join(results)
             except Exception as e:
