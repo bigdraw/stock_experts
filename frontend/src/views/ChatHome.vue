@@ -261,7 +261,7 @@ function onInputChange(val: string) {
   if (/\s/.test(query)) { closeMention(); return }
   mentionAt.value = atIdx
   mentionMatches.value = agentList.value
-    .filter(a => a.name.toLowerCase().includes(query.toLowerCase())).slice(0, 20)
+    .filter(a => a.name.toLowerCase().includes(query.toLowerCase()))
   mentionIdx.value = 0
   mentionOpen.value = mentionMatches.value.length > 0
 }
