@@ -723,8 +723,10 @@ class AkShareProvider(DataProvider):
                 return []
             out = []
             for _, row in df.iterrows():
+                # akshare stock_dividend_cninfo 的"派息比例"= 每10股派息额（税前，元）
+                # 始终 /10 归一化为每股派息（之前用 >=1 启发式，0.66元每10股 会被当每股）
                 payout = _parse_cn_number(row.get("派息比例"))
-                per_share = payout / 10 if (payout and payout >= 1) else payout
+                per_share = round(payout / 10, 4) if payout else None
                 out.append({
                     "announce_date": str(row.get("实施方案公告日期", "")),
                     "dividend_per_share": per_share,

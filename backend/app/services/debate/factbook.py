@@ -367,10 +367,11 @@ class FactBook:
             return {"_error": f"沪深300+个股代理均失败: {e!r}"}
 
     async def _fetch_index_quotes(self, index_code: str, days: int) -> list[float]:
-        """拉取指数近 N 日收盘（akshare index_zh_a_hist）。
+        """拉取指数近 N 日收盘——多源 + 重试，最大化稳定性。
 
-        akshare 指数端点偶发 RemoteDisconnected（远端掐连接），重试最多 3 次，
-        并复用 akshare_provider 的 _bypass_proxy 绕过代理（与个股数据拉取一致）。
+        源1（主）：stock_zh_index_daily（新浪源，与个股行情同源，更稳）。
+        源2（备）：index_zh_a_hist（东方财富，指数端偶发 RemoteDisconnected）。
+        两源各重试 2 次。
         """
         import akshare as ak
 
@@ -378,23 +379,42 @@ class FactBook:
 
         end = date.today().strftime("%Y%m%d")
         start = (date.today() - timedelta(days=int(days * 1.8))).strftime("%Y%m%d")
+        # 新浪指数 symbol 需 sh/sz 前缀：000300 → sh000300
+        sina_symbol = f"sh{index_code}" if not index_code.startswith(("sh", "sz")) else index_code
+
         df = None
-        for attempt in range(3):
+        # 源1：新浪 stock_zh_index_daily
+        for attempt in range(2):
             original = _bypass_proxy()
             try:
-                df = await asyncio.to_thread(
-                    ak.index_zh_a_hist, symbol=index_code, period="daily",
-                    start_date=start, end_date=end,
-                )
+                df = await asyncio.to_thread(ak.stock_zh_index_daily, symbol=sina_symbol)
                 if df is not None and not df.empty:
                     break
             except Exception as e:
-                logger.warning(f"FactBook: index fetch attempt {attempt + 1}/3 failed: {e!r}")
+                logger.warning(f"FactBook: index(sina) attempt {attempt + 1}/2 failed: {e!r}")
             finally:
                 _restore_proxy(original)
+
+        # 源2：东方财富 index_zh_a_hist（备选）
+        if df is None or df.empty:
+            for attempt in range(2):
+                original = _bypass_proxy()
+                try:
+                    df = await asyncio.to_thread(
+                        ak.index_zh_a_hist, symbol=index_code, period="daily",
+                        start_date=start, end_date=end,
+                    )
+                    if df is not None and not df.empty:
+                        break
+                except Exception as e:
+                    logger.warning(f"FactBook: index(em) attempt {attempt + 1}/2 failed: {e!r}")
+                finally:
+                    _restore_proxy(original)
+
         if df is None or df.empty:
             return []
-        col = "收盘" if "收盘" in df.columns else df.columns[-1]
+        # 新浪源列名：date/close；东财源列名：日期/收盘
+        col = "close" if "close" in df.columns else ("收盘" if "收盘" in df.columns else df.columns[-1])
         return df[col].astype(float).tolist()
 
     async def _web_search(self, query: str) -> str:
