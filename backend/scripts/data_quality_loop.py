@@ -24,6 +24,7 @@ from sqlalchemy import select  # noqa: E402
 from app.database import async_session_factory, init_db  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.services.debate.factbook import FactBook  # noqa: E402
+from app.services.debate.orchestrator import DebateOrchestrator  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -140,41 +141,104 @@ def code_level_check(raw: dict, stock_code: str, stock_name: str) -> list[dict]:
 
 # ─────────────────── LLM 核验 ───────────────────
 
-async def llm_validate(raw: dict, stock_code: str, stock_name: str, code_issues: list) -> dict | None:
-    """LLM 独立核验数据质量。返回 {issues, trust} 或 None（LLM 未配置）。"""
+async def llm_validate(raw: dict, digest: str, stock_code: str, stock_name: str, code_issues: list) -> dict | None:
+    """LLM 独立核验数据质量（财报审计视角，enable_thinking=True 不截断）。
+
+    同时审计：①原始采集数据的正确性 ②事实 agent digest 是否忠实反映原始数据。
+    从注册会计师/财务分析师角度深度核验：数值合理性、报表勾稽关系、
+    时间序列一致性、计算正确性、数据完整性。不是走过场。
+    """
     try:
         from app.services.llm.manager import llm_manager
         from app.services.llm.provider import LLMMessage
         llm = llm_manager.get()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"llm_validate: llm_manager.get() failed: {e!r}")
         return None
 
-    prompt = (
-        "你是数据质量检验 agent。以下是一只 A 股股票的采集数据（JSON）+ 代码级检查结果。\n"
-        "请独立核验：\n"
-        "1. 数值合理性（PE/PB/ROE/股息率/CAGR 范围）\n"
-        "2. 逻辑一致性（ROE vs ROIC、PE vs 增长率、分红率 vs 净利润）\n"
-        "3. 明显错误（复数、None 应有值、季报值当年化用）\n"
-        "4. 数据缺失项\n"
-        "输出 JSON: {\"issues\": [{\"field\":\"\",\"problem\":\"\",\"severity\":\"high/medium/low\"}], \"trust\":\"high/medium/low\"}"
+    system = (
+        "你是一位**注册会计师（CPA）+ 财务分析师**，正在对一只 A 股股票的自动采集数据做**审计级核验**。\n\n"
+        "你的职责不是做投资分析，而是**检验数据本身是否正确、完整、自洽**。你需要像一个审计师一样，"
+        "逐项核对数字，质疑异常，验证勾稽关系。\n\n"
+        "## 核验维度\n\n"
+        "### 1. 数值合理性\n"
+        "- PE/PB/PS 是否在合理区间（PE 通常 3-200，PB 0.1-30；极端值需标注）\n"
+        "- ROE/ROIC 是否为小数（0-0.5 正常，>1 或 <0 需质疑）\n"
+        "- 股息率 0-8% 正常，>15% 可能分红未归一化\n"
+        "- EPS/BPS 与市值/股价是否匹配\n"
+        "- 毛利率/净利率是否合理（制造业 5-30%，金融业特殊）\n"
+        "- 资产负债率 0-1（金融股可 >0.9）\n\n"
+        "### 2. 报表勾稽关系\n"
+        "- 资产负债表：资产 = 负债 + 所有者权益（检查是否自洽）\n"
+        "- 利润表：营收 - 成本 - 费用 = 净利润（毛利率 × 营收 ≈ 毛利）\n"
+        "- 现金流量表：OCF = 净利润 + 折旧 ± 营运资本变动；FCF = OCF - Capex\n"
+        "- ROE = 净利润 / 所有者权益；ROIC = NOPAT / 投入资本\n"
+        "- Graham number = sqrt(22.5 × EPS × BVPS)（验证计算）\n\n"
+        "### 3. 时间序列一致性\n"
+        "- trend 里各期 ROE/EPS/营收是否连续（非断崖式跳变）\n"
+        "- 年报 = Q1+Q2+Q3+Q4 累计（单季值不应 > 年报值）\n"
+        "- CAGR 是否因基数效应失真（疫情年/重组年导致的虚假高增长）\n"
+        "- 季报值 vs 年报值：Q1 ROE 通常为年报的 1/4，不应直接当年化用\n\n"
+        "### 4. 数据完整性\n"
+        "- 关键指标是否缺失（ROE/EPS/revenue/OCF/FCF）\n"
+        "- trend 序列是否被截断（应有 20 期）\n"
+        "- 分红数据是否有 dps 值（非空记录但数值为空）\n"
+        "- K线是否有缺口（最近 30 日缺失天数）\n\n"
+        "### 5. 明显错误\n"
+        "- 复数值（CAGR/Graham sqrt 负数）\n"
+        "- None 值出现在应有值的字段\n"
+        "- 单位错误（万元 vs 元、每10股 vs 每股）\n"
+        "- 类型错误（字符串混入数值字段）\n\n"
+        "## 输出要求\n\n"
+        "输出 JSON（思考完毕后给出，思考过程不需要输出）：\n"
+        "```json\n"
+        "{\"issues\": [{\"field\": \"字段名\", \"value\": \"当前值\", "
+        "\"problem\": \"问题描述+根因分析\", \"severity\": \"high/medium/low\", "
+        "\"fix_suggestion\": \"修复建议\"}], \"trust\": \"high/medium/low\", "
+        "\"summary\": \"一句话总评\"}\n"
+        "```\n\n"
+        "severity 标准：\n"
+        "- high: 数据错误会导致投资判断方向性错误（如分红未/10、PE 算错、复数）\n"
+        "- medium: 数据有疑问但不一定是 bug（如 CAGR 基数效应、季报未年化）\n"
+        "- low: 信息性提示（如数据缺失但不影响核心判断）\n\n"
+        "trust 标准：\n"
+        "- high: 数据完整自洽，可直接用于投资分析\n"
+        "- medium: 有疑问但不致命，需人工复核\n"
+        "- low: 有严重数据错误，不可直接使用"
     )
-    user = (f"标的：{stock_name}({stock_code})\n\n"
-            f"代码级检查结果：{json.dumps(code_issues, ensure_ascii=False, default=str)}\n\n"
-            f"原始数据（JSON）：\n{json.dumps(raw, ensure_ascii=False, default=str)[:8000]}")
+    user = (
+        f"标的：{stock_name}({stock_code})\n\n"
+        f"代码级自动检查结果（仅供参考，你需要独立判断，不要盲信）：\n"
+        f"{json.dumps(code_issues, ensure_ascii=False, default=str)}\n\n"
+        f"--- 原始采集数据（JSON）---\n"
+        f"{json.dumps(raw, ensure_ascii=False, default=str)}\n\n"
+        f"--- 事实 agent 整理的 digest（投资 agent 实际看到的）---\n"
+        f"{digest}\n\n"
+        f"请分别审计：①原始数据的正确性 ②事实 agent digest 是否忠实反映原始数据（有无遗漏/篡改/幻觉）"
+    )
 
     try:
-        resp = await llm.chat([
-            LLMMessage(role="system", content=prompt),
+        # 用 chat_stream（非 chat）——enable_thinking=True 时思考很长，
+        # 非流式 chat 会 ReadTimeout（httpx 300s）；流式 token 持续回流不超时。
+        text = ""
+        async for chunk in llm.chat_stream([
+            LLMMessage(role="system", content=system),
             LLMMessage(role="user", content=user),
-        ], max_tokens=2000)
-        # 尝试提取 JSON
-        text = resp.content
+        ], max_tokens=None, enable_thinking=True):
+            if chunk.content:
+                text += chunk.content
+        if not text:
+            logger.warning("llm_validate: LLM content 为空（thinking 吃满？）")
+            return None
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
-            return json.loads(text[start:end + 1])
+            result = json.loads(text[start:end + 1])
+            return result
+        else:
+            logger.warning(f"llm_validate: LLM 返回无 JSON, content[:300]={text[:300]}")
     except Exception as e:
-        logger.warning(f"LLM validate failed for {stock_code}: {e}")
+        logger.warning(f"llm_validate: llm.chat() failed for {stock_code}: {e!r}")
     return None
 
 
@@ -183,6 +247,19 @@ async def llm_validate(raw: dict, stock_code: str, stock_name: str, code_issues:
 async def run_one_round(n: int = 5, use_llm: bool = True) -> list[dict]:
     """一轮：随机抓取 → 代码级检查 → LLM 核验 → 返回所有 issues。"""
     await init_db()
+
+    # 初始化 LLM（脚本不走 FastAPI lifespan，需手动 reload）
+    llm_ready = False
+    if use_llm:
+        try:
+            from app.services.llm.manager import llm_manager
+            async with async_session_factory() as db:
+                await llm_manager.reload(db)
+            llm_ready = True
+            print(f"LLM 初始化成功: {llm_manager.list_providers()}")
+        except Exception as e:
+            print(f"⚠️ LLM 初始化失败: {e!r}，将跳过 LLM 核验")
+
     all_issues: list[dict] = []
 
     async with async_session_factory() as db:
@@ -215,7 +292,7 @@ async def run_one_round(n: int = 5, use_llm: bool = True) -> list[dict]:
                                "problem": "无 factbook_raw 事件", "severity": "high"})
             continue
 
-        # 代码级检查
+        # 代码级检查（raw）
         issues = code_level_check(raw, code, name)
         if issues:
             print(f"  代码级检查发现 {len(issues)} 个问题")
@@ -224,10 +301,35 @@ async def run_one_round(n: int = 5, use_llm: bool = True) -> list[dict]:
         else:
             print("  代码级检查通过 ✓")
 
-        # LLM 核验
-        if use_llm and issues:
-            print("  LLM 核验中...")
-            llm_result = await llm_validate(raw, code, name, issues)
+        # 复刻事实 agent：用 orchestrator 的 _stream_fact_agent 产出 digest
+        # （投资 agent 实际看到的是 digest，不是 raw——要验证 digest 质量）
+        digest = ""
+        if llm_ready:
+            print("  事实 agent 消化中（产出 digest）...")
+            try:
+                from app.services.llm.manager import llm_manager
+                orch = DebateOrchestrator(llm_manager.get(), db=None)
+                target = {"name": name, "code": code, "type": "stock", "data": {}}
+                async for ev in orch._stream_fact_agent(raw, target):
+                    if ev.get("type") in ("factbook_done", "factbook"):
+                        digest = ev.get("content", "")
+                if digest:
+                    print(f"  digest 产出完成（{len(digest)} 字）")
+                else:
+                    print("  ⚠️ digest 为空（fact-agent 可能失败）")
+                    issues.append({"stock": f"{name}({code})", "field": "fact_agent_digest",
+                                   "value": None, "problem": "事实 agent 产出 digest 为空",
+                                   "severity": "high"})
+            except Exception as e:
+                print(f"  ⚠️ 事实 agent 失败: {e!r}")
+                issues.append({"stock": f"{name}({code})", "field": "fact_agent",
+                               "value": str(e), "problem": f"事实 agent 调用失败: {e!r}",
+                               "severity": "high"})
+
+        # LLM 审计（raw + digest，enable_thinking=True）
+        if use_llm and llm_ready:
+            print("  LLM 审计中（CPA 视角，enable_thinking）...")
+            llm_result = await llm_validate(raw, digest, code, name, issues)
             if llm_result:
                 trust = llm_result.get("trust", "unknown")
                 llm_issues = llm_result.get("issues", [])
