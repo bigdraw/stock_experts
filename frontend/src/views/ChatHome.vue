@@ -41,10 +41,7 @@
                   <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
                 </div>
                 <div v-if="factbookOpen[i]" class="factbook-body">
-                  <div v-if="msg.streaming && !msg.content" class="thinking">
-                    <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
-                    <span class="think-text">事实 agent 正在消化原始数据…</span>
-                  </div>
+                  <ThinkingDots v-if="msg.streaming && !msg.content" text="事实 agent 正在消化原始数据…" />
                   <template v-else>
                     <MarkdownRenderer v-if="msg.content" :content="msg.content" />
                     <span v-if="msg.streaming" class="cursor">▋</span>
@@ -75,24 +72,12 @@
                   <span class="debate-agent" :style="{ color: agentColor(msg.meta.agent_name || '') }">{{ msg.meta.agent_name }}</span>
                   <n-tag size="tiny" round>{{ roundLabel(msg.meta.round_type) }} · 第{{ msg.meta.round_num }}轮</n-tag>
                 </div>
-                <!-- 思考链（灰色可折叠，与正文区分；enable_thinking 产出） -->
-                <div v-if="reasoningText(msg)" class="reasoning-panel">
-                  <div class="reasoning-head" @click="toggleReasoning(i)">
-                    <span>🧠 思考链 · {{ reasoningText(msg).length }} 字{{ msg.streaming && !msg.content ? ' · 思考中…' : '' }}</span>
-                    <span class="reasoning-toggle">{{ isReasoningOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
-                  </div>
-                  <div v-if="isReasoningOpen(i)" class="reasoning-body">{{ reasoningText(msg) }}<span v-if="msg.streaming && !msg.content" class="cursor">▋</span></div>
-                </div>
+                <ReasoningPanel v-if="reasoningText(msg)" :reasoning="reasoningText(msg)" :streaming="msg.streaming" :has-content="!!msg.content" />
                 <div class="assistant-content">
-                  <!-- 思考中：未到首 reasoning/answer → 脉动提示 -->
-                  <div v-if="msg.streaming && !msg.content && !reasoningText(msg)" class="thinking">
-                    <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
-                    <span class="think-text">{{ msg.meta.agent_name }} 思考中…</span>
-                  </div>
+                  <ThinkingDots v-if="msg.streaming && !msg.content && !reasoningText(msg)" :text="`${msg.meta.agent_name} 思考中…`" />
                   <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
                   <span v-if="msg.streaming && msg.content" class="cursor">▋</span>
                 </div>
-                <!-- 失败：原地重试按钮，成功后继续 -->
                 <div v-if="msg.error && !msg.streaming" class="retry-bar">
                   <n-tag size="tiny" type="error" round>调用失败</n-tag>
                   <n-button size="small" type="primary" secondary :loading="chatStore.streaming" @click="retryDebate">原地重试</n-button>
@@ -103,18 +88,9 @@
             <div v-else-if="msg.meta?.round_type === 'summary'" class="msg-row assistant">
               <div class="summary-bubble">
                 <div class="summary-head">📝 辩论总结</div>
-                <div v-if="reasoningText(msg)" class="reasoning-panel">
-                  <div class="reasoning-head" @click="toggleReasoning(i)">
-                    <span>🧠 思考链 · {{ reasoningText(msg).length }} 字{{ msg.streaming && !msg.content ? ' · 总结中…' : '' }}</span>
-                    <span class="reasoning-toggle">{{ isReasoningOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
-                  </div>
-                  <div v-if="isReasoningOpen(i)" class="reasoning-body">{{ reasoningText(msg) }}<span v-if="msg.streaming && !msg.content" class="cursor">▋</span></div>
-                </div>
+                <ReasoningPanel v-if="reasoningText(msg)" :reasoning="reasoningText(msg)" :streaming="msg.streaming" :has-content="!!msg.content" />
                 <div class="assistant-content">
-                  <div v-if="msg.streaming && !msg.content && !reasoningText(msg)" class="thinking">
-                    <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
-                    <span class="think-text">总结中…</span>
-                  </div>
+                  <ThinkingDots v-if="msg.streaming && !msg.content && !reasoningText(msg)" text="总结中…" />
                   <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
                   <span v-if="msg.streaming && msg.content" class="cursor">▋</span>
                 </div>
@@ -127,19 +103,9 @@
             <!-- 普通 chat assistant 气泡 -->
             <div v-else class="msg-row assistant">
               <div v-if="msg.agents_used?.length" class="msg-agents">{{ msg.agents_used.map(a => '@'+a).join(' ') }}</div>
-              <!-- 思考链（灰色可折叠，与辩论一致） -->
-              <div v-if="reasoningText(msg)" class="reasoning-panel">
-                <div class="reasoning-head" @click="toggleReasoning(i)">
-                  <span>🧠 思考链 · {{ reasoningText(msg).length }} 字{{ msg.streaming && !msg.content ? ' · 思考中…' : '' }}</span>
-                  <span class="reasoning-toggle">{{ isReasoningOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
-                </div>
-                <div v-if="isReasoningOpen(i)" class="reasoning-body">{{ reasoningText(msg) }}<span v-if="msg.streaming && !msg.content" class="cursor">▋</span></div>
-              </div>
+              <ReasoningPanel v-if="reasoningText(msg)" :reasoning="reasoningText(msg)" :streaming="msg.streaming" :has-content="!!msg.content" />
               <div class="assistant-content">
-                <div v-if="msg.streaming && !msg.content && !reasoningText(msg)" class="thinking">
-                  <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
-                  <span class="think-text">思考中…</span>
-                </div>
+                <ThinkingDots v-if="msg.streaming && !msg.content && !reasoningText(msg)" />
                 <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
                 <span v-if="msg.streaming && msg.content" class="cursor">▋</span>
               </div>
@@ -234,6 +200,9 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { NButton, NTag, NInput, NModal, NForm, NFormItem, NSelect, NAutoComplete, NInputNumber } from 'naive-ui'
 import { useChatStore } from '../stores/chat'
+import { agentColor } from '../composables/useAgentColor'
+import ReasoningPanel from '../components/chat/ReasoningPanel.vue'
+import ThinkingDots from '../components/chat/ThinkingDots.vue'
 import SessionSidebar from '../components/chat/SessionSidebar.vue'
 import MarkdownRenderer from '../components/chat/MarkdownRenderer.vue'
 import apiClient from '../api/client'
@@ -307,12 +276,6 @@ function parseMentions(text: string): number[] {
 
 const agentOptions = computed(() => agentList.value.map(a => ({ label: a.name, value: a.id })))
 
-const AGENT_COLORS = ['#e94560', '#0f9b8e', '#f5a623', '#5856d6', '#007aff', '#34c759', '#ff9500', '#af52de']
-function agentColor(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
-  return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length]
-}
 const ROUND_LABELS: Record<string, string> = { analysis: '独立分析', challenge: '质疑', response: '回应', summary: '总结', factbook: '事实基础' }
 function roundLabel(t: string) { return ROUND_LABELS[t] || t }
 
@@ -320,11 +283,8 @@ function roundLabel(t: string) { return ROUND_LABELS[t] || t }
 const factbookOpen = ref<Record<number, boolean>>({})
 function toggleFactbook(i: number) { factbookOpen.value[i] = !factbookOpen.value[i] }
 
-// 思考链折叠态（默认展开，可见；可手动收起）。reasoning 来自 msg.reasoning（流式）或 msg.meta.reasoning（回看）
-const reasoningOpen = ref<Record<number, boolean>>({})
+// reasoningText helper（ReasoningPanel 组件管理自己的折叠态，这里只提取 reasoning 文本）
 function reasoningText(msg: any): string { return msg.reasoning || msg.meta?.reasoning || '' }
-function toggleReasoning(i: number) { reasoningOpen.value[i] = !(reasoningOpen.value[i] ?? true) }
-function isReasoningOpen(i: number): boolean { return reasoningOpen.value[i] ?? true }
 
 // 辩论弹窗
 const showDebateModal = ref(false)
@@ -463,19 +423,9 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 }
 .msg-agents { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
 .assistant-content { color: var(--text-primary); font-size: 15px; line-height: 1.6; max-width: 100%; }
-/* 思考链（灰色可折叠，与正文区分；enable_thinking 产出） */
-.reasoning-panel {
-  border-left: 2px solid var(--border-medium); margin: 0 0 10px 4px; padding: 4px 0;
-  background: rgba(100, 116, 139, 0.06); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
-.reasoning-head {
-  display: flex; justify-content: space-between; align-items: center; cursor: pointer;
-  padding: 4px 10px; font-size: 12px; color: var(--text-tertiary); font-weight: 500;
-}
-.reasoning-head:hover { color: var(--text-secondary); }
-.reasoning-toggle { font-size: 11px; }
-.reasoning-body {
-  margin: 0 10px 6px; padding-top: 6px; border-top: 1px dashed var(--border-subtle);
+/* .reasoning-panel / .thinking / .think-dot / .cursor 移入 ReasoningPanel.vue + ThinkingDots.vue 组件 */
+.cursor { color: var(--primary); animation: blink 1s infinite; }
+@keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
   color: var(--text-tertiary); font-size: 13px; line-height: 1.55; white-space: pre-wrap;
   max-height: 360px; overflow-y: auto; word-wrap: break-word;
 }
@@ -483,14 +433,6 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .cursor { color: var(--primary); animation: blink 1s infinite; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
 .retry-bar { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
-
-/* 思考中：三点脉动，让用户明确区分"思考中/失败/卡死" */
-.thinking { display: flex; align-items: center; gap: 6px; color: var(--text-tertiary); font-size: 13px; padding: 2px 0; }
-.think-text { margin-left: 2px; }
-.think-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); opacity: 0.4; animation: thinkpulse 1.2s infinite ease-in-out; }
-.think-dot:nth-child(2) { animation-delay: 0.2s; }
-.think-dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes thinkpulse { 0%,80%,100%{opacity:0.3; transform:scale(0.8)} 40%{opacity:1; transform:scale(1.1)} }
 
 /* 辩论 agent 气泡：左侧色条 + agent 名 + 轮次标签；拉大内边距与下间距 */
 .debate-bubble {
