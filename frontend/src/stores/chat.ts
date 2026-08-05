@@ -28,7 +28,17 @@ export interface ChatSessionData {
 export const useChatStore = defineStore('chat', () => {
   const sessions = ref<ChatSessionData[]>([])
   const currentSessionId = ref<number | null>(null)
-  const messages = ref<ChatMessageData[]>([])
+  // 按 sessionId 分缓冲：辩论流式写自己的 buffer，切会话只换可见视图，
+  // 互不干扰（修"辩论 token 灌进别的会话气泡 + 索引错位"的状态隔离 bug）。
+  const messagesBySession = ref<Record<number, ChatMessageData[]>>({})
+  function bufOf(sid: number): ChatMessageData[] {
+    if (!messagesBySession.value[sid]) messagesBySession.value[sid] = []
+    return messagesBySession.value[sid]
+  }
+  // 可见消息 = 当前会话的缓冲
+  const messages = computed<ChatMessageData[]>(() =>
+    currentSessionId.value != null ? (messagesBySession.value[currentSessionId.value] || []) : []
+  )
   const streaming = ref(false)
   let abortController: AbortController | null = null
 
@@ -56,7 +66,7 @@ export const useChatStore = defineStore('chat', () => {
       sessions.value.unshift(res.data)
       currentSessionId.value = res.data.id
       localStorage.setItem('chat_session_id', String(res.data.id))
-      messages.value = []
+      messagesBySession.value[res.data.id] = []
       return res.data.id
     } catch (e) {
       console.error('createSession failed', e)
@@ -70,7 +80,9 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const res = await apiClient.get(`/chat/sessions/${id}`)
       if (res.data && !res.data.error) {
-        messages.value = res.data.messages || []
+        messagesBySession.value[id] = (res.data.messages || []).map((m: any) => ({
+          ...m, reasoning: m.meta?.reasoning || m.reasoning,
+        }))
       }
     } catch (e) {
       console.error('selectSession failed', e)
@@ -81,9 +93,9 @@ export const useChatStore = defineStore('chat', () => {
     try {
       await apiClient.delete(`/chat/sessions/${id}`)
       sessions.value = sessions.value.filter(s => s.id !== id)
+      delete messagesBySession.value[id]
       if (currentSessionId.value === id) {
         currentSessionId.value = sessions.value.length > 0 ? sessions.value[0].id : null
-        messages.value = []
       }
     } catch (e) {
       console.error('deleteSession failed', e)
@@ -104,9 +116,9 @@ export const useChatStore = defineStore('chat', () => {
     if (ok.length) {
       const removed = new Set(ok)
       sessions.value = sessions.value.filter(s => !removed.has(s.id))
+      removed.forEach((id) => delete messagesBySession.value[id])
       if (currentSessionId.value !== null && removed.has(currentSessionId.value)) {
         currentSessionId.value = sessions.value.length > 0 ? sessions.value[0].id : null
-        messages.value = []
       }
     }
     return ok
@@ -207,7 +219,7 @@ export const useChatStore = defineStore('chat', () => {
   // 后端暂停（不发 done），前端把该气泡标 error + 显示原地重试按钮；点重试调
   // resumeDebate 从失败处继续（已完成的 agent 跳过）。
   async function startDebate(agentIds: number[], targetCode: string, targetName: string, rounds: number) {
-    messages.value = []
+    // 不清 messages——辩论用新会话，session 事件会切到新空 buffer；清当前会话 buffer 会丢别的对话
     streaming.value = true
     abortController = new AbortController()
     try {
@@ -263,18 +275,22 @@ export const useChatStore = defineStore('chat', () => {
     let summaryIdx = -1
     let factbookIdx = -1
     let sessionId: number | null = null
+    // buf = 辩论会话自己的消息缓冲（不随用户切会话变化）。流式只写 buf，
+    // 可见 messages（computed）= currentSessionId 的缓冲——用户切走时 buf 继续后台填充，
+    // 切回来自动显示已填充的 buf，不串到别的会话气泡。
+    let buf: ChatMessageData[] = []
     const reader = res.body!.getReader()
     const decoder = new TextDecoder()
-    let buffer = ''
+    let sseBuffer = ''
     let stopped = false
     while (!stopped) {
       const { done, value } = await reader.read()
       if (done) break
-      buffer += decoder.decode(value, { stream: true })
+      sseBuffer += decoder.decode(value, { stream: true })
       let idx
-      while ((idx = buffer.indexOf('\n\n')) >= 0) {
-        const block = buffer.slice(0, idx)
-        buffer = buffer.slice(idx + 2)
+      while ((idx = sseBuffer.indexOf('\n\n')) >= 0) {
+        const block = sseBuffer.slice(0, idx)
+        sseBuffer = sseBuffer.slice(idx + 2)
         const lines = block.split('\n')
         const ev = lines[0]?.replace('event: ', '') || ''
         const dataStr = lines[1]?.replace('data: ', '') || '{}'
@@ -285,6 +301,8 @@ export const useChatStore = defineStore('chat', () => {
             sessionId = sid
             currentSessionId.value = sid
             localStorage.setItem('chat_session_id', String(sid))
+            buf = bufOf(sid)
+            if (!isResume) buf.length = 0  // fresh 辩论：清空；resume：保留已有气泡
             if (!isResume && !sessions.value.find(s => s.id === sid)) {
               sessions.value.unshift({
                 id: sid, title: `辩论：${opts.targetName}(${opts.targetCode})`,
@@ -292,86 +310,84 @@ export const useChatStore = defineStore('chat', () => {
               })
             }
           } else if (ev === 'factbook_start' || ev === 'factbook') {
-            // 事实 agent 开始消化（或旧的单事件 factbook）→ 占位 system 气泡
-            let fbIdx = messages.value.findIndex(m => m.meta?.round_type === 'factbook')
+            // 事实 agent 占位 system 气泡（写到 buf，不是 messages.value）
+            let fbIdx = buf.findIndex(m => m.meta?.round_type === 'factbook')
             if (fbIdx < 0) {
-              messages.value.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'factbook' } })
-              fbIdx = messages.value.length - 1
+              buf.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'factbook' } })
+              fbIdx = buf.length - 1
               factbookIdx = fbIdx
             } else {
-              messages.value[fbIdx].content = ''; messages.value[fbIdx].streaming = true; messages.value[fbIdx].error = false
+              buf[fbIdx].content = ''; buf[fbIdx].streaming = true; buf[fbIdx].error = false
               factbookIdx = fbIdx
             }
-            if (ev === 'factbook') { messages.value[fbIdx].content = data.content; messages.value[fbIdx].streaming = false }
+            if (ev === 'factbook') { buf[fbIdx].content = data.content; buf[fbIdx].streaming = false }
           } else if (ev === 'factbook_token') {
-            if (factbookIdx >= 0) messages.value[factbookIdx].content += data.delta
+            if (factbookIdx >= 0) buf[factbookIdx].content += data.delta
           } else if (ev === 'factbook_done') {
-            if (factbookIdx >= 0) { messages.value[factbookIdx].content = data.content; messages.value[factbookIdx].streaming = false }
+            if (factbookIdx >= 0) { buf[factbookIdx].content = data.content; buf[factbookIdx].streaming = false }
           } else if (ev === 'agent_start') {
             const key = `${data.round_num}:${data.agent_id}`
-            // resume：找已有失败气泡重置（content 清空、streaming 重新 true、清 error）
             const existIdx = isResume
-              ? messages.value.findIndex(m => m.meta?.round_num === data.round_num && m.meta?.agent_id === data.agent_id && m.meta?.round_type === data.round_type)
+              ? buf.findIndex(m => m.meta?.round_num === data.round_num && m.meta?.agent_id === data.agent_id && m.meta?.round_type === data.round_type)
               : -1
             if (existIdx >= 0) {
-              messages.value[existIdx].content = ''
-              messages.value[existIdx].streaming = true
-              messages.value[existIdx].error = false
+              buf[existIdx].content = ''
+              buf[existIdx].streaming = true
+              buf[existIdx].error = false
               agentMsgIdx.set(key, existIdx)
             } else {
-              messages.value.push({
+              buf.push({
                 role: 'assistant', content: '', streaming: true,
                 agents_used: [data.agent_name],
                 meta: { round_type: data.round_type, round_num: data.round_num, agent_id: data.agent_id, agent_name: data.agent_name },
               })
-              agentMsgIdx.set(key, messages.value.length - 1)
+              agentMsgIdx.set(key, buf.length - 1)
             }
           } else if (ev === 'agent_token') {
             const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
-            if (i != null) messages.value[i].content += data.delta
+            if (i != null) buf[i].content += data.delta
           } else if (ev === 'agent_reasoning') {
-            // 思考链增量（灰色可折叠，与正文分开）
             const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
-            if (i != null) messages.value[i].reasoning = (messages.value[i].reasoning || '') + data.delta
+            if (i != null) buf[i].reasoning = (buf[i].reasoning || '') + data.delta
           } else if (ev === 'agent_done') {
             const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
             if (i != null) {
-              messages.value[i].content = data.content
-              if (data.reasoning) messages.value[i].reasoning = data.reasoning
-              messages.value[i].streaming = false
+              buf[i].content = data.content
+              if (data.reasoning) buf[i].reasoning = data.reasoning
+              buf[i].streaming = false
             }
           } else if (ev === 'agent_failed') {
             const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
             if (i != null) {
-              messages.value[i].streaming = false
-              messages.value[i].error = true
-              messages.value[i].meta = { ...(messages.value[i].meta || {}), error: data.error }
+              buf[i].streaming = false
+              buf[i].error = true
+              buf[i].meta = { ...(buf[i].meta || {}), error: data.error }
             }
             stopped = true  // 暂停，等前端重试
           } else if (ev === 'summary_start') {
-            let si = messages.value.findIndex(m => m.meta?.round_type === 'summary')
+            let si = buf.findIndex(m => m.meta?.round_type === 'summary')
             if (si < 0) {
-              messages.value.push({ role: 'assistant', content: '', streaming: true, agents_used: ['总结'], meta: { round_type: 'summary' } })
-              si = messages.value.length - 1
+              buf.push({ role: 'assistant', content: '', streaming: true, agents_used: ['总结'], meta: { round_type: 'summary' } })
+              si = buf.length - 1
             } else {
-              messages.value[si].content = ''; messages.value[si].reasoning = ''; messages.value[si].streaming = true; messages.value[si].error = false
+              buf[si].content = ''; buf[si].reasoning = ''; buf[si].streaming = true; buf[si].error = false
             }
             summaryIdx = si
           } else if (ev === 'summary_reasoning') {
-            if (summaryIdx >= 0) messages.value[summaryIdx].reasoning = (messages.value[summaryIdx].reasoning || '') + data.delta
+            if (summaryIdx >= 0) buf[summaryIdx].reasoning = (buf[summaryIdx].reasoning || '') + data.delta
           } else if (ev === 'summary_token') {
-            if (summaryIdx >= 0) messages.value[summaryIdx].content += data.delta
+            if (summaryIdx >= 0) buf[summaryIdx].content += data.delta
           } else if (ev === 'summary_done') {
             if (summaryIdx >= 0) {
-              messages.value[summaryIdx].content = data.content
-              if (data.reasoning) messages.value[summaryIdx].reasoning = data.reasoning
-              messages.value[summaryIdx].streaming = false
+              buf[summaryIdx].content = data.content
+              if (data.reasoning) buf[summaryIdx].reasoning = data.reasoning
+              buf[summaryIdx].streaming = false
             }
           } else if (ev === 'summary_failed') {
-            if (summaryIdx >= 0) { messages.value[summaryIdx].streaming = false; messages.value[summaryIdx].error = true }
+            if (summaryIdx >= 0) { buf[summaryIdx].streaming = false; buf[summaryIdx].error = true }
             stopped = true
           } else if (ev === 'error') {
-            messages.value.push({ role: 'system', content: `⚠️ ${data.message || '辩论出错'}`, meta: { round_type: 'error' } })
+            buf.push({ role: 'system', content: `⚠️ ${data.message || '辩论出错'}`, meta: { round_type: 'error' } })
           }
         } catch (e) {
           console.error('Debate SSE parse error', e)
@@ -382,12 +398,15 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function retryLastMessage(agentIds: number[] = []) {
-    // Find last user message, remove the failed assistant reply, resend
-    const lastUserIdx = [...messages.value].reverse().findIndex(m => m.role === 'user')
+    // 操作当前会话的缓冲（非辩论会话的重试）
+    const sid = currentSessionId.value
+    if (sid == null) return
+    const buf = bufOf(sid)
+    const lastUserIdx = [...buf].reverse().findIndex(m => m.role === 'user')
     if (lastUserIdx < 0) return
-    const lastUser = messages.value[messages.value.length - 1 - lastUserIdx]
+    const lastUser = buf[buf.length - 1 - lastUserIdx]
     // Remove everything after the last user message (failed assistant reply)
-    messages.value = messages.value.slice(0, messages.value.length - lastUserIdx)
+    messagesBySession.value[sid] = buf.slice(0, buf.length - lastUserIdx)
     // Resend
     await sendMessage(lastUser.content, agentIds)
   }
