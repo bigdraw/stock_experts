@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -123,13 +124,37 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         if len(annuals) < years + 1:
             return None
         s, e = annuals[-(years + 1)].get(field), annuals[-1].get(field)
-        if not s or not e or s <= 0:
+        # 基期 ≤0 或被压抑（终值 >20× 基期，多源于困境年微利/近零基数）→ CAGR 无意义
+        if not s or not e or s <= 0 or e > 20 * s:
             return None
         return (e / s) ** (1 / years) - 1
 
     growth = {}
     for f in ("revenue", "net_profit", "equity"):
         growth[f] = {"cagr_3y": _cagr(f, 3), "cagr_5y": _cagr(f, 5)}
+
+    # 4.5 TTM（滚动 12 个月）累计值：最近年报累计 − 同季上年累计 + 最新累计
+    #     用于 Graham/PCF/FCF yield，避免直接用单季累计 ×4 在季节性强的字段上失真。
+    def _ttm(field: str):
+        if latest.get(field) is None:
+            return None
+        rd = latest["report_date"]
+        if rd.endswith("12-31"):
+            return latest[field]
+        annuals_f = [p for p in periods
+                     if p["report_date"].endswith("12-31") and p.get(field) is not None]
+        if not annuals_f:
+            return None
+        last_annual = annuals_f[-1][field]
+        try:
+            same_q_prev = f"{int(rd[:4]) - 1}{rd[4:]}"
+        except (ValueError, IndexError):
+            return None
+        prev = next((p for p in periods
+                     if p["report_date"] == same_q_prev and p.get(field) is not None), None)
+        if prev is None:
+            return last_annual  # 缺同季上年 → 退回最近年报值，不强行 ×4
+        return last_annual - prev[field] + latest[field]
 
     # 5. 估值：复用 Latest 快照
     snap = (
@@ -154,19 +179,37 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
                 else 2 if rd.endswith("06-30") else 4 / 3
             )
             valuation["ps"] = market_cap / ann_rev if ann_rev else None
-        if market_cap and latest.get("ocf"):
-            valuation["pcf"] = market_cap / (latest["ocf"] * 4)
-        if market_cap and latest.get("fcf") is not None:
-            valuation["fcf_yield"] = (latest["fcf"] * 4) / market_cap
-        # Graham number = sqrt(22.5 * EPS * BVPS)
-        if latest.get("eps") and latest.get("bps"):
-            valuation["graham_number"] = (22.5 * latest["eps"] * latest["bps"]) ** 0.5
+        ttm_ocf = _ttm("ocf")
+        if market_cap and ttm_ocf:
+            valuation["pcf"] = market_cap / ttm_ocf
+        ttm_fcf = _ttm("fcf")
+        if market_cap and ttm_fcf is not None:
+            valuation["fcf_yield"] = ttm_fcf / market_cap
+        # Graham number = sqrt(22.5 * EPS_ttm * BVPS)；EPS 用 TTM，BVPS 用最新期末
+        ttm_eps = _ttm("eps")
+        if ttm_eps and latest.get("bps"):
+            valuation["graham_number"] = (22.5 * ttm_eps * latest["bps"]) ** 0.5
 
-    # 6. 分红 + 股息率
+    # 6. 分红 + 股息率（TTM 口径：近 12 个月除权分红之和 / 最新价）
     dividends = await provider.get_dividends(stock_code)
+    # 按除权日倒序（缺 ex_date 用 announce_date），保证 [:20] 保留最新、而非最旧
+    def _div_date(d: dict) -> str:
+        for k in ("ex_date", "announce_date"):
+            v = (d.get(k) or "").strip()
+            if v:
+                return v
+        return ""
+    dividends = sorted(dividends, key=_div_date, reverse=True)
     if price and dividends:
-        # 最新一次分红每股
-        dps = next((d.get("dividend_per_share") for d in dividends if d.get("dividend_per_share")), None)
+        today_str = date.today().strftime("%Y-%m-%d")
+        cutoff = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
+        ttm_dps = 0.0
+        for d in dividends:
+            dd = _div_date(d)
+            if dd and cutoff <= dd <= today_str:
+                ttm_dps += d.get("dividend_per_share") or 0
+        # TTM 为 0（数据太旧/缺 ex_date）时退回最新单笔，避免误报 0
+        dps = ttm_dps or (dividends[0].get("dividend_per_share") or 0)
         if dps:
             valuation["dividend_yield"] = dps / price
 
