@@ -198,7 +198,9 @@ async def chat_stream(
         stocks_detected=stock_codes[:3], token_count=estimate_tokens(req.message),
     )
     db.add(user_msg)
-    await db.flush()
+    # 立即 commit（不只 flush）——客户端中途切走/abort 时 get_db 会 rollback，
+    # 若只 flush 则 user 消息被回滚，回来重载就消失了。
+    await db.commit()
 
     # 2. 加载活跃历史
     result = await db.execute(

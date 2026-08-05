@@ -261,7 +261,7 @@ function onInputChange(val: string) {
   if (/\s/.test(query)) { closeMention(); return }
   mentionAt.value = atIdx
   mentionMatches.value = agentList.value
-    .filter(a => a.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+    .filter(a => a.name.toLowerCase().includes(query.toLowerCase())).slice(0, 20)
   mentionIdx.value = 0
   mentionOpen.value = mentionMatches.value.length > 0
 }
@@ -289,8 +289,8 @@ function onInputKey(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSend() }
 }
 function parseMentions(text: string): number[] {
-  const names = (text.match(/@(\S+)/g) || []).map(m => m.slice(1))
-  return agentList.value.filter(a => names.includes(a.name)).map(a => a.id)
+  // 按全名匹配（agent 名含空格如"巴菲特 (Warren Buffett)"，正则 @\S+ 只取到空格前会漏）
+  return agentList.value.filter(a => text.includes('@' + a.name)).map(a => a.id)
 }
 
 const agentOptions = computed(() => agentList.value.map(a => ({ label: a.name, value: a.id })))
