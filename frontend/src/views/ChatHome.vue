@@ -423,13 +423,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 }
 .msg-agents { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
 .assistant-content { color: var(--text-primary); font-size: 15px; line-height: 1.6; max-width: 100%; }
-/* .reasoning-panel / .thinking / .think-dot / .cursor 移入 ReasoningPanel.vue + ThinkingDots.vue 组件 */
-.cursor { color: var(--primary); animation: blink 1s infinite; }
-@keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
-  color: var(--text-tertiary); font-size: 13px; line-height: 1.55; white-space: pre-wrap;
-  max-height: 360px; overflow-y: auto; word-wrap: break-word;
-}
-
+/* .reasoning-panel / .thinking / .think-dot 移入 ReasoningPanel.vue + ThinkingDots.vue 组件 */
 .cursor { color: var(--primary); animation: blink 1s infinite; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
 .retry-bar { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
