@@ -6,7 +6,7 @@
     <!-- 主区：纵向 flex，消息区 flex:1 滚动，输入栏同级沉底 -->
     <div class="chat-main">
       <!-- 消息区 -->
-      <div class="msg-scroll" ref="msgList">
+      <div class="msg-scroll" ref="msgList" @scroll="onMsgScroll">
         <div class="msg-inner">
           <!-- 空状态 -->
           <div v-if="!chatStore.messages.length" class="welcome">
@@ -103,6 +103,10 @@
             </div>
           </template>
         </div>
+        <!-- 回到底部浮钮：用户上滚查看时显示，点击回到最新 -->
+        <transition name="fade">
+          <button v-if="!autoScroll && chatStore.messages.length" class="scroll-bottom-btn" @click="scrollToBottom">↓</button>
+        </transition>
       </div>
 
       <!-- 输入栏 -->
@@ -179,6 +183,8 @@ import type { Agent, Stock } from '../types'
 const chatStore = useChatStore()
 const route = useRoute()
 const input = ref('')
+// 是否贴底：用户主动上滚（距底 >80px）则不强制拉回，方便回看前面的内容
+const autoScroll = ref(true)
 const msgList = ref<HTMLElement | null>(null)
 const agentList = ref<Agent[]>([])
 const selectedAgents = ref<Agent[]>([])
@@ -269,18 +275,43 @@ async function handleSend() {
   await chatStore.sendMessage(text, selectedAgents.value.map(a => a.id))
   await scrollToBottom()
 }
-watch(() => chatStore.messages.length, () => scrollToBottom())
-watch(() => chatStore.messages.at(-1)?.content, () => scrollToBottom())
-async function scrollToBottom() {
+// 滚动监听：判断用户是否贴底。距底 < 80px 视为贴底（流式时自动跟随），
+// 否则用户主动上滚了——不再强制拉回，让其自由查看前面的内容。
+function onMsgScroll() {
+  const el = msgList.value
+  if (!el) return
+  autoScroll.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+}
+// 仅在贴底时自动滚到底（token 流式时用）
+async function maybeScrollToBottom() {
+  if (!autoScroll.value) return
   await nextTick()
   if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
 }
+// 强制滚到底（用户主动操作：发消息/新会话/重试）
+async function scrollToBottom() {
+  autoScroll.value = true
+  await nextTick()
+  if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
+}
+watch(() => chatStore.messages.length, () => maybeScrollToBottom())
+watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 </script>
 
 <style scoped>
 .chat-shell { display: flex; height: 100%; width: 100%; background: var(--bg-base); }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
-.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; }
+.scroll-bottom-btn {
+  position: sticky; bottom: 12px; margin-left: auto; margin-right: 12px;
+  width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-medium);
+  background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.25); transition: opacity var(--transition);
+}
+.scroll-bottom-btn:hover { border-color: var(--primary); color: var(--primary); }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 .msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 20px 16px 14vh; display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
 
 /* 欢迎页：撑满滚动区、内容垂直居中（不再浮在上中部留大块空白） */
