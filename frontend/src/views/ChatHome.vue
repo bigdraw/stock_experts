@@ -158,7 +158,7 @@
           </div>
         </n-form-item>
         <n-form-item label="辩论轮数">
-          <n-input-number v-model:value="debateRounds" :min="1" :max="5" />
+          <n-input-number v-model:value="debateRounds" :min="2" :max="5" />
         </n-form-item>
         <div class="debate-actions">
           <n-button @click="showDebateModal = false">取消</n-button>

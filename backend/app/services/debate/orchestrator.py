@@ -91,7 +91,32 @@ class DebateOrchestrator:
             yield {"type": "factbook", "content": context_data}
             history, completed, summary_done_flag = [], set(), False
 
+        # 轮次模型：第 1..N-1 轮 = 辩论（analysis → challenge/response 交替），
+        # 第 N 轮（最后一轮）= 中立 agent 综合总结。max_rounds=3 → 分析/质疑/总结。
         for round_num in range(max_rounds):
+            if round_num == max_rounds - 1:
+                # 最后一轮：中立总结（resume 时若已完成则跳过）
+                if summary_done_flag:
+                    return
+                yield {"type": "summary_start"}
+                summary = ""
+                try:
+                    async for chunk in self.llm.chat_stream(
+                        self._summarize_messages(agents, target_info, history), max_tokens=8192
+                    ):
+                        if chunk.content:
+                            summary += chunk.content
+                            yield {"type": "summary_token", "delta": chunk.content}
+                except Exception as e:
+                    logger.exception("Debate summary failed; emit summary_failed + pause")
+                    yield {"type": "summary_failed", "error": f"{e!r}"}
+                    return
+                yield {"type": "summary_done", "content": summary}
+                self._stream_history = history
+                self._stream_summary = summary
+                return
+
+            # 辩论轮（非最后）
             round_type = "analysis" if round_num == 0 else ("challenge" if round_num % 2 == 1 else "response")
             # 确保 history 对应槽位存在（resume 时已完成轮可能已预填）
             if len(history) <= round_num:
@@ -105,7 +130,9 @@ class DebateOrchestrator:
                     "type": "agent_start", "round_num": round_num + 1, "round_type": round_type,
                     "agent_id": agent["id"], "agent_name": agent["name"],
                 }
-                messages = self._build_agent_messages(agent, round_type, target_info, context_data, history)
+                # challenge/response 引用**上一轮**（history[round_num-1]）的全部发言，
+                # 不是 history[-1]（那会是当前正在建的轮，只有前面 agent 的发言）。
+                messages = self._build_agent_messages(agent, round_type, round_num, target_info, context_data, history)
                 content, finish_reason, last_err = "", None, None
                 for attempt in range(3):
                     content, finish_reason = "", None
@@ -123,7 +150,7 @@ class DebateOrchestrator:
                         last_err = e
                         logger.warning(f"Agent {agent['name']} {round_type} attempt {attempt + 1}/3 failed: {e!r}")
                         if content:
-                            break  # 已有部分输出，保留不重试
+                            break
                         continue
                 if last_err and not content:
                     logger.exception(f"Agent {agent['name']} {round_type} gave up; emit agent_failed + pause")
@@ -132,7 +159,7 @@ class DebateOrchestrator:
                         "agent_id": agent["id"], "agent_name": agent["name"],
                         "error": f"{last_err!r}",
                     }
-                    return  # 暂停，等前端重试（resume-stream 从此 agent 继续）
+                    return
                 yield {
                     "type": "agent_done", "round_num": round_num + 1, "round_type": round_type,
                     "agent_id": agent["id"], "agent_name": agent["name"],
@@ -140,26 +167,6 @@ class DebateOrchestrator:
                 }
                 history[round_num].opinions.append(AgentOpinion(agent_id=agent["id"], agent_name=agent["name"], content=content))
             logger.info(f"Debate round {round_num + 1} ({round_type}) completed")
-
-        # 总结（resume 时若已完成则跳过）
-        if summary_done_flag:
-            return
-        yield {"type": "summary_start"}
-        summary = ""
-        try:
-            async for chunk in self.llm.chat_stream(
-                self._summarize_messages(agents, target_info, history), max_tokens=8192
-            ):
-                if chunk.content:
-                    summary += chunk.content
-                    yield {"type": "summary_token", "delta": chunk.content}
-        except Exception as e:
-            logger.exception("Debate summary failed; emit summary_failed + pause")
-            yield {"type": "summary_failed", "error": f"{e!r}"}
-            return
-        yield {"type": "summary_done", "content": summary}
-        self._stream_history = history
-        self._stream_summary = summary
 
     async def _prepare_context(self, target: dict) -> str:
         """阶段1：调 FactBook.collect() 拉全量数据 + 客观校验，格式化为共享事实基础。
@@ -209,11 +216,13 @@ class DebateOrchestrator:
         return system + tool_desc
 
     def _build_agent_messages(
-        self, agent: dict, round_type: str, target: dict, context_data: str, history: list[DebateRound],
+        self, agent: dict, round_type: str, round_num: int, target: dict, context_data: str, history: list[DebateRound],
     ) -> list[LLMMessage]:
         """按轮次类型构造单个 agent 的 LLM 消息（分析/质疑/回应）。
 
-        合并原 _agent_analyze / _round_challenge / _round_response 的消息构造逻辑。
+        challenge/response 引用**上一轮**（history[round_num-1]）的全部 *其他* agent 发言，
+        不是 history[-1]——后者在流式顺序执行时是当前正在建的轮（只含前面 agent 的发言），
+        会导致"只回应排在自己前面的 agent"。用 history[round_num-1] 确保看到上一轮所有人。
         """
         system = self._build_system_prompt(agent)
         if round_type == "analysis":
@@ -232,15 +241,15 @@ class DebateOrchestrator:
 3. 主要风险
 4. 建议操作"""
         elif round_type == "challenge":
-            last_round = history[-1]
-            others = [op for op in last_round.opinions if op.agent_id != agent["id"]]
+            prev_round = history[round_num - 1] if round_num - 1 < len(history) else history[-1]
+            others = [op for op in prev_round.opinions if op.agent_id != agent["id"]]
             others_text = "\n\n".join([f"【{op.agent_name}】: {op.content}" for op in others])
-            user_content = f"以下是其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。引用数据支撑你的反驳。"
+            user_content = f"以下是上一轮其他投资者的观点：\n\n{others_text}\n\n请从你的投资理念出发，对这些观点提出质疑。引用数据支撑你的反驳。"
         else:  # response
-            challenge_round = history[-1]
-            challenges = [op for op in challenge_round.opinions if op.agent_id != agent["id"]]
+            prev_round = history[round_num - 1] if round_num - 1 < len(history) else history[-1]
+            challenges = [op for op in prev_round.opinions if op.agent_id != agent["id"]]
             text = "\n\n".join([f"【{op.agent_name}的质疑】: {op.content}" for op in challenges])
-            user_content = f"其他投资者对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。用数据论证。"
+            user_content = f"其他投资者在上一轮对你的分析提出了以下质疑：\n\n{text}\n\n请回应这些质疑。用数据论证。"
         return [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user_content)]
 
     def _summarize_messages(self, agents: list[dict], target: dict, history: list[DebateRound]) -> list[LLMMessage]:

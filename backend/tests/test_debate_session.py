@@ -31,7 +31,11 @@ from app.main import app  # noqa: E402
 from app.models.agent import Agent  # noqa: E402
 from app.models.stock import Stock  # noqa: E402
 from app.models.user import User  # noqa: E402
-from app.services.debate.orchestrator import DebateOrchestrator  # noqa: E402
+from app.services.debate.orchestrator import (  # noqa: E402
+    AgentOpinion,
+    DebateOrchestrator,
+    DebateRound,
+)
 from app.services.llm import manager as llm_mod  # noqa: E402
 from app.utils.security import hash_password  # noqa: E402
 
@@ -289,6 +293,33 @@ async def test_debate_session():
 
 async def test_debate_cancel():
     assert await _cancel_main() == 0
+
+
+def test_challenge_sees_all_others():
+    """回归：challenge 轮的 agent 必须看到上一轮（analysis）全部 *其他* agent 的发言，
+    不是 history[-1]（当前正在建的轮，只含前面 agent）。"""
+    orch = DebateOrchestrator(llm=None)  # _build_agent_messages 不用 llm
+    agents = [
+        {"id": 1, "name": "巴菲特", "system_prompt": "S1", "description": ""},
+        {"id": 2, "name": "索罗斯", "system_prompt": "S2", "description": ""},
+        {"id": 3, "name": "芒格", "system_prompt": "S3", "description": ""},
+    ]
+    # analysis 轮（round_num=0）已有全部 3 人发言
+    analysis = DebateRound(round_type="analysis", opinions=[
+        AgentOpinion(1, "巴菲特", "巴菲特的分析内容XYZ"),
+        AgentOpinion(2, "索罗斯", "索罗斯的分析内容ABC"),
+        AgentOpinion(3, "芒格", "芒格的分析内容QQQ"),
+    ])
+    history = [analysis, DebateRound(round_type="challenge", opinions=[])]  # challenge 轮槽位（空，正在建）
+
+    # 第 3 个 agent（芒格）做 challenge：必须看到巴菲特+索罗斯（不是只看排前面的）
+    msgs = orch._build_agent_messages(agents[2], "challenge", 1, {"name": "t", "code": "c", "data": {}}, "", history)
+    user_content = msgs[1].content
+    assert "巴菲特的分析内容XYZ" in user_content, f"challenge 应含巴菲特(排在前): {user_content[:80]}"
+    assert "索罗斯的分析内容ABC" in user_content, f"challenge 应含索罗斯(排在前): {user_content[:80]}"
+    # 不应含自己（芒格）
+    assert "芒格的分析内容QQQ" not in user_content, "challenge 不应含自己"
+    print("  PASS: challenge 看到上一轮全部其他 agent（非仅排前面的）")
 
 
 async def _resume_main() -> int:
