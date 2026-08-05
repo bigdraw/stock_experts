@@ -29,21 +29,20 @@ class OpenAICompatibleProvider(LLMProvider):
         )
 
     async def chat(
-        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int = 4096, **kwargs
+        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int | None = 4096, **kwargs
     ) -> LLMResponse:
-        """Synchronous chat call."""
+        """Synchronous chat call. max_tokens=None 时不传（不截断）。"""
         try:
-            resp = await self.client.post(
-                "/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": [{"role": m.role, "content": m.content} for m in messages],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "stream": False,
-                    **kwargs,
-                },
-            )
+            body: dict = {
+                "model": self.model,
+                "messages": [{"role": m.role, "content": m.content} for m in messages],
+                "temperature": temperature,
+                "stream": False,
+                **kwargs,
+            }
+            if max_tokens is not None:
+                body["max_tokens"] = max_tokens
+            resp = await self.client.post("/chat/completions", json=body)
             resp.raise_for_status()
             data = resp.json()
             choice = data["choices"][0]
@@ -58,21 +57,28 @@ class OpenAICompatibleProvider(LLMProvider):
             raise LLMProviderError(f"Failed to call LLM: {e!r}") from e
 
     async def chat_stream(
-        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int = 4096, **kwargs
+        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int | None = 4096, **kwargs
     ) -> AsyncIterator[LLMStreamChunk]:
-        """Streaming chat call."""
+        """Streaming chat call.
+
+        max_tokens=None 时不传该字段（不截断，模型用自身上限；思考链 enable_thinking=True
+        时思考可能很长，None 避免思考吃满 cap 导致答案空）。
+        同时捕获 delta.reasoning_content（qwen3 思考链）。
+        """
         try:
+            body: dict = {
+                "model": self.model,
+                "messages": [{"role": m.role, "content": m.content} for m in messages],
+                "temperature": temperature,
+                "stream": True,
+                **kwargs,
+            }
+            if max_tokens is not None:
+                body["max_tokens"] = max_tokens
             async with self.client.stream(
                 "POST",
                 "/chat/completions",
-                json={
-                    "model": self.model,
-                    "messages": [{"role": m.role, "content": m.content} for m in messages],
-                    "temperature": temperature,
-                    "max_tokens": max_tokens,
-                    "stream": True,
-                    **kwargs,
-                },
+                json=body,
             ) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -83,9 +89,11 @@ class OpenAICompatibleProvider(LLMProvider):
                     try:
                         chunk_data = json.loads(line[6:])
                         choice = chunk_data["choices"][0]
+                        delta = choice.get("delta", {})
                         yield LLMStreamChunk(
-                            content=choice["delta"].get("content", ""),
+                            content=delta.get("content", "") or "",
                             finish_reason=choice.get("finish_reason"),
+                            reasoning=delta.get("reasoning_content", "") or "",
                         )
                     except (json.JSONDecodeError, KeyError, IndexError) as e:
                         logger.warning(f"Failed to parse stream chunk: {e}")

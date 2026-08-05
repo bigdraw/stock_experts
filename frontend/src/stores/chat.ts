@@ -6,6 +6,7 @@ export interface ChatMessageData {
   id?: number
   role: 'user' | 'assistant' | 'system'
   content: string
+  reasoning?: string  // 思考链（enable_thinking，与正文分开，灰色可折叠展示）
   agents_used?: string[]
   stocks_detected?: string[]
   meta?: Record<string, any> | null
@@ -328,9 +329,17 @@ export const useChatStore = defineStore('chat', () => {
           } else if (ev === 'agent_token') {
             const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
             if (i != null) messages.value[i].content += data.delta
+          } else if (ev === 'agent_reasoning') {
+            // 思考链增量（灰色可折叠，与正文分开）
+            const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
+            if (i != null) messages.value[i].reasoning = (messages.value[i].reasoning || '') + data.delta
           } else if (ev === 'agent_done') {
             const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
-            if (i != null) { messages.value[i].content = data.content; messages.value[i].streaming = false }
+            if (i != null) {
+              messages.value[i].content = data.content
+              if (data.reasoning) messages.value[i].reasoning = data.reasoning
+              messages.value[i].streaming = false
+            }
           } else if (ev === 'agent_failed') {
             const i = agentMsgIdx.get(`${data.round_num}:${data.agent_id}`)
             if (i != null) {
@@ -345,13 +354,19 @@ export const useChatStore = defineStore('chat', () => {
               messages.value.push({ role: 'assistant', content: '', streaming: true, agents_used: ['总结'], meta: { round_type: 'summary' } })
               si = messages.value.length - 1
             } else {
-              messages.value[si].content = ''; messages.value[si].streaming = true; messages.value[si].error = false
+              messages.value[si].content = ''; messages.value[si].reasoning = ''; messages.value[si].streaming = true; messages.value[si].error = false
             }
             summaryIdx = si
+          } else if (ev === 'summary_reasoning') {
+            if (summaryIdx >= 0) messages.value[summaryIdx].reasoning = (messages.value[summaryIdx].reasoning || '') + data.delta
           } else if (ev === 'summary_token') {
             if (summaryIdx >= 0) messages.value[summaryIdx].content += data.delta
           } else if (ev === 'summary_done') {
-            if (summaryIdx >= 0) { messages.value[summaryIdx].content = data.content; messages.value[summaryIdx].streaming = false }
+            if (summaryIdx >= 0) {
+              messages.value[summaryIdx].content = data.content
+              if (data.reasoning) messages.value[summaryIdx].reasoning = data.reasoning
+              messages.value[summaryIdx].streaming = false
+            }
           } else if (ev === 'summary_failed') {
             if (summaryIdx >= 0) { messages.value[summaryIdx].streaming = false; messages.value[summaryIdx].error = true }
             stopped = true

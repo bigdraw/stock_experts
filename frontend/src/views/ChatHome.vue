@@ -63,9 +63,17 @@
                   <span class="debate-agent" :style="{ color: agentColor(msg.meta.agent_name || '') }">{{ msg.meta.agent_name }}</span>
                   <n-tag size="tiny" round>{{ roundLabel(msg.meta.round_type) }} · 第{{ msg.meta.round_num }}轮</n-tag>
                 </div>
+                <!-- 思考链（灰色可折叠，与正文区分；enable_thinking 产出） -->
+                <div v-if="reasoningText(msg)" class="reasoning-panel">
+                  <div class="reasoning-head" @click="toggleReasoning(i)">
+                    <span>🧠 思考链 · {{ reasoningText(msg).length }} 字{{ msg.streaming && !msg.content ? ' · 思考中…' : '' }}</span>
+                    <span class="reasoning-toggle">{{ isReasoningOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
+                  </div>
+                  <div v-if="isReasoningOpen(i)" class="reasoning-body">{{ reasoningText(msg) }}<span v-if="msg.streaming && !msg.content" class="cursor">▋</span></div>
+                </div>
                 <div class="assistant-content">
-                  <!-- 思考中：agent_start 后未到首 token → 脉动提示，区分"卡死/失败" -->
-                  <div v-if="msg.streaming && !msg.content" class="thinking">
+                  <!-- 思考中：未到首 reasoning/answer → 脉动提示 -->
+                  <div v-if="msg.streaming && !msg.content && !reasoningText(msg)" class="thinking">
                     <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
                     <span class="think-text">{{ msg.meta.agent_name }} 思考中…</span>
                   </div>
@@ -83,8 +91,15 @@
             <div v-else-if="msg.meta?.round_type === 'summary'" class="msg-row assistant">
               <div class="summary-bubble">
                 <div class="summary-head">📝 辩论总结</div>
+                <div v-if="reasoningText(msg)" class="reasoning-panel">
+                  <div class="reasoning-head" @click="toggleReasoning(i)">
+                    <span>🧠 思考链 · {{ reasoningText(msg).length }} 字{{ msg.streaming && !msg.content ? ' · 总结中…' : '' }}</span>
+                    <span class="reasoning-toggle">{{ isReasoningOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
+                  </div>
+                  <div v-if="isReasoningOpen(i)" class="reasoning-body">{{ reasoningText(msg) }}<span v-if="msg.streaming && !msg.content" class="cursor">▋</span></div>
+                </div>
                 <div class="assistant-content">
-                  <div v-if="msg.streaming && !msg.content" class="thinking">
+                  <div v-if="msg.streaming && !msg.content && !reasoningText(msg)" class="thinking">
                     <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
                     <span class="think-text">总结中…</span>
                   </div>
@@ -211,6 +226,12 @@ function roundLabel(t: string) { return ROUND_LABELS[t] || t }
 // FactBook 折叠态
 const factbookOpen = ref<Record<number, boolean>>({})
 function toggleFactbook(i: number) { factbookOpen.value[i] = !factbookOpen.value[i] }
+
+// 思考链折叠态（默认展开，可见；可手动收起）。reasoning 来自 msg.reasoning（流式）或 msg.meta.reasoning（回看）
+const reasoningOpen = ref<Record<number, boolean>>({})
+function reasoningText(msg: any): string { return msg.reasoning || msg.meta?.reasoning || '' }
+function toggleReasoning(i: number) { reasoningOpen.value[i] = !(reasoningOpen.value[i] ?? true) }
+function isReasoningOpen(i: number): boolean { return reasoningOpen.value[i] ?? true }
 
 // 辩论弹窗
 const showDebateModal = ref(false)
@@ -345,6 +366,23 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 }
 .msg-agents { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
 .assistant-content { color: var(--text-primary); font-size: 15px; line-height: 1.6; max-width: 100%; }
+/* 思考链（灰色可折叠，与正文区分；enable_thinking 产出） */
+.reasoning-panel {
+  border-left: 2px solid var(--border-medium); margin: 0 0 10px 4px; padding: 4px 0;
+  background: rgba(100, 116, 139, 0.06); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.reasoning-head {
+  display: flex; justify-content: space-between; align-items: center; cursor: pointer;
+  padding: 4px 10px; font-size: 12px; color: var(--text-tertiary); font-weight: 500;
+}
+.reasoning-head:hover { color: var(--text-secondary); }
+.reasoning-toggle { font-size: 11px; }
+.reasoning-body {
+  margin: 0 10px 6px; padding-top: 6px; border-top: 1px dashed var(--border-subtle);
+  color: var(--text-tertiary); font-size: 13px; line-height: 1.55; white-space: pre-wrap;
+  max-height: 360px; overflow-y: auto; word-wrap: break-word;
+}
+
 .cursor { color: var(--primary); animation: blink 1s infinite; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
 .retry-bar { margin-top: 8px; display: flex; align-items: center; gap: 8px; }

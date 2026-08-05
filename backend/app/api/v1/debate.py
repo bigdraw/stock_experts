@@ -196,15 +196,20 @@ async def _translate_debate_events(ev_gen, session_id: int, session, db) -> Asyn
             yield f"event: factbook_done\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
         elif t == "agent_start":
             yield f"event: agent_start\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
+        elif t == "agent_reasoning":
+            # 思考链增量（不单独落库，agent_done 时随 meta.reasoning 持久化）
+            yield f"event: agent_reasoning\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
         elif t == "agent_token":
             yield f"event: agent_token\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
         elif t == "agent_done":
             round_num = ev["round_num"]
+            meta = {"round_type": ev["round_type"], "round_num": ev["round_num"],
+                    "agent_id": ev["agent_id"], "agent_name": ev["agent_name"]}
+            if ev.get("reasoning"):
+                meta["reasoning"] = ev["reasoning"]  # 思考链随消息持久化（回看可见）
             db.add(ChatMessage(
                 session_id=session_id, role="assistant", content=ev["content"],
-                agents_used=[ev["agent_name"]],
-                meta={"round_type": ev["round_type"], "round_num": ev["round_num"],
-                      "agent_id": ev["agent_id"], "agent_name": ev["agent_name"]},
+                agents_used=[ev["agent_name"]], meta=meta,
             ))
             await db.commit()
             yield f"event: agent_done\ndata: {json.dumps(ev, ensure_ascii=False)}\n\n"
@@ -214,13 +219,17 @@ async def _translate_debate_events(ev_gen, session_id: int, session, db) -> Asyn
             return
         elif t == "summary_start":
             yield "event: summary_start\ndata: {}\n\n"
+        elif t == "summary_reasoning":
+            yield f"event: summary_reasoning\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"
         elif t == "summary_token":
             yield f"event: summary_token\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"
         elif t == "summary_done":
+            meta: dict = {"round_type": "summary", "round_num": round_num + 1}
+            if ev.get("reasoning"):
+                meta["reasoning"] = ev["reasoning"]
             db.add(ChatMessage(
                 session_id=session_id, role="assistant", content=ev["content"],
-                agents_used=["总结"],
-                meta={"round_type": "summary", "round_num": round_num + 1},
+                agents_used=["总结"], meta=meta,
             ))
             session.last_message_at = datetime.now()
             await db.commit()

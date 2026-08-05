@@ -25,10 +25,15 @@ class LLMResponse:
 
 @dataclass
 class LLMStreamChunk:
-    """Streaming chunk from LLM."""
+    """Streaming chunk from LLM.
+
+    content: 最终答案增量；reasoning: 思考链增量（qwen3 等模型的 delta.reasoning_content，
+    enable_thinking=True 时产出，与 content 分开流）。
+    """
 
     content: str
     finish_reason: str | None = None
+    reasoning: str = ""
 
 
 class LLMProvider(ABC):
@@ -36,14 +41,14 @@ class LLMProvider(ABC):
 
     @abstractmethod
     async def chat(
-        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int = 4096, **kwargs
+        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int | None = 4096, **kwargs
     ) -> LLMResponse:
         """Synchronous chat (returns complete response)."""
         ...
 
     @abstractmethod
     async def chat_stream(
-        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int = 4096, **kwargs
+        self, messages: list[LLMMessage], temperature: float = 0.7, max_tokens: int | None = 4096, **kwargs
     ) -> AsyncIterator[LLMStreamChunk]:
         """Streaming chat (yields chunks)."""
         ...
