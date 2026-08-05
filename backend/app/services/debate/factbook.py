@@ -499,10 +499,18 @@ class FactBook:
             roic = latest.get("roic")
             if roe is not None and roic is not None and roe > 0 and roic < 0:
                 warnings.append(f"ROE={roe} 为正但 ROIC={roic} 为负，回报可能依赖高杠杆而非经营")
-            # 盈利质量：OCF/净利润 <0.8 警惕
+            # 盈利质量：OCF/净利润——净利润≤0 时比值无意义
             eq = latest.get("earnings_quality")
-            if eq is not None and eq < 0.8:
+            net_profit = latest.get("net_profit")
+            if net_profit is not None and net_profit <= 0:
+                warnings.append(f"净利润为负({net_profit})，盈利质量 OCF/净利润={eq:.2f} 无参考意义")
+            elif eq is not None and eq < 0.8:
                 warnings.append(f"盈利质量 OCF/净利润={eq:.2f} <0.8，利润现金支撑偏弱")
+
+            # PE 对亏损公司无意义
+            pe = (facts.get("value_analysis", {}).get("valuation", {}) or {}).get("pe")
+            if pe is not None and pe < 0:
+                warnings.append(f"PE={pe:.1f} 为负（亏损公司，PE 无意义）")
 
         kl = facts.get("kline", {}) or {}
         if kl.get("_error"):

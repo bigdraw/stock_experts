@@ -205,14 +205,16 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         today_str = date.today().strftime("%Y-%m-%d")
         cutoff = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
         ttm_dps = 0.0
+        has_recent = False
         for d in dividends:
             dd = _div_date(d)
             if dd and cutoff <= dd <= today_str:
                 ttm_dps += d.get("dividend_per_share") or 0
-        # TTM 为 0（数据太旧/缺 ex_date）时退回最新单笔，避免误报 0
-        dps = ttm_dps or (dividends[0].get("dividend_per_share") or 0)
-        if dps:
-            valuation["dividend_yield"] = dps / price
+                has_recent = True
+        # 只用近 12 个月有分红时才算股息率——5 年前的旧分红不算（避免误报）
+        if has_recent and ttm_dps > 0:
+            valuation["dividend_yield"] = ttm_dps / price
+        # 无近 12 个月分红 → dividend_yield 不设（None），表示"当前无分红"
 
     return {
         "latest": latest,
@@ -221,4 +223,5 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         "trend": periods[-20:],
         "dividends": dividends[:20],
         "annual_count": len(annuals),
+        "dividend_count": len(dividends),
     }
