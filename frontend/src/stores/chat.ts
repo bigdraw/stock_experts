@@ -253,7 +253,7 @@ export const useChatStore = defineStore('chat', () => {
   // 直播辩论：在 chat 会话里流式渲染多 agent 气泡。agent 失败发 agent_failed 后
   // 后端暂停（不发 done），前端把该气泡标 error + 显示原地重试按钮；点重试调
   // resumeDebate 从失败处继续（已完成的 agent 跳过）。
-  async function startDebate(agentIds: number[], targetCode: string, targetName: string, rounds: number) {
+  async function startDebate(agentIds: number[], targetCode: string, targetName: string, rounds: number, validateData: boolean = false) {
     // 不清 messages——辩论用新会话，session 事件会切到新空 buffer；清当前会话 buffer 会丢别的对话
     streaming.value = true
     abortController = new AbortController()
@@ -262,7 +262,7 @@ export const useChatStore = defineStore('chat', () => {
       const res = await fetch('/api/v1/debate/start-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ agent_ids: agentIds, target_type: 'stock', target_id: targetCode, rounds }),
+        body: JSON.stringify({ agent_ids: agentIds, target_type: 'stock', target_id: targetCode, rounds, validate_data: validateData }),
         signal: abortController.signal,
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -309,6 +309,7 @@ export const useChatStore = defineStore('chat', () => {
     const agentMsgIdx = new Map<string, number>()
     let summaryIdx = -1
     let factbookIdx = -1
+    let validationIdx = -1
     let sessionId: number | null = null
     // buf = 辩论会话自己的消息缓冲（不随用户切会话变化）。流式只写 buf，
     // 可见 messages（computed）= currentSessionId 的缓冲——用户切走时 buf 继续后台填充，
@@ -369,6 +370,16 @@ export const useChatStore = defineStore('chat', () => {
             if (factbookIdx >= 0) buf[factbookIdx].content += data.delta
           } else if (ev === 'factbook_done') {
             if (factbookIdx >= 0) { buf[factbookIdx].content = data.content; buf[factbookIdx].streaming = false }
+          } else if (ev === 'validation_start') {
+            let vi = buf.findIndex(m => m.meta?.round_type === 'validation')
+            if (vi < 0) { buf.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'validation' } }); vi = buf.length - 1 }
+            validationIdx = vi
+          } else if (ev === 'validation_reasoning') {
+            if (validationIdx >= 0) buf[validationIdx].reasoning = (buf[validationIdx].reasoning || '') + data.delta
+          } else if (ev === 'validation_token') {
+            if (validationIdx >= 0) buf[validationIdx].content += data.delta
+          } else if (ev === 'validation_done') {
+            if (validationIdx >= 0) { buf[validationIdx].content = data.content; buf[validationIdx].streaming = false }
           } else if (ev === 'agent_start') {
             const key = `${data.round_num}:${data.agent_id}`
             const existIdx = isResume

@@ -38,9 +38,10 @@ class DebateResult:
 class DebateOrchestrator:
     """Orchestrate multi-agent debates with data injection + tool awareness."""
 
-    def __init__(self, llm: LLMProvider, db=None):
+    def __init__(self, llm: LLMProvider, db=None, validate_data: bool = False):
         self.llm = llm
         self.db = db
+        self.validate_data = validate_data
 
     async def run_debate(
         self,
@@ -109,6 +110,13 @@ class DebateOrchestrator:
                     context_data = ev.get("content", "")
             if not context_data:
                 context_data = FactBook().format(raw)  # 兜底
+            # 阶段1c（可选）：数据检验 agent —— 检验数据完整性/时效性/逻辑一致性
+            if self.validate_data:
+                async for ev in self._stream_validation_agent(raw, context_data, target_info):
+                    yield ev
+                    if ev.get("type") == "validation_done":
+                        # 检验报告追加到 context_data，投资agent 能看到
+                        context_data += f"\n\n--- 数据检验报告 ---\n{ev['content']}"
             history, completed, summary_done_flag = [], set(), False
 
         # 轮次模型：第 1..N-1 轮 = 辩论（analysis → challenge/response 交替），
@@ -249,6 +257,51 @@ class DebateOrchestrator:
             digest = FactBook().format(raw)
         yield {"type": "factbook_done", "content": digest}
 
+    async def _stream_validation_agent(self, raw: dict, digest: str, target: dict):
+        """数据检验 agent：在 fact-agent 之后、辩论轮次之前，检验数据完整性/时效性/逻辑一致性。
+
+        客观、不持投资观点。复用 FactBook._validate 的代码级检查结果作为输入。
+        流式产出 validation_start / validation_token / validation_done。
+        """
+        yield {"type": "validation_start"}
+        # 代码级校验结果作为输入
+        code_validation = raw.get("validation", {}) if isinstance(raw, dict) else {}
+        system = (
+            "你是一位**数据检验 agent**——客观中立，不持投资观点，不做买卖判断。"
+            "你的任务是检验以下 FactBook 数据（含事实agent整理的 digest + 原始 JSON + 代码级校验结果）"
+            "的完整性、时效性、逻辑一致性和数字矛盾。\n\n"
+            "检查要点：\n"
+            "- 完整性：关键指标（ROE/EPS/PE/PB/OCF/FCF 等）是否缺失\n"
+            "- 时效性：财报是否过期、K线是否有缺口\n"
+            "- 逻辑一致性：ROE vs ROIC、PE vs 增长率、分红率是否合理\n"
+            "- 数字矛盾：trend 序列里是否有突变/异常值（如 ROE 从 30% 突然变 -19%）\n"
+            "- 可信度评级：高/中/低（给出理由）\n\n"
+            "输出格式：\n"
+            "## 数据检验报告\n### 完整性\n### 时效性\n### 逻辑一致性\n### 数字矛盾\n### 可信度评级\n\n"
+            "只检验数据本身，不做投资分析。"
+        )
+        user = (
+            f"标的：{target.get('name', '')}（{target.get('code', '')}）\n\n"
+            f"--- 事实agent整理的 digest ---\n{digest}\n\n"
+            f"--- 代码级校验结果 ---\n{json.dumps(code_validation, ensure_ascii=False, default=str)}\n\n"
+            f"--- 原始数据（JSON）---\n{json.dumps(raw, ensure_ascii=False, default=str)}"
+        )
+        report = ""
+        try:
+            async for chunk in self.llm.chat_stream(
+                [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)],
+                max_tokens=None, enable_thinking=True,
+            ):
+                if chunk.reasoning:
+                    yield {"type": "validation_reasoning", "delta": chunk.reasoning}
+                if chunk.content:
+                    report += chunk.content
+                    yield {"type": "validation_token", "delta": chunk.content}
+        except Exception as e:
+            logger.exception(f"Validation agent failed: {e!r}")
+            report = f"[数据检验失败: {e!r}]"
+        yield {"type": "validation_done", "content": report}
+
     def _fact_agent_messages(self, raw: dict, target: dict) -> list[LLMMessage]:
         """事实 agent 的 LLM 消息：复用共享 FACT_AGENT_SYSTEM 提示词（不评价、只给数据）。"""
         system = FACT_AGENT_SYSTEM
@@ -275,7 +328,10 @@ class DebateOrchestrator:
             "--- 以上为统一事实基础，所有 agent 看到相同数据 ---\n"
             "--- 重要：行业/宏观/新闻数据已由 FactBook 自动采集，你无需也无法调用外部工具。"
             "直接基于已注入数据分析，禁止输出工具调用语法（如 tavily_search(...)、"
-            "web_search(...)），禁止模拟搜索/调用过程，直接给出分析结论。 ---"
+            "web_search(...)），禁止模拟搜索/调用过程，直接给出分析结论。 ---\n"
+            "--- 重要：FactBook 数据已经过事实agent整理，你无需验证数据可靠性或交叉核对数字。"
+            "直接基于数据做你的投资分析（可以做二次计算/推导/对比，但不要消耗篇幅去"
+            "核验数据来源/验算/质疑数据本身）。数据检验（如需）已在辩论前由专门的数据检验agent完成。 ---"
         )
         return system + tool_desc
 

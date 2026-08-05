@@ -57,6 +57,21 @@
             <div v-else-if="msg.meta?.round_type === 'error'" class="msg-row">
               <div class="error-bubble">{{ msg.content }}</div>
             </div>
+            <!-- 数据检验报告面板（可选，辩论前数据检验agent产出） -->
+            <div v-else-if="msg.meta?.round_type === 'validation'" class="msg-row">
+              <div class="factbook-panel">
+                <div class="factbook-head" @click="toggleFactbook(i)">
+                  <span>✅ 数据检验报告{{ msg.streaming ? ' · 检验中…' : '' }}</span>
+                  <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
+                </div>
+                <div v-if="factbookOpen[i]" class="factbook-body">
+                  <ReasoningPanel v-if="reasoningText(msg)" :reasoning="reasoningText(msg)" :streaming="msg.streaming" :has-content="!!msg.content" />
+                  <ThinkingDots v-if="msg.streaming && !msg.content && !reasoningText(msg)" text="数据检验中…" />
+                  <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
+                  <span v-if="msg.streaming && msg.content" class="cursor">▋</span>
+                </div>
+              </div>
+            </div>
             <!-- 检索结果面板（多 agent @mention 时 tavily 检索的可折叠展示） -->
             <div v-else-if="msg.meta?.round_type === 'search'" class="msg-row">
               <div class="factbook-panel">
@@ -190,6 +205,10 @@
         <n-form-item label="辩论轮数">
           <n-input-number v-model:value="debateRounds" :min="2" :max="5" />
         </n-form-item>
+        <n-form-item label="数据检验 agent">
+          <n-switch v-model:value="validateData" />
+          <span style="margin-left:8px; font-size:12px; color:var(--text-tertiary)">辩论前由数据检验agent检查完整性/时效性/逻辑一致性（可选）</span>
+        </n-form-item>
         <div class="debate-actions">
           <n-button @click="showDebateModal = false">取消</n-button>
           <n-button type="primary" :disabled="debateAgentIds.length < 2 || !debateCode" :loading="chatStore.streaming" @click="startDebate">开始辩论</n-button>
@@ -202,7 +221,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { NButton, NTag, NInput, NModal, NForm, NFormItem, NSelect, NAutoComplete, NInputNumber } from 'naive-ui'
+import { NButton, NTag, NInput, NModal, NForm, NFormItem, NSelect, NAutoComplete, NInputNumber, NSwitch } from 'naive-ui'
 import { useChatStore } from '../stores/chat'
 import { agentColor } from '../composables/useAgentColor'
 import ReasoningPanel from '../components/chat/ReasoningPanel.vue'
@@ -298,6 +317,7 @@ const debateStockOptions = ref<any[]>([])
 const debateSearching = ref(false)
 const debateSelectedStock = ref<Stock | null>(null)
 const debateRounds = ref(3)
+const validateData = ref(false)
 let debateSearchTimeout: ReturnType<typeof setTimeout> | null = null
 let debateSelecting = false
 
@@ -329,7 +349,7 @@ async function startDebate() {
   const name = debateSelectedStock.value?.name || code || ''
   if (debateAgentIds.value.length < 2 || !code) return
   showDebateModal.value = false
-  await chatStore.startDebate(debateAgentIds.value, code, name, debateRounds.value)
+  await chatStore.startDebate(debateAgentIds.value, code, name, debateRounds.value, validateData.value)
   await scrollToBottom()
 }
 

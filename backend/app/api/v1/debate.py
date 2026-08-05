@@ -112,7 +112,7 @@ async def start_debate_stream(
     """
     agents, target_info = await _prepare_debate(req, db, current_user)
     llm = llm_manager.get()
-    orchestrator = DebateOrchestrator(llm, db=db)
+    orchestrator = DebateOrchestrator(llm, db=db, validate_data=req.validate_data)
 
     # 建 debate 会话 + 存 user 消息（产物落库，支持回看）
     name = target_info.get("name", target_info.get("code", ""))
@@ -193,6 +193,19 @@ async def _translate_debate_events(ev_gen, session_id: int, session, db) -> Asyn
             ))
             await db.commit()
             yield f"event: factbook_done\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
+        elif t == "validation_start":
+            yield "event: validation_start\ndata: {}\n\n"
+        elif t == "validation_reasoning":
+            yield f"event: validation_reasoning\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"
+        elif t == "validation_token":
+            yield f"event: validation_token\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"
+        elif t == "validation_done":
+            db.add(ChatMessage(
+                session_id=session_id, role="system", content=ev["content"],
+                meta={"round_type": "validation"},
+            ))
+            await db.commit()
+            yield f"event: validation_done\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
         elif t == "factbook":  # 兼容旧的单事件 factbook
             db.add(ChatMessage(
                 session_id=session_id, role="system", content=ev["content"],

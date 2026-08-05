@@ -176,6 +176,7 @@ class DebateStartRequest(BaseModel):
     target_type: str = Field(..., min_length=1, description="目标类型不能为空")
     target_id: str = Field(..., min_length=1, description="目标ID不能为空")
     rounds: int = Field(3, gt=0, le=10, description="轮数必须在1-10之间")
+    validate_data: bool = Field(False, description="是否在辩论前运行数据检验agent")
 
 
 # --- Book ---
