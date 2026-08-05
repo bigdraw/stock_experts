@@ -239,20 +239,44 @@ async def chat_stream(
     # 5. 执行管线
     messages = await _pipeline.run(messages, ctx)
 
-    # 6. 流式 SSE
+    # 6. 流式 SSE（含 function-calling ReAct 循环：模型可调 tavily_search 真工具）
+    from app.services.llm.provider import LLMMessage
+    from app.services.llm.tools import DEBATE_TOOLS, execute_tool
+
     async def event_stream():
         full_response = ""
         try:
             llm = llm_manager.get()
-            async for chunk in llm.chat_stream([LLMMessage(role=m["role"], content=m["content"]) for m in messages]):
-                if chunk.content:
-                    full_response += chunk.content
-                    yield f"event: text\ndata: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"
+            llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
+            # ReAct 循环：模型调工具 → 执行 → 结果回灌 → 继续；最多 5 轮（含最终答案）
+            for _ in range(5):
+                tool_calls = None
+                turn_content = ""
+                async for chunk in llm.chat_stream(
+                    llm_messages, tools=DEBATE_TOOLS, enable_thinking=False,
+                ):
+                    if chunk.tool_calls:
+                        tool_calls = chunk.tool_calls
+                    if chunk.content:
+                        turn_content += chunk.content
+                        full_response += chunk.content
+                        yield f"event: text\ndata: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"
+                if not tool_calls:
+                    break  # 最终答案（已流式），结束
+                # 执行工具，结果回灌
+                llm_messages.append(LLMMessage(role="assistant", content=turn_content, tool_calls=tool_calls))
+                for tc in tool_calls:
+                    fn = tc.get("function", {}) or {}
+                    result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
+                    llm_messages.append(LLMMessage(
+                        role="tool", content=result, tool_call_id=tc.get("id", ""),
+                    ))
+                # 继续下一轮——模型拿工具结果产出最终答案（content）
             yield f"event: stop\ndata: {json.dumps({'reason': 'stop'})}\n\n"
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
             yield f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
-            full_response = f"[错误] {e}"
+            full_response = full_response or f"[错误] {e}"
         finally:
             if full_response:
                 assistant_msg = ChatMessage(

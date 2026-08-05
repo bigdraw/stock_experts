@@ -7,10 +7,17 @@ from dataclasses import dataclass
 
 @dataclass
 class LLMMessage:
-    """Single message in a conversation."""
+    """Single message in a conversation.
 
-    role: str  # system / user / assistant
+    role: system / user / assistant / tool。
+    tool_calls: assistant 调用工具（function-calling）时的调用列表。
+    tool_call_id: role=tool 的结果消息对应的调用 id（回灌给模型）。
+    """
+
+    role: str
     content: str
+    tool_calls: list | None = None
+    tool_call_id: str | None = None
 
 
 @dataclass
@@ -29,11 +36,14 @@ class LLMStreamChunk:
 
     content: 最终答案增量；reasoning: 思考链增量（qwen3 等模型的 delta.reasoning_content，
     enable_thinking=True 时产出，与 content 分开流）。
+    tool_calls: 本轮工具调用（function-calling）；流式增量累积后，流结束时一次性给出
+    完整 tool_calls 供调用方执行（见 openai_compatible.chat_stream）。
     """
 
     content: str
     finish_reason: str | None = None
     reasoning: str = ""
+    tool_calls: list = None
 
 
 class LLMProvider(ABC):

@@ -12,6 +12,16 @@ from app.utils.exceptions import LLMProviderError
 logger = logging.getLogger(__name__)
 
 
+def _msg_dict(m: LLMMessage) -> dict:
+    """LLMMessage → OpenAI API 消息 dict（支持 tool_calls / role=tool 回灌）。"""
+    d: dict = {"role": m.role, "content": m.content}
+    if m.tool_calls:
+        d["tool_calls"] = m.tool_calls
+    if m.tool_call_id:
+        d["tool_call_id"] = m.tool_call_id
+    return d
+
+
 class OpenAICompatibleProvider(LLMProvider):
     """OpenAI-compatible API provider (covers qwen/deepseek/openai etc)."""
 
@@ -35,7 +45,7 @@ class OpenAICompatibleProvider(LLMProvider):
         try:
             body: dict = {
                 "model": self.model,
-                "messages": [{"role": m.role, "content": m.content} for m in messages],
+                "messages": [_msg_dict(m) for m in messages],
                 "temperature": temperature,
                 "stream": False,
                 **kwargs,
@@ -68,7 +78,7 @@ class OpenAICompatibleProvider(LLMProvider):
         try:
             body: dict = {
                 "model": self.model,
-                "messages": [{"role": m.role, "content": m.content} for m in messages],
+                "messages": [_msg_dict(m) for m in messages],
                 "temperature": temperature,
                 "stream": True,
                 **kwargs,
@@ -81,6 +91,8 @@ class OpenAICompatibleProvider(LLMProvider):
                 json=body,
             ) as resp:
                 resp.raise_for_status()
+                # 流式 tool_calls 按 index 累积（args 跨多个 delta 分片到达）
+                tool_buffers: dict[int, dict] = {}
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -90,10 +102,19 @@ class OpenAICompatibleProvider(LLMProvider):
                         chunk_data = json.loads(line[6:])
                         choices = chunk_data.get("choices") or []
                         if not choices:
-                            # 空 choices chunk（usage 统计/心跳/末尾统计，qwen3/dashscope 偶发），
-                            # 无内容 delta——静默跳过（debug），不告警吓人。
-                            continue
+                            continue  # usage/心跳/末尾统计 chunk，静默跳过
                         delta = choices[0].get("delta", {}) or {}
+                        # 累积 tool_calls 分片（function-calling 流式）
+                        for tc in delta.get("tool_calls", []) or []:
+                            idx = tc.get("index", 0)
+                            buf = tool_buffers.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                            if tc.get("id"):
+                                buf["id"] = tc["id"]
+                            fn = tc.get("function", {}) or {}
+                            if fn.get("name"):
+                                buf["name"] = fn["name"]
+                            if fn.get("arguments"):
+                                buf["arguments"] += fn["arguments"]
                         yield LLMStreamChunk(
                             content=delta.get("content", "") or "",
                             finish_reason=choices[0].get("finish_reason"),
@@ -102,6 +123,14 @@ class OpenAICompatibleProvider(LLMProvider):
                     except (json.JSONDecodeError, KeyError, IndexError) as e:
                         logger.warning(f"Failed to parse stream chunk: {e}")
                         continue
+                # 流结束：若本轮有 tool_calls（模型要调工具），一次性给出完整列表供调用方执行
+                if tool_buffers:
+                    tcs = [
+                        {"id": b["id"], "type": "function",
+                         "function": {"name": b["name"], "arguments": b["arguments"]}}
+                        for b in tool_buffers.values()
+                    ]
+                    yield LLMStreamChunk(content="", finish_reason="tool_calls", tool_calls=tcs)
         except httpx.HTTPError as e:
             logger.error(f"LLM provider stream error: {e!r}")
             raise LLMProviderError(f"Failed to stream from LLM: {e!r}") from e
