@@ -56,6 +56,18 @@
             <div v-else-if="msg.meta?.round_type === 'error'" class="msg-row">
               <div class="error-bubble">{{ msg.content }}</div>
             </div>
+            <!-- 检索结果面板（多 agent @mention 时 tavily 检索的可折叠展示） -->
+            <div v-else-if="msg.meta?.round_type === 'search'" class="msg-row">
+              <div class="factbook-panel">
+                <div class="factbook-head" @click="toggleFactbook(i)">
+                  <span>🔍 检索结果{{ msg.streaming ? ' · 检索中…' : '' }}</span>
+                  <span class="factbook-toggle">{{ factbookOpen[i] ? '收起 ▲' : '展开 ▼' }}</span>
+                </div>
+                <div v-if="factbookOpen[i]" class="factbook-body">
+                  <MarkdownRenderer v-if="msg.content" :content="msg.content" />
+                </div>
+              </div>
+            </div>
             <!-- 辩论 agent 气泡（分析/质疑/回应） -->
             <div v-else-if="msg.meta?.round_type && msg.meta.round_type !== 'summary'" class="msg-row assistant">
               <div class="debate-bubble" :style="{ borderLeftColor: agentColor(msg.meta.agent_name || '') }">
@@ -140,16 +152,30 @@
               <n-tag v-for="a in selectedAgents" :key="a.id" closable size="small" @close="removeAgent(a.id)" type="info">{{ '@'+a.name }}</n-tag>
             </div>
           </div>
-          <div class="input-row">
-            <n-input
-              v-model:value="input"
-              type="textarea"
-              :autosize="{ minRows: 1, maxRows: 5 }"
-              placeholder="输入消息…  @ 指定 Agent"
-              @keydown.enter.exact.prevent="handleSend"
-              :bordered="false"
-              class="chat-input"
-            />
+          <div class="input-row input-row-mention">
+            <div class="mention-wrap">
+              <n-input
+                v-model:value="input"
+                ref="inputRef"
+                type="textarea"
+                :autosize="{ minRows: 1, maxRows: 5 }"
+                placeholder="输入消息… 输入 @ 触发 agent 选择"
+                @keydown="onInputKey"
+                @update:value="onInputChange"
+                :bordered="false"
+                class="chat-input"
+              />
+              <!-- @mention 浮动下拉 -->
+              <div v-if="mentionOpen" class="mention-pop">
+                <div v-for="(a, idx) in mentionMatches" :key="a.id"
+                  :class="['mention-item', { active: idx === mentionIdx }]"
+                  @click="selectMention(a)" @mouseenter="mentionIdx = idx">
+                  <span class="mention-name">{{ a.name }}</span>
+                  <span class="mention-desc">{{ a.type }}</span>
+                </div>
+                <div v-if="!mentionMatches.length" class="mention-empty">无匹配 agent</div>
+              </div>
+            </div>
             <n-button v-if="!chatStore.streaming" type="primary" @click="handleSend" :disabled="!input.trim()">发送</n-button>
             <n-button v-else type="error" @click="chatStore.stopStreaming()">停止</n-button>
           </div>
@@ -211,6 +237,61 @@ const msgList = ref<HTMLElement | null>(null)
 const agentList = ref<Agent[]>([])
 const selectedAgents = ref<Agent[]>([])
 const suggestions = ['分析 600519 的估值和盈利能力', '@巴菲特 茅台值不值得买', '分析我的投资组合风险']
+
+// @mention 自动补全：输入框打 @ → 浮动 agent 下拉，↑↓Enter/点击选中插入
+const inputRef = ref<any>(null)
+const mentionOpen = ref(false)
+const mentionMatches = ref<Agent[]>([])
+const mentionIdx = ref(0)
+const mentionAt = ref(0)  // @ 在输入串的位置（用于替换）
+
+function textareaEl(): HTMLTextAreaElement | null {
+  const el = inputRef.value?.$el as HTMLElement | undefined
+  return el ? el.querySelector('textarea') : null
+}
+function closeMention() { mentionOpen.value = false; mentionIdx.value = 0 }
+function onInputChange(val: string) {
+  const ta = textareaEl()
+  if (!ta) { closeMention(); return }
+  const caret = ta.selectionStart ?? val.length
+  const before = val.slice(0, caret)
+  const atIdx = before.lastIndexOf('@')
+  if (atIdx < 0 || (atIdx > 0 && !/\s/.test(before[atIdx - 1]))) { closeMention(); return }
+  const query = before.slice(atIdx + 1)
+  if (/\s/.test(query)) { closeMention(); return }
+  mentionAt.value = atIdx
+  mentionMatches.value = agentList.value
+    .filter(a => a.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8)
+  mentionIdx.value = 0
+  mentionOpen.value = mentionMatches.value.length > 0
+}
+function selectMention(a: Agent) {
+  const ta = textareaEl()
+  const caret = ta?.selectionStart ?? input.value.length
+  const atIdx = mentionAt.value
+  const before = input.value.slice(0, atIdx)
+  const after = input.value.slice(caret)
+  input.value = before + '@' + a.name + ' ' + after
+  closeMention()
+  nextTick(() => {
+    const t = textareaEl()
+    if (t) { const pos = atIdx + a.name.length + 2; t.setSelectionRange(pos, pos); t.focus() }
+  })
+}
+function onInputKey(e: KeyboardEvent) {
+  if (mentionOpen.value) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); mentionIdx.value = Math.min(mentionIdx.value + 1, mentionMatches.value.length - 1) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); mentionIdx.value = Math.max(mentionIdx.value - 1, 0) }
+    else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (mentionMatches.value[mentionIdx.value]) selectMention(mentionMatches.value[mentionIdx.value]) }
+    else if (e.key === 'Escape') { closeMention() }
+    return
+  }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); handleSend() }
+}
+function parseMentions(text: string): number[] {
+  const names = (text.match(/@(\S+)/g) || []).map(m => m.slice(1))
+  return agentList.value.filter(a => names.includes(a.name)).map(a => a.id)
+}
 
 const agentOptions = computed(() => agentList.value.map(a => ({ label: a.name, value: a.id })))
 
@@ -300,7 +381,11 @@ async function retryDebate() {
 async function handleSend() {
   if (!input.value.trim()) return
   const text = input.value; input.value = ''
-  await chatStore.sendMessage(text, selectedAgents.value.map(a => a.id))
+  closeMention()
+  // 优先用 @mention 解析出的 agent ids；否则用已选 selectedAgents
+  const ids = parseMentions(text)
+  const agentIds = ids.length ? ids : selectedAgents.value.map(a => a.id)
+  await chatStore.sendMessage(text, agentIds)
   await scrollToBottom()
 }
 // 滚动监听：判断用户是否贴底。距底 < 80px 视为贴底（流式时自动跟随），
@@ -434,6 +519,18 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .input-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .agent-tags { display: flex; flex-wrap: wrap; gap: 4px; }
 .input-row { display: flex; align-items: flex-end; gap: 8px; }
+.input-row-mention { position: relative; }
+.mention-wrap { flex: 1; position: relative; }
+.mention-pop {
+  position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 4px;
+  background: var(--bg-elevated); border: 1px solid var(--border-medium); border-radius: var(--radius-md);
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.3); max-height: 240px; overflow-y: auto; z-index: 100;
+}
+.mention-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; }
+.mention-item:hover, .mention-item.active { background: var(--bg-surface); }
+.mention-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.mention-desc { font-size: 11px; color: var(--text-tertiary); }
+.mention-empty { padding: 12px; text-align: center; color: var(--text-tertiary); font-size: 13px; }
 .chat-input {
   background: var(--bg-surface) !important; border-radius: var(--radius-md) !important;
   padding: 10px 16px !important; border: 1px solid var(--border-medium) !important; flex: 1;

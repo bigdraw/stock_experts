@@ -140,12 +140,8 @@ export const useChatStore = defineStore('chat', () => {
       if (!id) return
     }
     const sessionId = currentSessionId.value!
-
-    // 乐观追加 user 消息
-    messages.value.push({ role: 'user', content: text })
-    // 追加 assistant 占位
-    const assistantMsg: ChatMessageData = { role: 'assistant', content: '', streaming: true }
-    messages.value.push(assistantMsg)
+    const buf = bufOf(sessionId)
+    buf.push({ role: 'user', content: text })
 
     streaming.value = true
     abortController = new AbortController()
@@ -154,64 +150,95 @@ export const useChatStore = defineStore('chat', () => {
       const token = localStorage.getItem('token')
       const res = await fetch(`/api/v1/chat/sessions/${sessionId}/stream`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: text, agent_ids: agentIds }),
         signal: abortController.signal,
       })
-
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
-      let buffer = ''
+      let sseBuf = ''
 
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        let idx
-        while ((idx = buffer.indexOf('\n\n')) >= 0) {
-          const block = buffer.slice(0, idx)
-          buffer = buffer.slice(idx + 2)
-          const lines = block.split('\n')
-          const eventType = lines[0]?.replace('event: ', '') || ''
-          const dataStr = lines[1]?.replace('data: ', '') || '{}'
-          try {
-            const data = JSON.parse(dataStr)
-            if (eventType === 'text' && data.content) {
-              assistantMsg.content += data.content
-            } else if (eventType === 'stop') {
-              assistantMsg.streaming = false
-            } else if (eventType === 'error') {
-              assistantMsg.content += `\n\n⚠️ ${data.message}`
-              assistantMsg.streaming = false
-            }
-          } catch (e) {
-            console.error('SSE parse error', e)
+      // 多 agent @mention（≥2）→ 事件流为 agent_start/token/done/search_*；
+      // 单 agent → text 事件
+      if (agentIds.length >= 2) {
+        const agentIdx = new Map<number, number>()
+        let searchIdx = -1
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          sseBuf += decoder.decode(value, { stream: true })
+          let idx
+          while ((idx = sseBuf.indexOf('\n\n')) >= 0) {
+            const block = sseBuf.slice(0, idx); sseBuf = sseBuf.slice(idx + 2)
+            const lines = block.split('\n')
+            const ev = lines[0]?.replace('event: ', '') || ''
+            const dataStr = lines[1]?.replace('data: ', '') || '{}'
+            try {
+              const data = JSON.parse(dataStr)
+              if (ev === 'search_start') {
+                let si = buf.findIndex(m => m.meta?.round_type === 'search')
+                if (si < 0) { buf.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'search' } }); si = buf.length - 1 }
+                searchIdx = si
+              } else if (ev === 'search_done') {
+                if (searchIdx >= 0) { buf[searchIdx].content = data.content; buf[searchIdx].streaming = false }
+              } else if (ev === 'agent_start') {
+                buf.push({ role: 'assistant', content: '', streaming: true, agents_used: [data.agent_name],
+                  meta: { round_type: data.round_type || 'analysis', agent_id: data.agent_id, agent_name: data.agent_name, round_num: data.round_num || 1 } })
+                agentIdx.set(data.agent_id, buf.length - 1)
+              } else if (ev === 'agent_token') {
+                const i = agentIdx.get(data.agent_id); if (i != null) buf[i].content += data.delta
+              } else if (ev === 'agent_done') {
+                const i = agentIdx.get(data.agent_id)
+                if (i != null) { if (data.content) buf[i].content = data.content; buf[i].streaming = false }
+              } else if (ev === 'error') {
+                buf.push({ role: 'system', content: `⚠️ ${data.message || '出错'}`, meta: { round_type: 'error' } })
+              }
+            } catch (e) { console.error('SSE parse error', e) }
           }
         }
-      }
-      assistantMsg.streaming = false
-
-      // 更新侧边栏标题（如果是首条消息自动生成）
-      const session = sessions.value.find(s => s.id === sessionId)
-      if (session && session.title === '新对话') {
-        session.title = text.slice(0, 20) + (text.length > 20 ? '…' : '')
+      } else {
+        // 单 agent → text 事件
+        const assistantMsg: ChatMessageData = { role: 'assistant', content: '', streaming: true }
+        buf.push(assistantMsg)
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          sseBuf += decoder.decode(value, { stream: true })
+          let idx
+          while ((idx = sseBuf.indexOf('\n\n')) >= 0) {
+            const block = sseBuf.slice(0, idx); sseBuf = sseBuf.slice(idx + 2)
+            const lines = block.split('\n')
+            const eventType = lines[0]?.replace('event: ', '') || ''
+            const dataStr = lines[1]?.replace('data: ', '') || '{}'
+            try {
+              const data = JSON.parse(dataStr)
+              if (eventType === 'text' && data.content) {
+                assistantMsg.content += data.content
+              } else if (eventType === 'stop') {
+                assistantMsg.streaming = false
+              } else if (eventType === 'error') {
+                assistantMsg.content += `\n\n⚠️ ${data.message}`
+                assistantMsg.streaming = false
+              }
+            } catch (e) { console.error('SSE parse error', e) }
+          }
+        }
+        assistantMsg.streaming = false
+        // 自动生成标题
+        const session = sessions.value.find(s => s.id === sessionId)
+        if (session && session.title === '新对话') {
+          session.title = text.slice(0, 20) + (text.length > 20 ? '…' : '')
+        }
       }
     } catch (e: any) {
-      if (e.name === 'AbortError') {
-        assistantMsg.streaming = false
-      } else {
-        assistantMsg.content += `\n\n⚠️ ${e.message}`
-        assistantMsg.streaming = false
-        assistantMsg.error = true
+      if (e.name !== 'AbortError') {
+        buf.push({ role: 'system', content: `⚠️ ${e.message}`, meta: { round_type: 'error' } })
       }
     } finally {
       streaming.value = false
       abortController = null
+      await loadSessions()
     }
   }
 

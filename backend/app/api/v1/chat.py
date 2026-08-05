@@ -239,56 +239,98 @@ async def chat_stream(
     # 5. 执行管线
     messages = await _pipeline.run(messages, ctx)
 
-    # 6. 流式 SSE（含 function-calling ReAct 循环：模型可调 tavily_search 真工具）
+    # 6. 流式 SSE：多 agent（@mention ≥2）→ 一次 tavily 检索 + 每 agent 流式分析；
+    #    单 agent → function-calling ReAct（模型可调 tavily_search 真工具）
     from app.services.llm.provider import LLMMessage
-    from app.services.llm.tools import DEBATE_TOOLS, execute_tool
+    from app.services.llm.tools import DEBATE_TOOLS, execute_tool, tavily_search
 
     async def event_stream():
-        full_response = ""
         try:
             llm = llm_manager.get()
-            llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
-            # ReAct 循环：模型调工具 → 执行 → 结果回灌 → 继续；最多 5 轮（含最终答案）
-            for _ in range(5):
-                tool_calls = None
-                turn_content = ""
-                async for chunk in llm.chat_stream(
-                    llm_messages, tools=DEBATE_TOOLS, enable_thinking=False,
-                ):
-                    if chunk.tool_calls:
-                        tool_calls = chunk.tool_calls
-                    if chunk.content:
-                        turn_content += chunk.content
-                        full_response += chunk.content
-                        yield f"event: text\ndata: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"
-                if not tool_calls:
-                    break  # 最终答案（已流式），结束
-                # 执行工具，结果回灌
-                llm_messages.append(LLMMessage(role="assistant", content=turn_content, tool_calls=tool_calls))
-                for tc in tool_calls:
-                    fn = tc.get("function", {}) or {}
-                    result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
-                    llm_messages.append(LLMMessage(
-                        role="tool", content=result, tool_call_id=tc.get("id", ""),
+            if len(agents) >= 2:
+                # ── 多 agent @mention 流程 ──
+                # 1. 去 @名 → topic；若检索意图则一次 tavily 检索
+                topic = re.sub(r"@\S+", "", req.message).strip()
+                search_results = ""
+                if any(k in req.message for k in ("检索", "搜索", "最新", "补充", "查一下", "查询")):
+                    yield "event: search_start\ndata: {}\n\n"
+                    search_results = await tavily_search(topic or req.message, 5)
+                    yield f"event: search_done\ndata: {json.dumps({'content': search_results}, ensure_ascii=False)}\n\n"
+                    db.add(ChatMessage(session_id=session_id, role="system", content=search_results,
+                                       meta={"round_type": "search"}))
+                    await db.commit()
+                # 2. 上下文（近期对话摘要）
+                history_text = "\n\n".join(
+                    f"【{m['role']}】: {m['content'][:600]}" for m in messages[-8:] if m["role"] in ("user", "assistant")
+                )
+                # 3. 每 @agent 顺序流式分析
+                for ag in agents:
+                    yield f"event: agent_start\ndata: {json.dumps({'agent_id': ag.id, 'agent_name': ag.name, 'round_type': 'analysis', 'round_num': 1}, ensure_ascii=False)}\n\n"
+                    sys_prompt = (ag.system_prompt or "") + (
+                        "\n\n（检索结果与上下文已在下方提供，直接引用即可，无需调用外部工具）"
+                    )
+                    user_content = (
+                        f"用户问题：{req.message}\n\n上下文（近期对话）：\n{history_text}\n\n"
+                        f"检索结果：\n{search_results or '（本次未检索，结合上下文分析）'}\n\n"
+                        f"请基于你的投资理念，结合上下文与检索结果，对该问题给出补充分析。"
+                    )
+                    content = ""
+                    try:
+                        async for chunk in llm.chat_stream(
+                            [LLMMessage(role="system", content=sys_prompt),
+                             LLMMessage(role="user", content=user_content)],
+                            enable_thinking=False,
+                        ):
+                            if chunk.content:
+                                content += chunk.content
+                                yield f"event: agent_token\ndata: {json.dumps({'agent_id': ag.id, 'delta': chunk.content}, ensure_ascii=False)}\n\n"
+                    except Exception as e:
+                        logger.exception(f"Multi-agent {ag.name} stream error")
+                        content = f"[本 agent 调用失败: {e!r}]"
+                    yield f"event: agent_done\ndata: {json.dumps({'agent_id': ag.id, 'agent_name': ag.name, 'round_type': 'analysis', 'content': content}, ensure_ascii=False)}\n\n"
+                    db.add(ChatMessage(session_id=session_id, role="assistant", content=content,
+                                       agents_used=[ag.name],
+                                       meta={"round_type": "analysis", "agent_id": ag.id, "agent_name": ag.name}))
+                    await db.commit()
+                yield "event: done\ndata: {}\n\n"
+            else:
+                # ── 单 agent ReAct（function-calling）──
+                full_response = ""
+                llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
+                for _ in range(5):  # ReAct 最多 5 轮
+                    tool_calls = None
+                    turn_content = ""
+                    async for chunk in llm.chat_stream(
+                        llm_messages, tools=DEBATE_TOOLS, enable_thinking=False,
+                    ):
+                        if chunk.tool_calls:
+                            tool_calls = chunk.tool_calls
+                        if chunk.content:
+                            turn_content += chunk.content
+                            full_response += chunk.content
+                            yield f"event: text\ndata: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"
+                    if not tool_calls:
+                        break  # 最终答案（已流式）
+                    llm_messages.append(LLMMessage(role="assistant", content=turn_content, tool_calls=tool_calls))
+                    for tc in tool_calls:
+                        fn = tc.get("function", {}) or {}
+                        result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
+                        llm_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
+                yield f"event: stop\ndata: {json.dumps({'reason': 'stop'})}\n\n"
+                if full_response:
+                    db.add(ChatMessage(
+                        session_id=session_id, role="assistant", content=full_response,
+                        agents_used=[a.name for a in agents] or (["现代价值分析(默认)"] if default_agent else []),
+                        stocks_detected=stock_codes[:3], token_count=estimate_tokens(full_response),
                     ))
-                # 继续下一轮——模型拿工具结果产出最终答案（content）
-            yield f"event: stop\ndata: {json.dumps({'reason': 'stop'})}\n\n"
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
             yield f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
-            full_response = full_response or f"[错误] {e}"
         finally:
-            if full_response:
-                assistant_msg = ChatMessage(
-                    session_id=session_id, role="assistant", content=full_response,
-                    agents_used=[a.name for a in agents] or (["现代价值分析(默认)"] if default_agent else []),
-                    stocks_detected=stock_codes[:3], token_count=estimate_tokens(full_response),
-                )
-                db.add(assistant_msg)
-                session.last_message_at = datetime.now()
-                if session.title == "新对话":
-                    session.title = req.message[:20] + ("…" if len(req.message) > 20 else "")
-                await db.commit()
+            session.last_message_at = datetime.now()
+            if session.title == "新对话":
+                session.title = req.message[:20] + ("…" if len(req.message) > 20 else "")
+            await db.commit()
 
     return StreamingResponse(event_stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
