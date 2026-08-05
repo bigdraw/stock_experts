@@ -204,9 +204,9 @@ export const useChatStore = defineStore('chat', () => {
           }
         }
       } else {
-        // 单 agent → text 事件
-        const assistantMsg: ChatMessageData = { role: 'assistant', content: '', streaming: true }
-        buf.push(assistantMsg)
+        // 单 agent → text 事件（用 buf[idx] 而非局部变量，确保 Vue 响应式）
+        buf.push({ role: 'assistant' as const, content: '', streaming: true })
+        const aiIdx = buf.length - 1
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
@@ -220,19 +220,20 @@ export const useChatStore = defineStore('chat', () => {
             try {
               const data = JSON.parse(dataStr)
               if (eventType === 'text' && data.content) {
-                assistantMsg.content += data.content
+                buf[aiIdx].content += data.content
               } else if (eventType === 'reasoning' && data.delta) {
-                assistantMsg.reasoning = (assistantMsg.reasoning || '') + data.delta
+                buf[aiIdx].reasoning = (buf[aiIdx].reasoning || '') + data.delta
               } else if (eventType === 'stop') {
-                assistantMsg.streaming = false
+                buf[aiIdx].streaming = false
               } else if (eventType === 'error') {
-                assistantMsg.content += `\n\n⚠️ ${data.message}`
-                assistantMsg.streaming = false
+                buf[aiIdx].content += `\n\n⚠️ ${data.message}`
+                buf[aiIdx].streaming = false
+                buf[aiIdx].error = true
               }
             } catch (e) { console.error('SSE parse error', e) }
           }
         }
-        assistantMsg.streaming = false
+        buf[aiIdx].streaming = false
         // 自动生成标题
         const session = sessions.value.find(s => s.id === sessionId)
         if (session && session.title === '新对话') {
