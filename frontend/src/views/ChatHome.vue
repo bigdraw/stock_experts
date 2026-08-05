@@ -127,9 +127,21 @@
             <!-- 普通 chat assistant 气泡 -->
             <div v-else class="msg-row assistant">
               <div v-if="msg.agents_used?.length" class="msg-agents">{{ msg.agents_used.map(a => '@'+a).join(' ') }}</div>
+              <!-- 思考链（灰色可折叠，与辩论一致） -->
+              <div v-if="reasoningText(msg)" class="reasoning-panel">
+                <div class="reasoning-head" @click="toggleReasoning(i)">
+                  <span>🧠 思考链 · {{ reasoningText(msg).length }} 字{{ msg.streaming && !msg.content ? ' · 思考中…' : '' }}</span>
+                  <span class="reasoning-toggle">{{ isReasoningOpen(i) ? '收起 ▲' : '展开 ▼' }}</span>
+                </div>
+                <div v-if="isReasoningOpen(i)" class="reasoning-body">{{ reasoningText(msg) }}<span v-if="msg.streaming && !msg.content" class="cursor">▋</span></div>
+              </div>
               <div class="assistant-content">
-                <MarkdownRenderer v-if="msg.content" :content="msg.content" />
-                <span v-if="msg.streaming" class="cursor">▋</span>
+                <div v-if="msg.streaming && !msg.content && !reasoningText(msg)" class="thinking">
+                  <span class="think-dot" /> <span class="think-dot" /> <span class="think-dot" />
+                  <span class="think-text">思考中…</span>
+                </div>
+                <MarkdownRenderer v-else-if="msg.content" :content="msg.content" />
+                <span v-if="msg.streaming && msg.content" class="cursor">▋</span>
               </div>
               <div v-if="msg.error && !msg.streaming" class="retry-bar">
                 <n-button size="small" type="primary" secondary @click="handleRetry">重试</n-button>

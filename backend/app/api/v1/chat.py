@@ -267,14 +267,18 @@ async def chat_stream(
                     LLMMessage(role="user", content=f"用户问题：{req.message}\n\n近期对话上下文：\n{history_text}"),
                 ]
                 data_summary = ""
+                fact_reasoning = ""
                 for _ in range(5):  # ReAct 最多 5 轮（检索+消化）
                     tool_calls = None
                     turn_content = ""
                     async for chunk in llm.chat_stream(
-                        fact_messages, tools=DEBATE_TOOLS, enable_thinking=False,
+                        fact_messages, tools=DEBATE_TOOLS, max_tokens=None, enable_thinking=True,
                     ):
                         if chunk.tool_calls:
                             tool_calls = chunk.tool_calls
+                        if chunk.reasoning:
+                            fact_reasoning += chunk.reasoning
+                            yield f"event: factbook_reasoning\ndata: {json.dumps({'delta': chunk.reasoning}, ensure_ascii=False)}\n\n"
                         if chunk.content:
                             turn_content += chunk.content
                             data_summary += chunk.content
@@ -286,7 +290,7 @@ async def chat_stream(
                         fn = tc.get("function", {}) or {}
                         result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
                         fact_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
-                yield f"event: factbook_done\ndata: {json.dumps({'content': data_summary}, ensure_ascii=False)}\n\n"
+                yield f"event: factbook_done\ndata: {json.dumps({'content': data_summary, 'reasoning': fact_reasoning}, ensure_ascii=False)}\n\n"
                 db.add(ChatMessage(session_id=session_id, role="system", content=data_summary,
                                    meta={"round_type": "factbook"}))
                 await db.commit()
@@ -303,36 +307,46 @@ async def chat_stream(
                         f"请基于你的投资理念，结合数据摘要与上下文，对该问题给出补充分析。"
                     )
                     content = ""
+                    reasoning = ""
                     try:
                         async for chunk in llm.chat_stream(
                             [LLMMessage(role="system", content=sys_prompt),
                              LLMMessage(role="user", content=user_content)],
-                            enable_thinking=False,
+                            max_tokens=None, enable_thinking=True,
                         ):
+                            if chunk.reasoning:
+                                reasoning += chunk.reasoning
+                                yield f"event: agent_reasoning\ndata: {json.dumps({'agent_id': ag.id, 'delta': chunk.reasoning}, ensure_ascii=False)}\n\n"
                             if chunk.content:
                                 content += chunk.content
                                 yield f"event: agent_token\ndata: {json.dumps({'agent_id': ag.id, 'delta': chunk.content}, ensure_ascii=False)}\n\n"
                     except Exception as e:
                         logger.exception(f"Multi-agent {ag.name} stream error")
                         content = f"[本 agent 调用失败: {e!r}]"
-                    yield f"event: agent_done\ndata: {json.dumps({'agent_id': ag.id, 'agent_name': ag.name, 'round_type': 'analysis', 'content': content}, ensure_ascii=False)}\n\n"
+                    yield f"event: agent_done\ndata: {json.dumps({'agent_id': ag.id, 'agent_name': ag.name, 'round_type': 'analysis', 'content': content, 'reasoning': reasoning}, ensure_ascii=False)}\n\n"
+                    _meta: dict = {"round_type": "analysis", "agent_id": ag.id, "agent_name": ag.name}
+                    if reasoning:
+                        _meta["reasoning"] = reasoning
                     db.add(ChatMessage(session_id=session_id, role="assistant", content=content,
-                                       agents_used=[ag.name],
-                                       meta={"round_type": "analysis", "agent_id": ag.id, "agent_name": ag.name}))
+                                       agents_used=[ag.name], meta=_meta))
                     await db.commit()
                 yield "event: done\ndata: {}\n\n"
             else:
                 # ── 单 agent ReAct（function-calling）──
                 full_response = ""
                 llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
+                full_reasoning = ""
                 for _ in range(5):  # ReAct 最多 5 轮
                     tool_calls = None
                     turn_content = ""
                     async for chunk in llm.chat_stream(
-                        llm_messages, tools=DEBATE_TOOLS, enable_thinking=False,
+                        llm_messages, tools=DEBATE_TOOLS, max_tokens=None, enable_thinking=True,
                     ):
                         if chunk.tool_calls:
                             tool_calls = chunk.tool_calls
+                        if chunk.reasoning:
+                            full_reasoning += chunk.reasoning
+                            yield f"event: reasoning\ndata: {json.dumps({'delta': chunk.reasoning}, ensure_ascii=False)}\n\n"
                         if chunk.content:
                             turn_content += chunk.content
                             full_response += chunk.content
@@ -346,10 +360,14 @@ async def chat_stream(
                         llm_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
                 yield f"event: stop\ndata: {json.dumps({'reason': 'stop'})}\n\n"
                 if full_response:
+                    _sa_meta: dict = {}
+                    if full_reasoning:
+                        _sa_meta["reasoning"] = full_reasoning
                     db.add(ChatMessage(
                         session_id=session_id, role="assistant", content=full_response,
                         agents_used=[a.name for a in agents] or (["现代价值分析(默认)"] if default_agent else []),
                         stocks_detected=stock_codes[:3], token_count=estimate_tokens(full_response),
+                        meta=_sa_meta,
                     ))
         except Exception as e:
             logger.error(f"Chat stream error: {e}")

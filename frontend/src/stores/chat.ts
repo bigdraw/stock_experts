@@ -177,23 +177,26 @@ export const useChatStore = defineStore('chat', () => {
             try {
               const data = JSON.parse(dataStr)
               if (ev === 'factbook_start') {
-                // 数据获取 agent 开始检索+消化
                 let si = buf.findIndex(m => m.meta?.round_type === 'factbook')
                 if (si < 0) { buf.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'factbook' } }); si = buf.length - 1 }
                 searchIdx = si
+              } else if (ev === 'factbook_reasoning') {
+                if (searchIdx >= 0) buf[searchIdx].reasoning = (buf[searchIdx].reasoning || '') + data.delta
               } else if (ev === 'factbook_token') {
                 if (searchIdx >= 0) buf[searchIdx].content += data.delta
               } else if (ev === 'factbook_done') {
-                if (searchIdx >= 0) { buf[searchIdx].content = data.content; buf[searchIdx].streaming = false }
+                if (searchIdx >= 0) { buf[searchIdx].content = data.content; if (data.reasoning) buf[searchIdx].reasoning = data.reasoning; buf[searchIdx].streaming = false }
               } else if (ev === 'agent_start') {
                 buf.push({ role: 'assistant', content: '', streaming: true, agents_used: [data.agent_name],
                   meta: { round_type: data.round_type || 'analysis', agent_id: data.agent_id, agent_name: data.agent_name, round_num: data.round_num || 1 } })
                 agentIdx.set(data.agent_id, buf.length - 1)
+              } else if (ev === 'agent_reasoning') {
+                const i = agentIdx.get(data.agent_id); if (i != null) buf[i].reasoning = (buf[i].reasoning || '') + data.delta
               } else if (ev === 'agent_token') {
                 const i = agentIdx.get(data.agent_id); if (i != null) buf[i].content += data.delta
               } else if (ev === 'agent_done') {
                 const i = agentIdx.get(data.agent_id)
-                if (i != null) { if (data.content) buf[i].content = data.content; buf[i].streaming = false }
+                if (i != null) { if (data.content) buf[i].content = data.content; if (data.reasoning) buf[i].reasoning = data.reasoning; buf[i].streaming = false }
               } else if (ev === 'error') {
                 buf.push({ role: 'system', content: `⚠️ ${data.message || '出错'}`, meta: { round_type: 'error' } })
               }
@@ -218,6 +221,8 @@ export const useChatStore = defineStore('chat', () => {
               const data = JSON.parse(dataStr)
               if (eventType === 'text' && data.content) {
                 assistantMsg.content += data.content
+              } else if (eventType === 'reasoning' && data.delta) {
+                assistantMsg.reasoning = (assistantMsg.reasoning || '') + data.delta
               } else if (eventType === 'stop') {
                 assistantMsg.streaming = false
               } else if (eventType === 'error') {
