@@ -25,5 +25,21 @@ if [ $rc -ne 0 ]; then
     echo ""
     echo "pre-commit 纪律检查未通过，commit 已中止。修复后重试。" >&2
     echo "(若需跳过本次检查: git commit --no-verify)" >&2
+    exit $rc
 fi
-exit $rc
+
+# 前端验证（固化测试标准）：有 frontend/ 文件 staged 时跑 vue-tsc + build
+# 独立检查退出码，不用 tail 截断——防止 CSS 错误被 chunk warning 掩盖
+STAGED_FRONTEND=$(git diff --cached --name-only --diff-filter=ACM | grep "^frontend/" | head -1)
+if [ -n "$STAGED_FRONTEND" ]; then
+    echo "--- 前端验证（vue-tsc + build）---"
+    bash scripts/verify-frontend.sh
+    fe_rc=$?
+    if [ $fe_rc -ne 0 ]; then
+        echo "前端验证未通过，commit 已中止。" >&2
+        echo "(跳过: git commit --no-verify)" >&2
+        exit $fe_rc
+    fi
+fi
+
+exit 0
