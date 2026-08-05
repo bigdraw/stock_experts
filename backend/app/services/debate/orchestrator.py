@@ -287,12 +287,14 @@ class DebateOrchestrator:
             f"--- 原始数据（JSON）---\n{json.dumps(raw, ensure_ascii=False, default=str)}"
         )
         report = ""
+        reasoning = ""
         try:
             async for chunk in self.llm.chat_stream(
                 [LLMMessage(role="system", content=system), LLMMessage(role="user", content=user)],
                 max_tokens=None, enable_thinking=True,
             ):
                 if chunk.reasoning:
+                    reasoning += chunk.reasoning
                     yield {"type": "validation_reasoning", "delta": chunk.reasoning}
                 if chunk.content:
                     report += chunk.content
@@ -300,7 +302,7 @@ class DebateOrchestrator:
         except Exception as e:
             logger.exception(f"Validation agent failed: {e!r}")
             report = f"[数据检验失败: {e!r}]"
-        yield {"type": "validation_done", "content": report}
+        yield {"type": "validation_done", "content": report, "reasoning": reasoning}
 
     def _fact_agent_messages(self, raw: dict, target: dict) -> list[LLMMessage]:
         """事实 agent 的 LLM 消息：复用共享 FACT_AGENT_SYSTEM 提示词（不评价、只给数据）。"""

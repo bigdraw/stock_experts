@@ -379,7 +379,7 @@ export const useChatStore = defineStore('chat', () => {
           } else if (ev === 'validation_token') {
             if (validationIdx >= 0) buf[validationIdx].content += data.delta
           } else if (ev === 'validation_done') {
-            if (validationIdx >= 0) { buf[validationIdx].content = data.content; buf[validationIdx].streaming = false }
+            if (validationIdx >= 0) { buf[validationIdx].content = data.content; if (data.reasoning) buf[validationIdx].reasoning = data.reasoning; buf[validationIdx].streaming = false }
           } else if (ev === 'agent_start') {
             const key = `${data.round_num}:${data.agent_id}`
             const existIdx = isResume

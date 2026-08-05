@@ -200,12 +200,15 @@ async def _translate_debate_events(ev_gen, session_id: int, session, db) -> Asyn
         elif t == "validation_token":
             yield f"event: validation_token\ndata: {json.dumps({'delta': ev['delta']}, ensure_ascii=False)}\n\n"
         elif t == "validation_done":
+            _vmeta: dict = {"round_type": "validation"}
+            if ev.get("reasoning"):
+                _vmeta["reasoning"] = ev["reasoning"]
             db.add(ChatMessage(
                 session_id=session_id, role="system", content=ev["content"],
-                meta={"round_type": "validation"},
+                meta=_vmeta,
             ))
             await db.commit()
-            yield f"event: validation_done\ndata: {json.dumps({'content': ev['content']}, ensure_ascii=False)}\n\n"
+            yield f"event: validation_done\ndata: {json.dumps({'content': ev['content'], 'reasoning': ev.get('reasoning', '')}, ensure_ascii=False)}\n\n"
         elif t == "factbook":  # 兼容旧的单事件 factbook
             db.add(ChatMessage(
                 session_id=session_id, role="system", content=ev["content"],
