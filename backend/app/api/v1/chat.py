@@ -242,37 +242,63 @@ async def chat_stream(
     # 6. 流式 SSE：多 agent（@mention ≥2）→ 一次 tavily 检索 + 每 agent 流式分析；
     #    单 agent → function-calling ReAct（模型可调 tavily_search 真工具）
     from app.services.llm.provider import LLMMessage
-    from app.services.llm.tools import DEBATE_TOOLS, execute_tool, tavily_search
+    from app.services.llm.tools import DEBATE_TOOLS, execute_tool
 
     async def event_stream():
         try:
             llm = llm_manager.get()
             if len(agents) >= 2:
-                # ── 多 agent @mention 流程 ──
-                # 1. 去 @名 → topic；若检索意图则一次 tavily 检索
-                topic = re.sub(r"@\S+", "", req.message).strip()
-                search_results = ""
-                if any(k in req.message for k in ("检索", "搜索", "最新", "补充", "查一下", "查询")):
-                    yield "event: search_start\ndata: {}\n\n"
-                    search_results = await tavily_search(topic or req.message, 5)
-                    yield f"event: search_done\ndata: {json.dumps({'content': search_results}, ensure_ascii=False)}\n\n"
-                    db.add(ChatMessage(session_id=session_id, role="system", content=search_results,
-                                       meta={"round_type": "search"}))
-                    await db.commit()
-                # 2. 上下文（近期对话摘要）
+                # ── 多 agent @mention 流程（同辩论结构：数据 agent → 投资 agent）──
                 history_text = "\n\n".join(
                     f"【{m['role']}】: {m['content'][:600]}" for m in messages[-8:] if m["role"] in ("user", "assistant")
                 )
-                # 3. 每 @agent 顺序流式分析
+
+                # 1. 数据获取 agent（LLM + tavily function-calling ReAct）：按用户问题主动检索+消化成数据摘要
+                yield "event: factbook_start\ndata: {}\n\n"
+                fact_system = (
+                    "你是一位客观中立的**数据获取 agent**——不持投资观点，不做买卖判断。"
+                    "根据用户问题，调用 tavily_search 获取必要的背景信息（公司/行业/宏观/分红/财报/价格等），"
+                    "然后整理成结构化数据摘要供投资大师引用。只列数据与事实，不评价。"
+                )
+                fact_messages = [
+                    LLMMessage(role="system", content=fact_system),
+                    LLMMessage(role="user", content=f"用户问题：{req.message}\n\n近期对话上下文：\n{history_text}"),
+                ]
+                data_summary = ""
+                for _ in range(5):  # ReAct 最多 5 轮（检索+消化）
+                    tool_calls = None
+                    turn_content = ""
+                    async for chunk in llm.chat_stream(
+                        fact_messages, tools=DEBATE_TOOLS, enable_thinking=False,
+                    ):
+                        if chunk.tool_calls:
+                            tool_calls = chunk.tool_calls
+                        if chunk.content:
+                            turn_content += chunk.content
+                            data_summary += chunk.content
+                            yield f"event: factbook_token\ndata: {json.dumps({'delta': chunk.content}, ensure_ascii=False)}\n\n"
+                    if not tool_calls:
+                        break
+                    fact_messages.append(LLMMessage(role="assistant", content=turn_content, tool_calls=tool_calls))
+                    for tc in tool_calls:
+                        fn = tc.get("function", {}) or {}
+                        result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
+                        fact_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
+                yield f"event: factbook_done\ndata: {json.dumps({'content': data_summary}, ensure_ascii=False)}\n\n"
+                db.add(ChatMessage(session_id=session_id, role="system", content=data_summary,
+                                   meta={"round_type": "factbook"}))
+                await db.commit()
+
+                # 2. 每 @agent 顺序流式分析（基于数据摘要 + 上下文）
                 for ag in agents:
                     yield f"event: agent_start\ndata: {json.dumps({'agent_id': ag.id, 'agent_name': ag.name, 'round_type': 'analysis', 'round_num': 1}, ensure_ascii=False)}\n\n"
                     sys_prompt = (ag.system_prompt or "") + (
-                        "\n\n（检索结果与上下文已在下方提供，直接引用即可，无需调用外部工具）"
+                        "\n\n（数据摘要已在下方提供，直接引用即可，无需调用外部工具）"
                     )
                     user_content = (
-                        f"用户问题：{req.message}\n\n上下文（近期对话）：\n{history_text}\n\n"
-                        f"检索结果：\n{search_results or '（本次未检索，结合上下文分析）'}\n\n"
-                        f"请基于你的投资理念，结合上下文与检索结果，对该问题给出补充分析。"
+                        f"用户问题：{req.message}\n\n数据摘要（数据 agent 整理）：\n{data_summary or '（无）'}\n\n"
+                        f"上下文（近期对话）：\n{history_text}\n\n"
+                        f"请基于你的投资理念，结合数据摘要与上下文，对该问题给出补充分析。"
                     )
                     content = ""
                     try:

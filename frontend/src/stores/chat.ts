@@ -176,11 +176,14 @@ export const useChatStore = defineStore('chat', () => {
             const dataStr = lines[1]?.replace('data: ', '') || '{}'
             try {
               const data = JSON.parse(dataStr)
-              if (ev === 'search_start') {
-                let si = buf.findIndex(m => m.meta?.round_type === 'search')
-                if (si < 0) { buf.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'search' } }); si = buf.length - 1 }
+              if (ev === 'factbook_start') {
+                // 数据获取 agent 开始检索+消化
+                let si = buf.findIndex(m => m.meta?.round_type === 'factbook')
+                if (si < 0) { buf.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'factbook' } }); si = buf.length - 1 }
                 searchIdx = si
-              } else if (ev === 'search_done') {
+              } else if (ev === 'factbook_token') {
+                if (searchIdx >= 0) buf[searchIdx].content += data.delta
+              } else if (ev === 'factbook_done') {
                 if (searchIdx >= 0) { buf[searchIdx].content = data.content; buf[searchIdx].streaming = false }
               } else if (ev === 'agent_start') {
                 buf.push({ role: 'assistant', content: '', streaming: true, agents_used: [data.agent_name],
