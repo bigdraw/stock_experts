@@ -109,7 +109,8 @@ class DebateOrchestrator:
                 summary = ""
                 try:
                     async for chunk in self.llm.chat_stream(
-                        self._summarize_messages(agents, target_info, history, context_data), max_tokens=8192
+                        self._summarize_messages(agents, target_info, history, context_data),
+                        max_tokens=8192, enable_thinking=False,
                     ):
                         if chunk.content:
                             summary += chunk.content
@@ -141,26 +142,37 @@ class DebateOrchestrator:
                 # 不是 history[-1]（那会是当前正在建的轮，只有前面 agent 的发言）。
                 messages = self._build_agent_messages(agent, round_type, round_num, target_info, context_data, history)
                 content, finish_reason, last_err = "", None, None
+                # enable_thinking=False：qwen3 思考模式会把 reasoning_content 单独流，
+                # 思考太长会吃满 max_tokens 导致 delta.content 为空（finish_reason=length），
+                # 表现为"agent 回复为空"。辩论要答案不要思考链，关 thinking 出直接答案。
                 for attempt in range(3):
                     content, finish_reason = "", None
                     try:
-                        async for chunk in self.llm.chat_stream(messages, max_tokens=8192):
+                        async for chunk in self.llm.chat_stream(
+                            messages, max_tokens=8192, enable_thinking=False,
+                        ):
                             if chunk.content:
                                 content += chunk.content
                                 yield {"type": "agent_token", "round_num": round_num + 1,
                                        "agent_id": agent["id"], "delta": chunk.content}
                             if chunk.finish_reason:
                                 finish_reason = chunk.finish_reason
-                        last_err = None
-                        break
+                        if content:
+                            last_err = None
+                            break  # 有内容，成功
+                        # 空内容（思考吃满/模型未产出答案）→ 软失败重试
+                        last_err = ValueError(f"空内容（finish={finish_reason}），可能思考吃满 max_tokens")
+                        logger.warning(f"Agent {agent['name']} {round_type} attempt {attempt + 1}/3 empty content")
+                        continue
                     except Exception as e:
                         last_err = e
                         logger.warning(f"Agent {agent['name']} {round_type} attempt {attempt + 1}/3 failed: {e!r}")
                         if content:
-                            break
+                            break  # 已有部分输出，保留不重试
                         continue
-                if last_err and not content:
-                    logger.exception(f"Agent {agent['name']} {round_type} gave up; emit agent_failed + pause")
+                if not content:
+                    # 3 次都没产出内容（空/失败）→ 显式 agent_failed，可原地重试，不留空泡
+                    logger.exception(f"Agent {agent['name']} {round_type} no content after retries")
                     yield {
                         "type": "agent_failed", "round_num": round_num + 1, "round_type": round_type,
                         "agent_id": agent["id"], "agent_name": agent["name"],
@@ -205,7 +217,7 @@ class DebateOrchestrator:
         digest = ""
         try:
             messages = self._fact_agent_messages(raw, target)
-            async for chunk in self.llm.chat_stream(messages, max_tokens=4096):
+            async for chunk in self.llm.chat_stream(messages, max_tokens=4096, enable_thinking=False):
                 if chunk.content:
                     digest += chunk.content
                     yield {"type": "factbook_token", "delta": chunk.content}
