@@ -124,8 +124,8 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         if len(annuals) < years + 1:
             return None
         s, e = annuals[-(years + 1)].get(field), annuals[-1].get(field)
-        # 基期 ≤0 或被压抑（终值 >20× 基期，多源于困境年微利/近零基数）→ CAGR 无意义
-        if not s or not e or s <= 0 or e > 20 * s:
+        # 基期或终期 ≤0 → CAGR 无意义（负数开根号产生复数）
+        if not s or not e or s <= 0 or e <= 0 or e > 20 * s:
             return None
         return (e / s) ** (1 / years) - 1
 
@@ -186,8 +186,9 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         if market_cap and ttm_fcf is not None:
             valuation["fcf_yield"] = ttm_fcf / market_cap
         # Graham number = sqrt(22.5 * EPS_ttm * BVPS)；EPS 用 TTM，BVPS 用最新期末
+        # EPS/BVPS ≤ 0 时 sqrt 负数会返回复数 → 跳过
         ttm_eps = _ttm("eps")
-        if ttm_eps and latest.get("bps"):
+        if ttm_eps and ttm_eps > 0 and latest.get("bps") and latest["bps"] > 0:
             valuation["graham_number"] = (22.5 * ttm_eps * latest["bps"]) ** 0.5
 
     # 6. 分红 + 股息率（TTM 口径：近 12 个月除权分红之和 / 最新价）

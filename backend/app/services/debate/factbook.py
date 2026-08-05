@@ -487,6 +487,11 @@ class FactBook:
             # 完整性
             if latest.get("roe") is None:
                 warnings.append("ROE 缺失")
+            elif latest.get("roe") is not None and abs(latest.get("roe", 0)) < 0.02:
+                # ROE <2% 可能是季报值（Q1 ROE ~3-8% 看起来像年化的 1/4）
+                rd = latest.get("report_date", "")
+                if rd and not rd.endswith("12-31"):
+                    warnings.append(f"ROE={latest.get('roe'):.4f} 偏低，可能是季报值（report_date={rd}），非年化")
             if latest.get("eps") is None:
                 warnings.append("EPS 缺失")
             # 逻辑一致性：ROE vs ROIC——高 ROE 但低/负 ROIC 提示杠杆撑起的虚假回报

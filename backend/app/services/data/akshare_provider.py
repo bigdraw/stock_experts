@@ -712,15 +712,40 @@ class AkShareProvider(DataProvider):
             _restore_proxy(original_proxy)
 
     async def get_dividends(self, code: str) -> list[dict]:
-        """取分红历史（派息比例等）。code 为 '600519' 形式。"""
+        """取分红历史（派息比例等）。code 为 '600519' 形式。
+
+        主源 stock_dividend_cninfo；空时备选 stock_history_dividend_detail。
+        """
         async with self._semaphore:
             try:
                 df = await asyncio.to_thread(self._fetch_dividends_sync, code)
             except Exception as e:
-                logger.error(f"Failed to fetch dividends for {code}: {e}")
-                return []
-            if len(df) == 0:
-                return []
+                logger.error(f"Failed to fetch dividends(cninfo) for {code}: {e}")
+                df = None
+            if df is None or len(df) == 0:
+                # 备选源：stock_history_dividend_detail（部分公司 cninfo 没有但这里有）
+                try:
+                    df = await asyncio.to_thread(self._fetch_dividends_detail_sync, code)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch dividends(detail) for {code}: {e}")
+                    return []
+                if df is None or len(df) == 0:
+                    return []
+                # detail 源列名不同：每10股派息/除权除息日
+                out = []
+                for _, row in df.iterrows():
+                    payout = _parse_cn_number(row.get("每10股派息(税前)")) or _parse_cn_number(row.get("每股派息额"))
+                    per_share = round(payout / 10, 4) if payout and "每10股" in str(row.index) else (round(payout, 4) if payout else None)
+                    if per_share is None and payout:
+                        per_share = round(payout / 10, 4)  # 默认按每10股处理
+                    out.append({
+                        "announce_date": str(row.get("公告日", "")),
+                        "dividend_per_share": per_share,
+                        "stock_div_ratio": None,
+                        "convert_ratio": None,
+                        "ex_date": str(row.get("除权除息日", "")),
+                    })
+                return out
             out = []
             for _, row in df.iterrows():
                 # akshare stock_dividend_cninfo 的"派息比例"= 每10股派息额（税前，元）
@@ -740,6 +765,15 @@ class AkShareProvider(DataProvider):
         original_proxy = _bypass_proxy()
         try:
             return ak.stock_dividend_cninfo(symbol=code)
+        finally:
+            _restore_proxy(original_proxy)
+
+    def _fetch_dividends_detail_sync(self, code: str):
+        """备选分红源：stock_history_dividend_detail（部分公司 cninfo 无数据但有）。"""
+        original_proxy = _bypass_proxy()
+        try:
+            prefix = "sh" if code[:1] in ("6", "9") else "sz"
+            return ak.stock_history_dividend_detail(symbol=f"{prefix}{code}")
         finally:
             _restore_proxy(original_proxy)
 
