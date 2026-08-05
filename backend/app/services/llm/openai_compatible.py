@@ -88,11 +88,15 @@ class OpenAICompatibleProvider(LLMProvider):
                         break
                     try:
                         chunk_data = json.loads(line[6:])
-                        choice = chunk_data["choices"][0]
-                        delta = choice.get("delta", {})
+                        choices = chunk_data.get("choices") or []
+                        if not choices:
+                            # 空 choices chunk（usage 统计/心跳/末尾统计，qwen3/dashscope 偶发），
+                            # 无内容 delta——静默跳过（debug），不告警吓人。
+                            continue
+                        delta = choices[0].get("delta", {}) or {}
                         yield LLMStreamChunk(
                             content=delta.get("content", "") or "",
-                            finish_reason=choice.get("finish_reason"),
+                            finish_reason=choices[0].get("finish_reason"),
                             reasoning=delta.get("reasoning_content", "") or "",
                         )
                     except (json.JSONDecodeError, KeyError, IndexError) as e:
