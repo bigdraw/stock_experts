@@ -581,5 +581,197 @@ async def test_resume_refused_while_background_running():
             pass
 
 
+# --- Hard-stop tests (POST /debate/sessions/{id}/stop) ---
+
+async def _stop_setup():
+    """Fresh temp DB + owner + other-user + agents + stock + auth tokens.
+    Clears the module-level debate sets. Returns (engine, factory, db_path,
+    owner_token, other_token, debate_mod)."""
+    from app.api.v1 import debate as debate_mod
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp.name}", future=True)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with factory() as db:
+        db.add(User(username="stop_owner", email="so@so.com",
+                    password_hash=hash_password("pw"), role="user", is_active=True))
+        db.add(User(username="stop_other", email="st@st.com",
+                    password_hash=hash_password("pw"), role="user", is_active=True))
+        db.add(Agent(id=1, name="A", type="master", system_prompt="A", description=""))
+        db.add(Agent(id=2, name="B", type="master", system_prompt="B", description=""))
+        db.add(Stock(code="600519", name="贵州茅台", market="SH", is_active=True))
+        await db.commit()
+
+    async def _gdb():
+        async with factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except BaseException:
+                try:
+                    await session.rollback()
+                except BaseException:
+                    pass
+                raise
+
+    app.dependency_overrides[get_db] = _gdb
+    debate_mod._running_debates.clear()
+    debate_mod._background_tasks.clear()
+    debate_mod._stop_requested.clear()
+
+    tokens = {}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        for name in ("stop_owner", "stop_other"):
+            r = await c.post("/api/v1/auth/login", json={"username": name, "password": "pw"})
+            tokens[name] = r.json().get("access_token")
+    return engine, factory, tmp.name, tokens["stop_owner"], tokens["stop_other"], debate_mod
+
+
+async def _stop_teardown(engine, db_path, debate_mod, orig_gen, orig_get):
+    DebateOrchestrator.run_debate_stream = orig_gen
+    llm_mod.llm_manager.get = orig_get
+    app.dependency_overrides.clear()
+    debate_mod._running_debates.clear()
+    debate_mod._background_tasks.clear()
+    debate_mod._stop_requested.clear()
+    await engine.dispose()
+    try:
+        os.unlink(db_path)
+    except OSError:
+        pass
+
+
+async def test_debate_stop_sets_flag_and_ownership():
+    """POST /stop sets _stop_requested (live hard-stop flag) and enforces
+    ownership + debate-type."""
+    engine, factory, db_path, owner, other, dm = await _stop_setup()
+    orig_gen, orig_get = DebateOrchestrator.run_debate_stream, llm_mod.llm_manager.get
+    DebateOrchestrator.run_debate_stream = _fake_run_debate_stream
+    llm_mod.llm_manager.get = lambda: type("L", (), {})()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            oh = {"Authorization": f"Bearer {owner}"}
+            r = await c.post("/api/v1/debate/start-stream", headers=oh,
+                             json={"agent_ids": [1, 2], "target_type": "stock",
+                                   "target_id": "600519", "rounds": 1})
+            sid = None
+            for block in r.text.split("\n\n"):
+                lines = block.strip().split("\n")
+                if len(lines) >= 2 and lines[0].replace("event: ", "") == "session":
+                    sid = __import__("json").loads(lines[1].replace("data: ", "")).get("session_id")
+            assert sid is not None
+
+            # Owner stop -> sets flag.
+            r = await c.post(f"/api/v1/debate/sessions/{sid}/stop", headers=oh)
+            assert r.status_code == 200
+            assert r.json().get("status") == "stop_requested"
+            assert sid in dm._stop_requested
+
+            # Other user -> ownership error (no status leak).
+            r = await c.post(f"/api/v1/debate/sessions/{sid}/stop",
+                             headers={"Authorization": f"Bearer {other}"})
+            body = r.json()
+            assert "error" in body and "status" not in body, body
+
+            # Non-debate (chat) session -> type error.
+            r = await c.post("/api/v1/chat/sessions", json={"title": "chat", "agent_ids": []}, headers=oh)
+            chat_sid = r.json().get("id")
+            r = await c.post(f"/api/v1/debate/sessions/{chat_sid}/stop", headers=oh)
+            assert "error" in r.json()
+    finally:
+        await _stop_teardown(engine, db_path, dm, orig_gen, orig_get)
+
+
+async def test_debate_stop_cancels_background_task():
+    """POST /stop cancels a registered background continuation task for the
+    session (navigate-away-then-stop)."""
+    engine, factory, db_path, owner, _other, dm = await _stop_setup()
+    orig_gen, orig_get = DebateOrchestrator.run_debate_stream, llm_mod.llm_manager.get
+    DebateOrchestrator.run_debate_stream = _fake_run_debate_stream
+    llm_mod.llm_manager.get = lambda: type("L", (), {})()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            oh = {"Authorization": f"Bearer {owner}"}
+            r = await c.post("/api/v1/debate/start-stream", headers=oh,
+                             json={"agent_ids": [1, 2], "target_type": "stock",
+                                   "target_id": "600519", "rounds": 1})
+            sid = None
+            for block in r.text.split("\n\n"):
+                lines = block.strip().split("\n")
+                if len(lines) >= 2 and lines[0].replace("event: ", "") == "session":
+                    sid = __import__("json").loads(lines[1].replace("data: ", "")).get("session_id")
+            assert sid is not None
+
+            # Simulate a background continuation task in flight. Mirrors the
+            # real _finish_debate_background: does NOT catch CancelledError
+            # (its `except Exception` is BaseException-blind), so cancel propagates
+            # and the task ends .cancelled(); the finally clears _running_debates.
+            async def _bg_sim(sid=sid):
+                try:
+                    await asyncio.sleep(100)
+                finally:
+                    dm._running_debates.discard(sid)
+
+            task = asyncio.create_task(_bg_sim())
+            dm._background_tasks[sid] = task
+            dm._running_debates.add(sid)
+
+            def _on_done(_t, sid=sid):
+                dm._background_tasks.pop(sid, None)
+            task.add_done_callback(_on_done)
+
+            r = await c.post(f"/api/v1/debate/sessions/{sid}/stop", headers=oh)
+            assert r.json().get("status") == "stop_requested"
+
+            # task cancelled + dicts/sets cleared (done_callback + finally).
+            async def _wait():
+                while sid in dm._background_tasks or sid in dm._running_debates:
+                    if task.done():
+                        break
+                    await asyncio.sleep(0.01)
+            await asyncio.wait_for(_wait(), timeout=2.0)
+            assert task.done() and task.cancelled()
+            assert sid not in dm._background_tasks
+            assert sid not in dm._running_debates
+    finally:
+        await _stop_teardown(engine, db_path, dm, orig_gen, orig_get)
+
+
+async def test_debate_cancel_with_stop_flag_does_not_spawn_background():
+    """With _stop_requested pre-set, the CancelledError handler hard-stops
+    (commit, no background spawn) instead of continuing in background."""
+    engine, factory, db_path, owner, _other, dm = await _stop_setup()
+    orig_gen, orig_get = DebateOrchestrator.run_debate_stream, llm_mod.llm_manager.get
+    DebateOrchestrator.run_debate_stream = _cancel_after_round1_stream
+    llm_mod.llm_manager.get = lambda: type("L", (), {})()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            oh = {"Authorization": f"Bearer {owner}"}
+            # Fresh DB → first ChatSession id=1 (predictable). Pre-set the flag
+            # so the CancelledError handler (fired by _cancel_after_round1_stream)
+            # takes the hard-stop branch.
+            dm._stop_requested.add(1)
+            r = await c.post("/api/v1/debate/start-stream", headers=oh,
+                             json={"agent_ids": [1, 2], "target_type": "stock",
+                                   "target_id": "600519", "rounds": 1})
+            assert r.status_code == 200
+
+            # Hard stop: NO background task spawned.
+            assert dm._background_tasks == {}, "stop flag should suppress background spawn"
+            assert 1 not in dm._running_debates
+            assert 1 not in dm._stop_requested  # consumed by the handler
+
+            # The round-1 agent_done was still committed (hard stop commits).
+            r = await c.get("/api/v1/chat/sessions/1", headers=oh)
+            msgs = r.json().get("messages", [])
+            assert any(m["role"] == "assistant" and (m.get("meta") or {}).get("round_num") == 1
+                       for m in msgs), "round-1 agent_done should be persisted"
+    finally:
+        await _stop_teardown(engine, db_path, dm, orig_gen, orig_get)
+
+
 if __name__ == "__main__":
     sys.exit(0 if asyncio.run(_main()) == 0 and asyncio.run(_cancel_main()) == 0 and asyncio.run(_resume_main()) == 0 else 1)

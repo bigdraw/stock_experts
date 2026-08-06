@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import apiClient, { handleStreamAuthFailure } from '../api/client'
 import { isContinueIntent, planDebateRecovery } from '../composables/useDebateRecovery'
+import { shouldPostStop } from '../composables/useStopStreaming'
 
 export interface ChatMessageData {
   id?: number
@@ -496,6 +497,12 @@ export const useChatStore = defineStore('chat', () => {
       if (sessionId != null) {
         streamingSessions.value[sessionId] = false
         abortControllers.delete(sessionId)
+        // Hard-stop / disconnect may leave an in-flight agent/factbook/summary
+        // bubble with streaming===true (no agent_done arrived). Clear so the
+        // spinner doesn't spin forever (audit ISSUE-030 in-flight永真).
+        for (const m of buf) {
+          if (m.streaming) m.streaming = false
+        }
       }
     }
     return sessionId
@@ -515,12 +522,25 @@ export const useChatStore = defineStore('chat', () => {
     await sendMessage(lastUser.content, agentIds)
   }
 
-  function stopStreaming() {
-    // Abort the CURRENT session's stream (ISSUE-030: per-session controllers).
+  async function stopStreaming() {
     const sid = currentSessionId.value
-    if (sid != null) {
-      abortControllers.get(sid)?.abort()
+    if (sid == null) return
+    const session = sessions.value.find(s => s.id === sid)
+    // Hard-stop (ISSUE: 停止按钮硬停): for a debate session, POST /stop BEFORE
+    // aborting so the backend CancelledError handler sees the _stop_requested
+    // flag and commits-without-spawning-background (true stop). Without this,
+    // abort alone triggers ISSUE-015 background continuation and the debate
+    // keeps running server-side. Chat sessions have no background continuation,
+    // so a bare abort fully stops them.
+    if (shouldPostStop(session?.type)) {
+      try {
+        await apiClient.post(`/debate/sessions/${sid}/stop`)
+      } catch (e) {
+        // Network/404 — proceed to abort anyway; worst case the background runs.
+        console.error('debate /stop failed', e)
+      }
     }
+    abortControllers.get(sid)?.abort()
   }
 
   // Exported so ChatHome can gate sendMessage on a continue-intent without

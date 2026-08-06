@@ -33,8 +33,15 @@ ROUND_TYPE_LABELS = {"analysis": "独立分析", "challenge": "质疑", "respons
 # write duplicate ChatMessages / hit SQLite "database is locked").
 _running_debates: set[int] = set()
 # Strong references to background debate tasks so the event loop doesn't GC them
-# mid-execution (ISSUE-022 / asyncio.create_task footgun).
-_background_tasks: set[asyncio.Task] = set()
+# mid-execution (ISSUE-022 / asyncio.create_task footgun). Keyed by session_id
+# so POST /debate/sessions/{id}/stop can cancel a specific session's background
+# continuation (hard-stop).
+_background_tasks: dict[int, asyncio.Task] = {}
+# Sessions the user explicitly stopped via POST /stop. The event_stream
+# CancelledError handler checks this: if set, commit what's done but do NOT
+# spawn background continuation (hard stop); otherwise navigate-away still
+# continues in the background (ISSUE-015).
+_stop_requested: set[int] = set()
 
 
 async def _prepare_debate(req: DebateStartRequest, db: AsyncSession, current_user: User):
@@ -161,24 +168,43 @@ async def start_debate_stream(
             ):
                 yield sse
         except asyncio.CancelledError:
-            # 用户切页面（非点停止）→ SSE 连接断 → 不 rollback+stop，而是 commit+后台续跑
-            logger.info(f"Debate stream: client disconnect (session {session_id}); committing + background continuation")
-            try:
-                await db.commit()  # 保留已完成的 agent_done/factbook（不 rollback）
-            except Exception:
-                pass
-            # 后台续跑：用 resume 机制从已落库 messages 重建 → 继续到完成/暂停。
-            # Claim the session so a concurrent resume-stream can't race the
-            # background task (double-write / SQLite lock) — ISSUE-022.
-            if session_id not in _running_debates:
-                _running_debates.add(session_id)
-                task = asyncio.create_task(
-                    _finish_debate_background(session_id, agents, target_info, req.rounds)
-                )
-                # Hold a strong reference so the loop doesn't GC the task
-                # mid-execution (ISSUE-022 / asyncio.create_task footgun).
-                _background_tasks.add(task)
-                task.add_done_callback(_background_tasks.discard)
+            # Frontend disconnect — either the user clicked 停止 (POST /stop set
+            # _stop_requested) or navigated away. Branch on the flag:
+            if session_id in _stop_requested:
+                # Hard stop (ISSUE: 停止按钮硬停): commit what's done but do NOT
+                # spawn background continuation — the user wants it to actually
+                # stop, not keep running server-side.
+                logger.info(f"Debate stream: hard stop requested (session {session_id}); committing without background")
+                _stop_requested.discard(session_id)
+                try:
+                    await db.commit()
+                except Exception:
+                    pass
+            else:
+                # Navigate-away (ISSUE-015): commit + background continuation so
+                # the debate keeps running server-side and the user sees the
+                # result when they return.
+                logger.info(f"Debate stream: client disconnect (session {session_id}); committing + background continuation")
+                try:
+                    await db.commit()  # 保留已完成的 agent_done/factbook（不 rollback）
+                except Exception:
+                    pass
+                # 后台续跑：用 resume 机制从已落库 messages 重建 → 继续到完成/暂停。
+                # Claim the session so a concurrent resume-stream can't race the
+                # background task (double-write / SQLite lock) — ISSUE-022.
+                if session_id not in _running_debates:
+                    _running_debates.add(session_id)
+                    task = asyncio.create_task(
+                        _finish_debate_background(session_id, agents, target_info, req.rounds)
+                    )
+                    # Hold a strong reference so the loop doesn't GC the task
+                    # mid-execution (ISSUE-022 / asyncio.create_task footgun).
+                    _background_tasks[session_id] = task
+
+                    def _on_done(_t, sid=session_id):
+                        _background_tasks.pop(sid, None)
+
+                    task.add_done_callback(_on_done)
             # NOTE: CancelledError is intentionally NOT re-raised here. The
             # documented behaviour is "commit + background continuation": the
             # live SSE response ends cleanly (200) with already-committed
@@ -461,3 +487,34 @@ async def resume_debate_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/sessions/{session_id}/stop")
+async def stop_debate(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Hard-stop a live or background debate for this session.
+
+    The frontend 停止 button calls this BEFORE aborting the SSE fetch, so the
+    live ``event_stream`` CancelledError handler sees ``session_id`` in
+    ``_stop_requested`` and commits-without-spawning-background (true stop,
+    not the navigate-away "continue in background" of ISSUE-015). If a
+    background continuation task is already running (user navigated away then
+    stopped), it is cancelled here.
+
+    Navigate-away alone (no /stop) is unaffected → background continuation.
+    """
+    session = await db.get(ChatSession, session_id)
+    if not session or session.user_id != current_user.id or (session.type or "chat") != "debate":
+        return {"error": "辩论会话不存在"}
+
+    _stop_requested.add(session_id)
+
+    task = _background_tasks.get(session_id)
+    if task is not None and not task.done():
+        task.cancel()  # CancelledError propagates into _finish_debate_background;
+        # its finally clears _running_debates; the done_callback pops _background_tasks.
+
+    return {"status": "stop_requested"}
