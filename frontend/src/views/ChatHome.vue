@@ -99,7 +99,7 @@
                 </div>
                 <div v-if="msg.error && !msg.streaming" class="retry-bar">
                   <n-tag size="tiny" type="error" round>调用失败</n-tag>
-                  <n-button size="small" type="primary" secondary :loading="chatStore.streaming" @click="retryDebate">原地重试</n-button>
+                  <n-button size="small" type="primary" secondary :loading="chatStore.currentSessionStreaming" @click="retryDebate">原地重试</n-button>
                 </div>
               </div>
             </div>
@@ -115,7 +115,7 @@
                 </div>
                 <div v-if="msg.error && !msg.streaming" class="retry-bar">
                   <n-tag size="tiny" type="error" round>总结失败</n-tag>
-                  <n-button size="small" type="primary" secondary :loading="chatStore.streaming" @click="retryDebate">原地重试</n-button>
+                  <n-button size="small" type="primary" secondary :loading="chatStore.currentSessionStreaming" @click="retryDebate">原地重试</n-button>
                 </div>
               </div>
             </div>
@@ -173,7 +173,7 @@
                 <div v-if="!mentionMatches.length" class="mention-empty">无匹配 agent</div>
               </div>
             </div>
-            <n-button v-if="!chatStore.streaming" type="primary" @click="handleSend" :disabled="!input.trim()">发送</n-button>
+            <n-button v-if="!chatStore.currentSessionStreaming" type="primary" @click="handleSend" :disabled="!input.trim()">发送</n-button>
             <n-button v-else type="error" @click="chatStore.stopStreaming()">停止</n-button>
           </div>
         </div>
@@ -211,7 +211,7 @@
         </n-form-item>
         <div class="debate-actions">
           <n-button @click="showDebateModal = false">取消</n-button>
-          <n-button type="primary" :disabled="debateAgentIds.length < 2 || !debateCode" :loading="chatStore.streaming" @click="startDebate">开始辩论</n-button>
+          <n-button type="primary" :disabled="debateAgentIds.length < 2 || !debateCode" :loading="debateSubmitting" @click="startDebate">开始辩论</n-button>
         </div>
       </n-form>
     </n-modal>
@@ -319,6 +319,10 @@ const debateSearching = ref(false)
 const debateSelectedStock = ref<Stock | null>(null)
 const debateRounds = ref(3)
 const validateData = ref(false)
+// ISSUE-030: local submit flag for the debate modal only — brief, just for
+// click feedback. NOT tied to global streaming so a 2nd debate can start while
+// another streams in parallel (each debate owns its own session/stream).
+const debateSubmitting = ref(false)
 let debateSearchTimeout: ReturnType<typeof setTimeout> | null = null
 let debateSelecting = false
 
@@ -349,8 +353,15 @@ async function startDebate() {
   const code = debateSelectedStock.value?.code
   const name = debateSelectedStock.value?.name || code || ''
   if (debateAgentIds.value.length < 2 || !code) return
+  if (debateSubmitting.value) return  // prevent double-click
   showDebateModal.value = false
-  await chatStore.startDebate(debateAgentIds.value, code, name, debateRounds.value, validateData.value)
+  debateSubmitting.value = true
+  // Fire-and-forget: startDebate runs the whole stream but we don't await it
+  // here — the per-session streaming flag + ThinkingDots drive the in-flight
+  // UI, and not awaiting lets the user start/switch debates in parallel.
+  chatStore.startDebate(debateAgentIds.value, code, name, debateRounds.value, validateData.value)
+    .catch(e => console.error('startDebate failed', e))
+    .finally(() => { debateSubmitting.value = false })
   await scrollToBottom()
 }
 

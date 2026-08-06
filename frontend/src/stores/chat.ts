@@ -39,8 +39,19 @@ export const useChatStore = defineStore('chat', () => {
   const messages = computed<ChatMessageData[]>(() =>
     currentSessionId.value != null ? (messagesBySession.value[currentSessionId.value] || []) : []
   )
-  const streaming = ref(false)
-  let abortController: AbortController | null = null
+  // Per-session streaming state (ISSUE-030 fix): a single global `streaming`
+  // flag + single abortController serialized every stream (couldn't start a
+  // 2nd debate while one ran) AND let selectSession overwrite an in-flight
+  // buffer on switch-back (live tokens then wrote to an orphaned array →
+  // "messages disappear until I switch back and an agent renders"). Now each
+  // session tracks its own streaming flag + AbortController, so debates run in
+  // parallel and switching sessions never clobbers a live buffer.
+  const streamingSessions = ref<Record<number, boolean>>({})
+  const abortControllers = new Map<number, AbortController>()
+  const streaming = computed(() => Object.values(streamingSessions.value).some(Boolean))
+  const currentSessionStreaming = computed(
+    () => currentSessionId.value != null && !!streamingSessions.value[currentSessionId.value]
+  )
 
   const currentSession = computed(() => sessions.value.find(s => s.id === currentSessionId.value) || null)
 
@@ -48,12 +59,15 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const res = await apiClient.get('/chat/sessions')
       sessions.value = res.data
-      // 从 localStorage 恢复 currentSessionId
-      const saved = localStorage.getItem('chat_session_id')
-      if (saved && sessions.value.find(s => s.id === parseInt(saved))) {
-        currentSessionId.value = parseInt(saved)
-      } else if (sessions.value.length > 0) {
-        currentSessionId.value = sessions.value[0].id
+      // Only adopt a current session if none is set yet — don't override an
+      // active view (a parallel debate's session event may have set it).
+      if (currentSessionId.value == null) {
+        const saved = localStorage.getItem('chat_session_id')
+        if (saved && sessions.value.find(s => s.id === parseInt(saved))) {
+          currentSessionId.value = parseInt(saved)
+        } else if (sessions.value.length > 0) {
+          currentSessionId.value = sessions.value[0].id
+        }
       }
     } catch (e) {
       console.error('loadSessions failed', e)
@@ -77,6 +91,13 @@ export const useChatStore = defineStore('chat', () => {
   async function selectSession(id: number) {
     currentSessionId.value = id
     localStorage.setItem('chat_session_id', String(id))
+    // ISSUE-030 fix: do NOT refetch+overwrite a buffer that's actively
+    // streaming — the live _streamDebate holds the buffer reference and keeps
+    // filling it; refetching would replace it with stale persisted data (only
+    // committed messages, not in-flight tokens) AND orphan the live buf ref so
+    // subsequent tokens vanish. The live buffer IS the source of truth while
+    // streaming.
+    if (streamingSessions.value[id]) return
     try {
       const res = await apiClient.get(`/chat/sessions/${id}`)
       if (res.data && !res.data.error) {
@@ -143,8 +164,9 @@ export const useChatStore = defineStore('chat', () => {
     const buf = bufOf(sessionId)
     buf.push({ role: 'user', content: text })
 
-    streaming.value = true
-    abortController = new AbortController()
+    const ac = new AbortController()
+    abortControllers.set(sessionId, ac)
+    streamingSessions.value[sessionId] = true
 
     try {
       const token = sessionStorage.getItem('token')
@@ -152,7 +174,7 @@ export const useChatStore = defineStore('chat', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: text, agent_ids: agentIds }),
-        signal: abortController.signal,
+        signal: ac.signal,
       })
       if (!res.ok) {
         handleStreamAuthFailure(res.status)
@@ -248,8 +270,8 @@ export const useChatStore = defineStore('chat', () => {
         buf.push({ role: 'system', content: `⚠️ ${e.message}`, meta: { round_type: 'error' } })
       }
     } finally {
-      streaming.value = false
-      abortController = null
+      streamingSessions.value[sessionId] = false
+      abortControllers.delete(sessionId)
       await loadSessions()
     }
   }
@@ -259,28 +281,28 @@ export const useChatStore = defineStore('chat', () => {
   // resumeDebate 从失败处继续（已完成的 agent 跳过）。
   async function startDebate(agentIds: number[], targetCode: string, targetName: string, rounds: number, validateData: boolean = false) {
     // 不清 messages——辩论用新会话，session 事件会切到新空 buffer；清当前会话 buffer 会丢别的对话
-    streaming.value = true
-    abortController = new AbortController()
+    const ac = new AbortController()
     try {
       const token = sessionStorage.getItem('token')
       const res = await fetch('/api/v1/debate/start-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ agent_ids: agentIds, target_type: 'stock', target_id: targetCode, rounds, validate_data: validateData }),
-        signal: abortController.signal,
+        signal: ac.signal,
       })
       if (!res.ok) {
         handleStreamAuthFailure(res.status)
         throw new Error(`HTTP ${res.status}`)
       }
-      await _streamDebate(res, { agentIds, targetName, targetCode })
+      // Per-session streaming flag + controller are registered inside
+      // _streamDebate when the `session` event arrives (sid unknown until
+      // then). Cleared in _streamDebate's finally.
+      await _streamDebate(res, { agentIds, targetName, targetCode, abortController: ac })
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         messages.value.push({ role: 'system', content: `⚠️ 辩论失败：${e.message}`, meta: { round_type: 'error' } })
       }
     } finally {
-      streaming.value = false
-      abortController = null
       await loadSessions()
     }
   }
@@ -288,33 +310,35 @@ export const useChatStore = defineStore('chat', () => {
   // 原地重试：从失败的 agent 处继续。resume 模式下 agent_start 会重置已有失败气泡。
   async function resumeDebate() {
     if (!currentSessionId.value) return
-    streaming.value = true
-    abortController = new AbortController()
+    const sessionId = currentSessionId.value
+    const ac = new AbortController()
+    abortControllers.set(sessionId, ac)
+    streamingSessions.value[sessionId] = true
     try {
       const token = sessionStorage.getItem('token')
-      const res = await fetch(`/api/v1/debate/sessions/${currentSessionId.value}/resume-stream`, {
+      const res = await fetch(`/api/v1/debate/sessions/${sessionId}/resume-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        signal: abortController.signal,
+        signal: ac.signal,
       })
       if (!res.ok) {
         handleStreamAuthFailure(res.status)
         throw new Error(`HTTP ${res.status}`)
       }
-      await _streamDebate(res, { isResume: true })
+      await _streamDebate(res, { isResume: true, abortController: ac })
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         messages.value.push({ role: 'system', content: `⚠️ 重试失败：${e.message}`, meta: { round_type: 'error' } })
       }
     } finally {
-      streaming.value = false
-      abortController = null
+      streamingSessions.value[sessionId] = false
+      abortControllers.delete(sessionId)
       await loadSessions()
     }
   }
 
   // 共享 SSE 驱动：处理 start/resume 两路事件流。agent_failed/summary_failed → 暂停。
-  async function _streamDebate(res: Response, opts: { isResume?: boolean, agentIds?: number[], targetName?: string, targetCode?: string } = {}) {
+  async function _streamDebate(res: Response, opts: { isResume?: boolean, agentIds?: number[], targetName?: string, targetCode?: string, abortController?: AbortController } = {}) {
     const isResume = !!opts.isResume
     const agentMsgIdx = new Map<string, number>()
     let summaryIdx = -1
@@ -329,7 +353,8 @@ export const useChatStore = defineStore('chat', () => {
     const decoder = new TextDecoder()
     let sseBuffer = ''
     let stopped = false
-    while (!stopped) {
+    try {
+      while (!stopped) {
       const { done, value } = await reader.read()
       if (done) break
       sseBuffer += decoder.decode(value, { stream: true })
@@ -347,6 +372,10 @@ export const useChatStore = defineStore('chat', () => {
             sessionId = sid
             currentSessionId.value = sid
             localStorage.setItem('chat_session_id', String(sid))
+            // Register per-session streaming flag + controller (ISSUE-030 fix)
+            // so selectSession skips refetching this buffer while it streams.
+            streamingSessions.value[sid] = true
+            if (opts.abortController) abortControllers.set(sid, opts.abortController)
             buf = bufOf(sid)
             if (!isResume) buf.length = 0  // fresh 辩论：清空；resume：保留已有气泡
             if (!isResume && !sessions.value.find(s => s.id === sid)) {
@@ -459,6 +488,15 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
     }
+    } finally {
+      // Clear this session's streaming flag so future selectSession can refetch
+      // (the stream is done; the buffer is now the persisted truth via
+      // loadSessions/selectSession). ISSUE-030 fix.
+      if (sessionId != null) {
+        streamingSessions.value[sessionId] = false
+        abortControllers.delete(sessionId)
+      }
+    }
     return sessionId
   }
 
@@ -477,12 +515,16 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function stopStreaming() {
-    abortController?.abort()
-    streaming.value = false
+    // Abort the CURRENT session's stream (ISSUE-030: per-session controllers).
+    const sid = currentSessionId.value
+    if (sid != null) {
+      abortControllers.get(sid)?.abort()
+    }
   }
 
   return {
     sessions, currentSessionId, currentSession, messages, streaming,
+    currentSessionStreaming,
     loadSessions, createSession, selectSession, deleteSession, deleteSessions, renameSession,
     sendMessage, startDebate, resumeDebate, stopStreaming, retryLastMessage,
   }
