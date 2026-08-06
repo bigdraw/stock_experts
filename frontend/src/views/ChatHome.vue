@@ -415,11 +415,16 @@ function onMsgScroll() {
   if (!el) return
   autoScroll.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
 }
-// 仅在贴底时自动滚到底（token 流式时用）
-async function maybeScrollToBottom() {
+// rAF 节流：多个 token delta 合并到一帧一次滚动，避免每 token scrollTop=scrollHeight 跳变 → 画面抖动。
+let _scrollPending = false
+function maybeScrollToBottom() {
   if (!autoScroll.value) return
-  await nextTick()
-  if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
+  if (_scrollPending) return
+  _scrollPending = true
+  requestAnimationFrame(() => {
+    _scrollPending = false
+    if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
+  })
 }
 // 强制滚到底（用户主动操作：发消息/新会话/重试）
 async function scrollToBottom() {
@@ -434,7 +439,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 <style scoped>
 .chat-shell { display: flex; height: 100%; width: 100%; background: var(--bg-base); }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
-.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; }
+.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; scroll-behavior: smooth; contain: layout; }
 .scroll-bottom-btn {
   position: sticky; bottom: 12px; margin-left: auto; margin-right: 12px;
   width: 36px; height: 36px; border-radius: var(--radius-pill); border: 1px solid var(--border-medium);
@@ -445,7 +450,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .scroll-bottom-btn:hover { border-color: var(--primary); color: var(--primary); }
 .fade-enter-active, .fade-leave-active { transition: opacity var(--transition); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 20px 16px 14vh; display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
+.msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
 
 /* 欢迎页：撑满滚动区、内容垂直居中（不再浮在上中部留大块空白） */
 .welcome { flex: 1; display: flex; flex-direction: column; justify-content: center; }
