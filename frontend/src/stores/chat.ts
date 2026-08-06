@@ -232,8 +232,10 @@ export const useChatStore = defineStore('chat', () => {
         }
       } else {
         // 单 agent → text 事件（用 buf[idx] 而非局部变量，确保 Vue 响应式）
-        buf.push({ role: 'assistant' as const, content: '', streaming: true })
-        const aiIdx = buf.length - 1
+        // assistant 气泡懒推：FactBook 采集/摘要阶段先 append system 气泡（顺序在
+        // assistant 之前，与多 agent 一致）；首个 text/reasoning 到达时才 push assistant。
+        let aiIdx = -1
+        let factbookIdx = -1
         while (true) {
           const { done, value } = await reader.read()
           if (done) break
@@ -246,13 +248,40 @@ export const useChatStore = defineStore('chat', () => {
             const dataStr = lines[1]?.replace('data: ', '') || '{}'
             try {
               const data = JSON.parse(dataStr)
-              if (eventType === 'text' && data.content) {
+              if (eventType === 'collecting') {
+                // FactBook 采集进度（正在获取价值分析/K线/行业/宏观…）
+                let ci = buf.findIndex(m => m.meta?.round_type === 'collecting')
+                if (ci < 0) {
+                  buf.push({ role: 'system', content: data.message, streaming: true, meta: { round_type: 'collecting', stage: data.stage } })
+                  ci = buf.length - 1
+                } else {
+                  buf[ci].content = data.message
+                  buf[ci].meta = { round_type: 'collecting', stage: data.stage }
+                }
+              } else if (eventType === 'factbook_start') {
+                let fi = buf.findIndex(m => m.meta?.round_type === 'factbook')
+                if (fi < 0) {
+                  buf.push({ role: 'system', content: '', streaming: true, meta: { round_type: 'factbook' } })
+                  fi = buf.length - 1
+                } else {
+                  buf[fi].content = ''; buf[fi].streaming = true; buf[fi].error = false
+                }
+                factbookIdx = fi
+              } else if (eventType === 'factbook_done') {
+                if (factbookIdx >= 0) {
+                  buf[factbookIdx].content = data.content || ''
+                  buf[factbookIdx].streaming = false
+                }
+              } else if (eventType === 'text' && data.content) {
+                if (aiIdx < 0) { buf.push({ role: 'assistant', content: '', streaming: true }); aiIdx = buf.length - 1 }
                 buf[aiIdx].content += data.content
               } else if (eventType === 'reasoning' && data.delta) {
+                if (aiIdx < 0) { buf.push({ role: 'assistant', content: '', streaming: true }); aiIdx = buf.length - 1 }
                 buf[aiIdx].reasoning = (buf[aiIdx].reasoning || '') + data.delta
               } else if (eventType === 'stop') {
-                buf[aiIdx].streaming = false
+                if (aiIdx >= 0) buf[aiIdx].streaming = false
               } else if (eventType === 'error') {
+                if (aiIdx < 0) { buf.push({ role: 'assistant', content: '', streaming: true }); aiIdx = buf.length - 1 }
                 buf[aiIdx].content += `\n\n⚠️ ${data.message}`
                 buf[aiIdx].streaming = false
                 buf[aiIdx].error = true
@@ -260,7 +289,7 @@ export const useChatStore = defineStore('chat', () => {
             } catch (e) { console.error('SSE parse error', e) }
           }
         }
-        buf[aiIdx].streaming = false
+        if (aiIdx >= 0) buf[aiIdx].streaming = false
         // 自动生成标题
         const session = sessions.value.find(s => s.id === sessionId)
         if (session && session.title === '新对话') {

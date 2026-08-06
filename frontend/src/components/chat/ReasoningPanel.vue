@@ -1,10 +1,10 @@
 <template>
   <div class="reasoning-panel">
     <div class="reasoning-head" @click="open = !open">
-      <span>🧠 思考链 · {{ reasoning.length }} 字{{ streaming && !hasContent ? ' · 思考中…' : '' }}</span>
+      <span>🧠 思考链 · {{ reasoning.length }} 字{{ streaming ? ' · 思考中…' : '' }}</span>
       <span class="reasoning-toggle">{{ open ? '收起 ▲' : '展开 ▼' }}</span>
     </div>
-    <div v-if="open" class="reasoning-body">{{ reasoning }}<span v-if="streaming && !hasContent" class="cursor">▋</span></div>
+    <div v-if="open" class="reasoning-body">{{ reasoning }}<span v-if="streaming" class="cursor">▋</span></div>
   </div>
 </template>
 

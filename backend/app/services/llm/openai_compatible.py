@@ -115,10 +115,19 @@ class OpenAICompatibleProvider(LLMProvider):
                                 buf["name"] = fn["name"]
                             if fn.get("arguments"):
                                 buf["arguments"] += fn["arguments"]
+                        # reasoning/thinking 字段：不同 OpenAI-compatible 后端用不同字段名
+                        # （qwen3=reasoning_content, OpenAI o-series=reasoning, DeepSeek/Qwen-thinking=thinking）。
+                        # 工具调用后第 2 轮若换字段，只读 reasoning_content 会漏 → 思维链不恢复。读多字段首非空。
+                        reasoning = (
+                            delta.get("reasoning_content")
+                            or delta.get("reasoning")
+                            or delta.get("thinking")
+                            or ""
+                        )
                         yield LLMStreamChunk(
                             content=delta.get("content", "") or "",
                             finish_reason=choices[0].get("finish_reason"),
-                            reasoning=delta.get("reasoning_content", "") or "",
+                            reasoning=reasoning,
                         )
                     except (json.JSONDecodeError, KeyError, IndexError) as e:
                         logger.warning(f"Failed to parse stream chunk: {e}")

@@ -38,6 +38,7 @@ from app.services.chat_pipeline import (
     estimate_tokens,
     should_compress,
 )
+from app.services.debate.factbook import FACT_AGENT_SYSTEM, FactBook
 from app.services.llm.manager import llm_manager
 from app.services.llm.provider import LLMMessage
 
@@ -249,22 +250,72 @@ async def chat_stream(
     async def event_stream():
         try:
             llm = llm_manager.get()
+
+            # 平台 FactBook 数据采集（gated on detected stock code）：单/多 agent 共用。
+            # collect_streaming → FactBook.format 摘要 → 发 factbook SSE + 持久化 system 消息。
+            # 比 tavily 更准（K线/行业/宏观/regime/全 trend+分红，平台自有）。失败非致命（摘要空，tavily 兜底）。
+            fb_digest_holder = {"digest": ""}
+
+            async def _factbook_phase(code: str):
+                fb = FactBook()
+                yield "event: factbook_start\ndata: {}\n\n"
+                raw: dict = {}
+                try:
+                    async for ev in fb.collect_streaming(code, db):
+                        t = ev.get("type")
+                        if t == "collecting":
+                            yield f"event: collecting\ndata: {json.dumps({'stage': ev.get('stage'), 'message': ev.get('message')}, ensure_ascii=False)}\n\n"
+                        elif t == "factbook_raw":
+                            raw = ev.get("raw") or {}
+                except Exception:
+                    logger.exception(f"FactBook collect failed for {code}")
+                digest = fb.format(raw) if raw else ""
+                fb_digest_holder["digest"] = digest
+                if digest:
+                    yield f"event: factbook_done\ndata: {json.dumps({'content': digest, 'reasoning': ''}, ensure_ascii=False)}\n\n"
+                    db.add(ChatMessage(session_id=session_id, role="system", content=digest,
+                                       meta={"round_type": "factbook"}))
+                    await db.commit()
+                else:
+                    yield f"event: factbook_done\ndata: {json.dumps({'content': '', 'reasoning': ''}, ensure_ascii=False)}\n\n"
+
             if len(agents) >= 2:
                 # ── 多 agent @mention 流程（同辩论结构：数据 agent → 投资 agent）──
                 history_text = "\n\n".join(
                     f"【{m['role']}】: {m['content'][:600]}" for m in messages[-8:] if m["role"] in ("user", "assistant")
                 )
 
-                # 1. 数据获取 agent（LLM + tavily function-calling ReAct）：复用辩论的 FACT_AGENT_SYSTEM（不评价只给数据）
-                from app.services.debate.factbook import FACT_AGENT_SYSTEM
+                # 1. 平台 FactBook 数据采集（gated stock_codes）→ fb_digest，注入 fact-agent
+                #    上下文（优先于 tavily；平台 K线/行业/宏观/regime/全 trend+分红 更准）。
+                fb_digest = ""
+                if stock_codes:
+                    fb = FactBook()
+                    _raw: dict = {}
+                    try:
+                        async for ev in fb.collect_streaming(stock_codes[0], db):
+                            if ev.get("type") == "collecting":
+                                yield f"event: collecting\ndata: {json.dumps({'stage': ev.get('stage'), 'message': ev.get('message')}, ensure_ascii=False)}\n\n"
+                            elif ev.get("type") == "factbook_raw":
+                                _raw = ev.get("raw") or {}
+                    except Exception:
+                        logger.exception(f"FactBook collect failed for {stock_codes[0]}")
+                    fb_digest = fb.format(_raw) if _raw else ""
+
+                # 2. 数据获取 agent（LLM + tavily function-calling ReAct）：复用辩论的 FACT_AGENT_SYSTEM（不评价只给数据）
                 yield "event: factbook_start\ndata: {}\n\n"
                 fact_system = FACT_AGENT_SYSTEM + (
                     "\n\n**额外能力**：你可以根据用户问题调用 tavily_search 获取必要的信息（公司/行业/宏观/分红/财报等），"
                     "然后按上述格式整理检索到的数据。检索结果与已有数据合并，缺失项标注。"
                 )
+                fact_user = f"用户问题：{req.message}\n\n近期对话上下文：\n{history_text}"
+                if fb_digest:
+                    fact_user = (
+                        f"【平台 FactBook 数据（已采集，优先引用；缺失项已标注；如需实时新闻再调 tavily_search）】\n"
+                        f"{fb_digest}\n\n{fact_user}"
+                    )
                 fact_messages = [
                     LLMMessage(role="system", content=fact_system),
-                    LLMMessage(role="user", content=f"用户问题：{req.message}\n\n近期对话上下文：\n{history_text}"),
+                    LLMMessage(role="user", content=fact_user),
                 ]
                 data_summary = ""
                 fact_reasoning = ""
@@ -336,6 +387,23 @@ async def chat_stream(
                 full_response = ""
                 llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
                 full_reasoning = ""
+
+                # 平台 FactBook 数据采集（gated stock_codes）→ digest 注入 user 消息（优先于 tavily）。
+                # 之前单 agent 仅注入 800 字 latest 切片，需财务数据时只能调 tavily（数据未必比平台好）。
+                if stock_codes:
+                    async for sse in _factbook_phase(stock_codes[0]):
+                        yield sse
+                    _digest = fb_digest_holder["digest"]
+                    if _digest:
+                        for i in range(len(llm_messages) - 1, -1, -1):
+                            if llm_messages[i].role == "user":
+                                llm_messages[i].content = (
+                                    f"用户问题：{req.message}\n\n"
+                                    f"【平台 FactBook 数据】（已为你采集，优先引用；缺失项已标注；"
+                                    f"如需补充实时新闻再调 tavily_search）\n{_digest}\n\n请基于以上数据回答。"
+                                )
+                                break
+
                 for _ in range(5):  # ReAct 最多 5 轮
                     tool_calls = None
                     turn_content = ""
