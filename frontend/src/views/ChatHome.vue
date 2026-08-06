@@ -145,7 +145,7 @@
       </div>
 
       <!-- 输入栏 -->
-      <div class="input-area">
+      <div class="input-area" ref="inputAreaRef">
         <div class="input-container">
           <div class="input-toolbar">
             <n-button size="small" tertiary @click="showDebateModal = true">⚖️ 开始辩论</n-button>
@@ -223,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { NButton, NTag, NInput, NModal, NForm, NFormItem, NSelect, NAutoComplete, NInputNumber, NSwitch } from 'naive-ui'
 import { useChatStore } from '../stores/chat'
@@ -242,6 +242,7 @@ const input = ref('')
 // 是否贴底：用户主动上滚（距底 >80px）则不强制拉回，方便回看前面的内容
 const autoScroll = ref(true)
 const msgList = ref<HTMLElement | null>(null)
+const inputAreaRef = ref<HTMLElement | null>(null)
 const agentList = ref<Agent[]>([])
 const selectedAgents = ref<Agent[]>([])
 const suggestions = ['分析 600519 的估值和盈利能力', '@巴菲特 茅台值不值得买', '分析我的投资组合风险']
@@ -369,14 +370,35 @@ async function startDebate() {
   await scrollToBottom()
 }
 
+// ResizeObserver：跟踪输入区实际高度→设 CSS 变量→msg-inner 底部 padding 动态跟随。
+// 输入区 absolute 脱离 flex 流后，msg-scroll 高度恒定（不再因 textarea 增高而缩小→抖动），
+// 但 msg-inner 底部需留出输入区高度的空间（否则最后一条消息被输入区遮挡）。
+let _inputResizeObserver: ResizeObserver | null = null
+
 onMounted(async () => {
   await chatStore.loadSessions()
   const sid = route.params.sessionId
   if (sid) await chatStore.selectSession(parseInt(sid as string))
   else if (chatStore.currentSessionId) await chatStore.selectSession(chatStore.currentSessionId)
   try { agentList.value = (await apiClient.get('/chat/agents')).data } catch {}
-  // /debate 重定向带 ?debate=1 → 自动开辩论弹窗
   if (route.query.debate === '1') showDebateModal.value = true
+
+  if (inputAreaRef.value) {
+    const updateInputHeight = () => {
+      if (inputAreaRef.value) {
+        document.documentElement.style.setProperty(
+          '--input-area-h', `${inputAreaRef.value.offsetHeight}px`
+        )
+      }
+    }
+    updateInputHeight()
+    _inputResizeObserver = new ResizeObserver(updateInputHeight)
+    _inputResizeObserver.observe(inputAreaRef.value)
+  }
+})
+
+onUnmounted(() => {
+  if (_inputResizeObserver) { _inputResizeObserver.disconnect(); _inputResizeObserver = null }
 })
 
 function removeAgent(id: number) { selectedAgents.value = selectedAgents.value.filter(a => a.id !== id) }
@@ -438,7 +460,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 
 <style scoped>
 .chat-shell { display: flex; height: 100%; width: 100%; background: var(--bg-base); }
-.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; position: relative; }
 .msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; scroll-behavior: smooth; contain: layout; }
 .scroll-bottom-btn {
   position: sticky; bottom: 12px; margin-left: auto; margin-right: 12px;
@@ -450,7 +472,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .scroll-bottom-btn:hover { border-color: var(--primary); color: var(--primary); }
 .fade-enter-active, .fade-leave-active { transition: opacity var(--transition); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
+.msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 20px 16px calc(var(--input-area-h, 80px) + 16px); display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
 
 /* 欢迎页：撑满滚动区、内容垂直居中（不再浮在上中部留大块空白） */
 .welcome { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -519,7 +541,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
   color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
 }
 
-.input-area { flex-shrink: 0; padding: 8px 16px 16px; background: var(--bg-base); border-top: 1px solid var(--border-subtle); }
+.input-area { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; padding: 8px 16px 16px; background: var(--bg-base); border-top: 1px solid var(--border-subtle); }
 .input-container { max-width: var(--chat-max-width); margin: 0 auto; }
 .input-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .agent-tags { display: flex; flex-wrap: wrap; gap: 4px; }
