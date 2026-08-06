@@ -315,9 +315,12 @@ class FactBook:
         return out
 
     async def _collect_industry(self, stock_name: str, industry_fallback: str | None = None) -> str:
-        """web_search 搜行业动态（竞争格局/行业增速）。搜索为空时用公司行业字段兜底。"""
-        # 加 industry 字段约束搜索——避免公司名歧义导致搜到不相关行业（如维远股份→碳化硅）
-        query = f"{stock_name} 行业分析 竞争格局 行业增速 2026"
+        """web_search 搜行业动态（竞争格局/行业增速）。搜索为空时用公司行业字段兜底。
+
+        industry_fallback（Stock.industry 字段）当前 DB 全空——不依赖它，
+        用"主营业务"约束搜索让 tavily 返回公司自身的业务信息而非随机行业报告。
+        """
+        query = f"{stock_name} 主营业务 行业地位 竞争格局 2026"
         if industry_fallback:
             query = f"{industry_fallback} 行业 {stock_name} 竞争格局 行业增速 2026"
         res = await self._web_search(query)
