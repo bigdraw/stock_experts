@@ -5,7 +5,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.portfolio import Portfolio, PortfolioItem
+from app.models.portfolio import Portfolio, PortfolioItem, Transaction
 from app.models.stock import Stock
 
 logger = logging.getLogger(__name__)
@@ -124,8 +124,15 @@ class PortfolioManager:
     async def add_stocks(
         self, portfolio_id: int, stock_codes: list[str], shares: float = 0, avg_cost: float = 0
     ):
+        """Add holdings to a portfolio.
+
+        ISSUE-029: previously skipped any code already in the portfolio, so
+        adding more of an existing stock left shares/avg_cost stale (加仓后均价
+        不更新). Now accumulates: weighted-average the cost basis and record a
+        buy Transaction for auditability. shares==0 (watchlist add via filter)
+        still just ensures the item exists without a transaction.
+        """
         for code in stock_codes:
-            # Skip empty codes
             if not code or not code.strip():
                 continue
             code = code.strip()
@@ -135,13 +142,34 @@ class PortfolioManager:
                     PortfolioItem.stock_code == code,
                 )
             )
-            if not existing.scalar_one_or_none():
+            item = existing.scalar_one_or_none()
+            if item is None:
                 self.db.add(
                     PortfolioItem(
                         portfolio_id=portfolio_id,
                         stock_code=code,
                         shares=shares,
                         avg_cost=avg_cost,
+                    )
+                )
+            elif shares > 0:
+                # Accumulate: weighted-average cost basis (the core fix).
+                total_shares = item.shares + shares
+                if total_shares > 0:
+                    item.avg_cost = (
+                        (item.avg_cost * item.shares) + (avg_cost * shares)
+                    ) / total_shares
+                item.shares = total_shares
+            # Record a buy transaction for auditability (only real adds).
+            if shares and shares > 0:
+                self.db.add(
+                    Transaction(
+                        portfolio_id=portfolio_id,
+                        stock_code=code,
+                        side="buy",
+                        shares=shares,
+                        price=avg_cost,
+                        fee=0.0,
                     )
                 )
         await self.db.flush()
