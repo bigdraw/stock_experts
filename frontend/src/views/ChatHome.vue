@@ -57,6 +57,10 @@
             <div v-else-if="msg.meta?.round_type === 'error'" class="msg-row">
               <div class="error-bubble">{{ msg.content }}</div>
             </div>
+            <!-- 信息提示（NL 恢复的状态回复：在执行/重试中/已完成 等） -->
+            <div v-else-if="msg.meta?.round_type === 'info'" class="msg-row">
+              <div class="info-bubble">{{ msg.content }}</div>
+            </div>
             <!-- 数据检验报告面板（可选，辩论前数据检验agent产出） -->
             <div v-else-if="msg.meta?.round_type === 'validation'" class="msg-row">
               <div class="factbook-panel">
@@ -390,6 +394,14 @@ async function handleSend() {
   if (!input.value.trim()) return
   const text = input.value; input.value = ''
   closeMention()
+  // NL debate recovery: a short 继续/重试 phrase on a debate session is
+  // intercepted — the store checks state (streaming / paused / completed) and
+  // replies with a status bubble, optionally firing resumeDebate. Returns
+  // true if handled; otherwise the text goes to the LLM as a normal message.
+  if (chatStore.getContinueIntent(text) && await chatStore.continueOrRetryDebate(text)) {
+    await scrollToBottom()
+    return
+  }
   // 优先用 @mention 解析出的 agent ids；否则用已选 selectedAgents
   const ids = parseMentions(text)
   const agentIds = ids.length ? ids : selectedAgents.value.map(a => a.id)
@@ -497,6 +509,10 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .error-bubble {
   background: rgba(231, 76, 60, 0.12); border: 1px solid rgba(231, 76, 60, 0.3);
   color: #e74c3c; padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
+}
+.info-bubble {
+  background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
 }
 
 .input-area { flex-shrink: 0; padding: 8px 16px 16px; background: var(--bg-base); border-top: 1px solid var(--border-subtle); }

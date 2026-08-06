@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import apiClient, { handleStreamAuthFailure } from '../api/client'
+import { isContinueIntent, planDebateRecovery } from '../composables/useDebateRecovery'
 
 export interface ChatMessageData {
   id?: number
@@ -522,10 +523,58 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // Exported so ChatHome can gate sendMessage on a continue-intent without
+  // reaching into the composable.
+  function getContinueIntent(text: string): boolean {
+    return isContinueIntent(text)
+  }
+
+  /**
+   * Natural-language debate recovery. Called when the user types a short
+   * continue/retry phrase ("继续"/"恢复"/"重试"/...) on a debate session.
+   * Checks the session's state and replies with a status bubble, optionally
+   * firing resumeDebate (paused-at-failure). Returns true if handled (so
+   * ChatHome skips the normal send). Non-debate sessions return false and the
+   * text goes to the LLM as a normal message.
+   */
+  async function continueOrRetryDebate(text: string): Promise<boolean> {
+    const sid = currentSessionId.value
+    if (sid == null) return false
+    const session = sessions.value.find(s => s.id === sid)
+    if (session?.type !== 'debate') return false  // only debate sessions
+
+    const buf = bufOf(sid)
+    // Snapshot state BEFORE pushing the user echo so "last assistant" reflects
+    // the pre-input situation.
+    const hasSummary = buf.some(m => m.meta?.round_type === 'summary')
+    let hasFailedBubble = false
+    for (let i = buf.length - 1; i >= 0; i--) {
+      const m = buf[i]
+      if (m.role === 'user') break  // reached the previous user turn
+      if (m.role === 'assistant' && m.error) { hasFailedBubble = true; break }
+    }
+    const plan = planDebateRecovery({
+      isStreaming: !!streamingSessions.value[sid],
+      hasFailedBubble,
+      hasSummary,
+    })
+
+    // Echo the user's phrase + the system status reply as bubbles.
+    buf.push({ role: 'user', content: text })
+    buf.push({ role: 'system', content: plan.message, meta: { round_type: 'info' } })
+
+    if (plan.action === 'resume') {
+      // Fire-and-forget: resumeDebate opens a new resume-stream SSE.
+      resumeDebate().catch(e => console.error('resumeDebate from NL failed', e))
+    }
+    return true
+  }
+
   return {
     sessions, currentSessionId, currentSession, messages, streaming,
     currentSessionStreaming,
     loadSessions, createSession, selectSession, deleteSession, deleteSessions, renameSession,
     sendMessage, startDebate, resumeDebate, stopStreaming, retryLastMessage,
+    continueOrRetryDebate, getContinueIntent,
   }
 })
