@@ -567,16 +567,30 @@ export const useChatStore = defineStore('chat', () => {
     // Snapshot state BEFORE pushing the user echo so "last assistant" reflects
     // the pre-input situation.
     const hasSummary = buf.some(m => m.meta?.round_type === 'summary')
+    const hasAgentBubbles = buf.some(
+      m => m.role === 'assistant' && m.meta?.round_type && m.meta.round_type !== 'summary'
+    )
     let hasFailedBubble = false
     for (let i = buf.length - 1; i >= 0; i--) {
       const m = buf[i]
       if (m.role === 'user') break  // reached the previous user turn
       if (m.role === 'assistant' && m.error) { hasFailedBubble = true; break }
     }
+    // Last assistant bubble's agent name (the interrupted agent; '总结' for a
+    // summary bubble) — used to personalize the recovery message.
+    let lastAgentName: string | undefined
+    for (let i = buf.length - 1; i >= 0; i--) {
+      const m = buf[i]
+      if (m.role !== 'assistant') continue
+      lastAgentName = m.meta?.round_type === 'summary' ? '总结' : m.meta?.agent_name
+      break
+    }
     const plan = planDebateRecovery({
       isStreaming: !!streamingSessions.value[sid],
       hasFailedBubble,
       hasSummary,
+      hasAgentBubbles,
+      lastAgentName,
     })
 
     // Echo the user's phrase + the system status reply as bubbles.

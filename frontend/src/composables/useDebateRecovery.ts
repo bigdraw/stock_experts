@@ -4,9 +4,13 @@
  * When a user types a short continue/retry phrase ("继续" / "恢复" / "重试" /
  * "retry" / ...) on a debate session, the chat input intercepts it and maps the
  * session's state to a reply + action instead of forwarding to the LLM:
- *   - streaming      → "辩论正在执行，请稍等。"      (wait, don't start a 2nd)
- *   - paused (failed) → "上次辩论中断了，正在从失败处重试…" (resume from failure)
- *   - completed       → "该辩论已完成…"              (nothing to resume)
+ *   - streaming        → "辩论正在执行，请稍等。"      (wait, don't start a 2nd)
+ *   - completed        → "该辩论已完成…"              (nothing to resume)
+ *   - paused (failed)  → "上次有 agent 失败…正在重试…"  (resume from failure)
+ *   - hard-stopped     → "上次被中断了，轮到X，正在从该处继续…" (resume from
+ *     the interrupted agent — the in-flight agent_done wasn't committed, so
+ *     resume-stream re-runs it; already-done agents are skipped)
+ *   - never-started    → "该辩论尚未开始…"
  *
  * These two functions are pure (no Vue / store deps) so they're unit-testable.
  */
@@ -19,6 +23,12 @@ export interface DebateRecoveryInput {
   hasFailedBubble: boolean
   /** Does a summary bubble exist (debate reached completion)? */
   hasSummary: boolean
+  /** Are there agent round bubbles (analysis/challenge/response)? The debate
+   *  started but didn't complete — i.e. hard-stopped mid-debate. */
+  hasAgentBubbles: boolean
+  /** The last assistant bubble's agent name (the interrupted agent, or '总结'
+   *  for a summary bubble) — used to personalize the message. */
+  lastAgentName?: string
 }
 
 export type RecoveryAction = 'wait' | 'resume' | 'none'
@@ -44,14 +54,26 @@ export function planDebateRecovery(state: DebateRecoveryInput): DebateRecoveryPl
   if (state.isStreaming) {
     return { message: '辩论正在执行，请稍等。', action: 'wait' }
   }
-  if (state.hasFailedBubble) {
-    return { message: '上次辩论中断了，正在从失败处重试…', action: 'resume' }
-  }
   if (state.hasSummary) {
     return {
       message: '该辩论已完成，没有待恢复的内容。可点 ⚖️ 开始辩论 开启新辩论。',
       action: 'none',
     }
   }
-  return { message: '该辩论没有可恢复的中断点。', action: 'none' }
+  if (state.hasFailedBubble) {
+    return {
+      message: `上次辩论有 agent 失败${state.lastAgentName ? `（${state.lastAgentName}）` : ''}，正在重试…`,
+      action: 'resume',
+    }
+  }
+  if (state.hasAgentBubbles) {
+    // Hard-stopped mid-debate: agents ran, no summary, not streaming, no failure
+    // → resumable from the interrupted agent (resume-stream re-runs the
+    // in-flight agent whose agent_done wasn't committed; done agents skipped).
+    return {
+      message: `上次辩论被中断了${state.lastAgentName ? `，轮到${state.lastAgentName}` : ''}，正在从该处继续…`,
+      action: 'resume',
+    }
+  }
+  return { message: '该辩论尚未开始，可点 ⚖️ 开始辩论 发起。', action: 'none' }
 }

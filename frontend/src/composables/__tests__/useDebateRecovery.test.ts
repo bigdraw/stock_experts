@@ -20,31 +20,49 @@ describe('isContinueIntent', () => {
 
 describe('planDebateRecovery', () => {
   it('maps running state → wait + "执行" message', () => {
-    const p = planDebateRecovery({ isStreaming: true, hasFailedBubble: false, hasSummary: false })
+    const p = planDebateRecovery({ isStreaming: true, hasFailedBubble: false, hasSummary: false, hasAgentBubbles: true })
     expect(p.action).toBe('wait')
     expect(p.message).toContain('执行')
   })
 
-  it('maps paused (failed bubble, not streaming) → resume', () => {
-    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: true, hasSummary: false })
+  it('maps paused (failed bubble, not streaming) → resume + 重试', () => {
+    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: true, hasSummary: false, hasAgentBubbles: true, lastAgentName: '索罗斯' })
     expect(p.action).toBe('resume')
     expect(p.message).toContain('重试')
+    expect(p.message).toContain('索罗斯')
   })
 
-  it('maps completed (summary, no failure) → none + "完成"', () => {
-    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: false, hasSummary: true })
+  it('maps completed (summary) → none + 完成', () => {
+    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: false, hasSummary: true, hasAgentBubbles: true })
     expect(p.action).toBe('none')
     expect(p.message).toContain('完成')
   })
 
-  it('maps no-summary-no-failure (interrupted mid-stream, no failed bubble) → none', () => {
-    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: false, hasSummary: false })
-    expect(p.action).toBe('none')
+  it('maps hard-stopped (agent bubbles, no summary/failure, not streaming) → resume + 被中断 + 轮到X', () => {
+    // The user's case: stopped mid-debate (Soros in-flight). The in-flight
+    // agent_done wasn't committed, so resume re-runs it; done agents skipped.
+    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: false, hasSummary: false, hasAgentBubbles: true, lastAgentName: '索罗斯' })
+    expect(p.action).toBe('resume')
+    expect(p.message).toContain('中断')
+    expect(p.message).toContain('索罗斯')
   })
 
-  it('prioritizes running over failed (streaming + failed bubble → wait)', () => {
+  it('hard-stopped message is sensible without lastAgentName', () => {
+    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: false, hasSummary: false, hasAgentBubbles: true })
+    expect(p.action).toBe('resume')
+    expect(p.message).toContain('中断')
+    expect(p.message).not.toContain('轮到')
+  })
+
+  it('maps never-started (no agent bubbles, no summary) → none + 尚未开始', () => {
+    const p = planDebateRecovery({ isStreaming: false, hasFailedBubble: false, hasSummary: false, hasAgentBubbles: false })
+    expect(p.action).toBe('none')
+    expect(p.message).toContain('尚未开始')
+  })
+
+  it('prioritizes running over failed/hasAgentBubbles (streaming → wait)', () => {
     // a background continuation may still be running while the last live bubble is failed
-    const p = planDebateRecovery({ isStreaming: true, hasFailedBubble: true, hasSummary: false })
+    const p = planDebateRecovery({ isStreaming: true, hasFailedBubble: true, hasSummary: false, hasAgentBubbles: true })
     expect(p.action).toBe('wait')
   })
 })
