@@ -50,9 +50,16 @@ async def mark_read(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    n = await db.get(Notification, notification_id)
-    if n:
-        n.is_read = True
+    # Ownership gate (ISSUE-019): only the notification's owner can mark it read.
+    res = await db.execute(
+        select(Notification).where(
+            Notification.id == notification_id, Notification.user_id == current_user.id
+        )
+    )
+    n = res.scalar_one_or_none()
+    if not n:
+        raise NotFoundException(f"Notification {notification_id} not found")
+    n.is_read = True
     return {"status": "ok"}
 
 
@@ -106,7 +113,11 @@ async def toggle_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    alert = await db.get(Alert, alert_id)
+    # Ownership gate (ISSUE-019): alerts are private; only the owner can toggle.
+    res = await db.execute(
+        select(Alert).where(Alert.id == alert_id, Alert.user_id == current_user.id)
+    )
+    alert = res.scalar_one_or_none()
     if not alert:
         raise NotFoundException(f"Alert {alert_id} not found")
     alert.is_active = not alert.is_active
@@ -119,7 +130,11 @@ async def delete_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    alert = await db.get(Alert, alert_id)
+    # Ownership gate (ISSUE-019): alerts are private; only the owner can delete.
+    res = await db.execute(
+        select(Alert).where(Alert.id == alert_id, Alert.user_id == current_user.id)
+    )
+    alert = res.scalar_one_or_none()
     if not alert:
         raise NotFoundException(f"Alert {alert_id} not found")
     await db.delete(alert)

@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, require_admin
 from app.database import get_db
 from app.models.agent import Agent
 from app.models.user import User
@@ -177,9 +177,16 @@ async def get_agent(
 async def delete_agent(
     agent_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    admin_user: User = Depends(require_admin),
 ):
-    """Delete (deactivate) an agent."""
+    """Delete (deactivate) an agent.
+
+    Admin-only (ISSUE-019): agents are a shared library (master agents are
+    seeded system-wide and every user selects from the same pool in chat/debate).
+    A non-admin deactivating another user's/master agent is an IDOR; gating with
+    require_admin closes it. Per-user owned agents (owner_id) is a future
+    enhancement, tracked as tech-debt.
+    """
     agent = await db.get(Agent, agent_id)
     if not agent:
         raise NotFoundException(f"Agent {agent_id} not found")
