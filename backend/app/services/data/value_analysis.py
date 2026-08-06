@@ -88,7 +88,14 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
 
         # 所得税率近似（从利润表利润总额+净利润推）
         tax_rate = _TAX_RATE
-        nopat = op_profit * (1 - tax_rate) if op_profit is not None else None
+        # ROIC NOPAT 用 EBIT 口径 = 营业利润 + 利息费用（ISSUE-028）。利润表"营业利润"
+        # 已扣除财务费用（利息），直接用 op_profit 会让利息在分子(NOPAT)与分母(投入
+        # 资本含付息负债)双重扣减，ROIC 系统性偏低。interest_exp 缺失时退回 op_profit。
+        if op_profit is not None:
+            ebit = op_profit + (interest_exp or 0)
+            nopat = ebit * (1 - tax_rate)
+        else:
+            nopat = None
         # ROIC 投入资本 = 股东权益 + 非流动负债（= 总资产 - 流动负债 - 货币资金中超出经营需要的部分）
         # 简化：equity + (total_liab - current_liab)；如果 total_liab 缺失则退回 total_assets - current_liab
         if total_assets and current_liab:
@@ -189,14 +196,18 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         ttm_rev = _ttm("revenue")
         if market_cap and ttm_rev:
             valuation["ps"] = market_cap / ttm_rev
+            valuation["ps_basis"] = "ttm"
         elif market_cap and latest.get("revenue"):
-            # TTM 算不出时退回年化（旧逻辑，比无值好）
+            # TTM 算不出时退回简单年化（旧逻辑，比无值好），但标记低置信度（ISSUE-028）：
+            # 之前静默降级会让 FactBook/digest 把 Q1×4 当 TTM，对季节性强的周期股
+            # 误导"贵/便宜"判断（实测浩物股份偏高 29%）。
             rd = latest["report_date"]
             ann_rev = latest["revenue"] * (
                 1 if rd.endswith("12-31") else 4 if rd.endswith("03-31")
                 else 2 if rd.endswith("06-30") else 4 / 3
             )
             valuation["ps"] = market_cap / ann_rev if ann_rev else None
+            valuation["ps_basis"] = "annualized"  # 下游应降权 / 标注
         ttm_ocf = _ttm("ocf")
         if market_cap and ttm_ocf:
             valuation["pcf"] = market_cap / ttm_ocf
