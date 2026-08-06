@@ -61,12 +61,20 @@ def run_backtest(
     annualization: int = 252,
     close_col: str = "close",
 ) -> BacktestMetrics:
-    """按 entries/exits 在 close 上模拟一个 always-in 策略的权益曲线。
+    """按 entries/exits 模拟一个 always-in 策略的权益曲线（T+1 成交，无 look-ahead）。
 
-    简化语义（与 vectorbt from_signals 的 orders=False 一致）：
-    - entry 信号日次根开盘建仓（这里近似用当日 close 建仓），exit 信号日 close 平仓。
+    ISSUE-021: 信号在 bar i 收盘生成（entries/exits 是基于 close 算的 bool
+    Series）→ 必须在 bar i+1 的开盘成交，不能在 bar i 收盘成交（那会用未来
+    数据：信号当日收盘才确定，现实只能次日开盘买）。旧实现同 bar 收盘成交，
+    系统性高估趋势/均值回归策略收益。现在 T+1：bar i 信号 → bar i+1 open
+    成交；无 open 列时退回 bar i+1 close（仍 T+1，无未来函数）。
+    bar i+1 不存在（信号在最后一天）则不成交（无法在次日成交）。
+
+    语义（与 vectorbt from_signals orders=False 一致）：
     - 始终满仓（all-in）；未持仓时 entry 触发建仓，持仓时 exit 触发平仓。
-    - 每笔交易按成交额收 fees 单边费。
+    - 每笔成交按成交额收 fees 单边费。
+    - 末笔未平仓不计入 trade_returns（仅按末价 mark-to-close 进 equity），
+      避免把浮盈当已实现虚增 win_rate/profit_factor（ISSUE-030 M3）。
     """
     close = df[close_col] if close_col in df.columns else df["Close"]
     n = len(close)
@@ -76,38 +84,52 @@ def run_backtest(
     # 对齐索引
     entries = entries.reindex(close.index).fillna(False).astype(bool)
     exits = exits.reindex(close.index).fillna(False).astype(bool)
+    # T+1 成交价：信号日的次日开盘（无 open 列退回次日 close）。
+    open_col = "open" if "open" in df.columns else close_col
+    fill_px_series = df[open_col] if open_col in df.columns else close
 
     position = False
     cash = float(initial_capital)
     shares = 0.0
     entry_price = 0.0
+    pending_entry = False
+    pending_exit = False
     equity_curve = np.empty(n)
     trade_returns: list[float] = []
 
     for i in range(n):
-        px = float(close.iloc[i])
-        # 平仓（先处理 exit）
+        px_close = float(close.iloc[i])
+
+        # 1) 成交上一根信号（bar i-1 的 entry/exit）于 bar i 开盘
+        if i > 0:
+            fill_px = float(fill_px_series.iloc[i])
+            if fill_px > 0:
+                if pending_exit and position:
+                    proceeds = shares * fill_px
+                    cash += proceeds * (1 - fees)
+                    ret = (fill_px - entry_price) / entry_price if entry_price > 0 else 0.0
+                    trade_returns.append(ret)
+                    shares = 0.0
+                    position = False
+                elif pending_entry and not position:
+                    shares = (cash * (1 - fees)) / fill_px
+                    cash = 0.0
+                    entry_price = fill_px
+                    position = True
+            pending_entry = False
+            pending_exit = False
+
+        # 2) 评估 bar i 收盘信号 → 安排 bar i+1 开盘成交（T+1，无 look-ahead）
         if position and exits.iloc[i]:
-            proceeds = shares * px
-            cash += proceeds * (1 - fees)
-            ret = (px - entry_price) / entry_price if entry_price > 0 else 0.0
-            trade_returns.append(ret)
-            shares = 0.0
-            position = False
+            pending_exit = True
+        elif (not position) and entries.iloc[i]:
+            pending_entry = True
 
-        # 建仓
-        if (not position) and entries.iloc[i]:
-            shares = (cash * (1 - fees)) / px if px > 0 else 0.0
-            cash = 0.0
-            entry_price = px
-            position = True
+        # 3) mark-to-close 权益
+        equity_curve[i] = cash + (shares * px_close if position else 0.0)
 
-        equity_curve[i] = cash + (shares * px if position else 0.0)
-
-    # 若末尾仍持仓，按末价平仓记账（不收手续费，仅估值）
-    if position and entry_price > 0:
-        px = float(close.iloc[-1])
-        trade_returns.append((px - entry_price) / entry_price)
+    # 末笔未平仓：仅 mark-to-close 已进 equity_curve[-1]，不计入 trade_returns
+    # （避免浮盈当已实现虚增 win_rate/profit_factor，ISSUE-030 M3）。
 
     equity = pd.Series(equity_curve, index=close.index)
     final_equity = float(equity.iloc[-1])
