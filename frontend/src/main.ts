@@ -9,4 +9,12 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.use(naive)
+
+// ISSUE-030: catch render errors so a single broken view (e.g. a render fn
+// throwing) doesn't blank the whole app shell — log instead of white-screen.
+app.config.errorHandler = (err, _instance, info) => {
+  // eslint-disable-next-line no-console
+  console.error('[Vue render error]', info, err)
+}
+
 app.mount('#app')

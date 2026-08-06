@@ -112,7 +112,9 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         cash_ratio = s.get("cash") / current_liab if (s.get("cash") and current_liab) else None
         interest_coverage = op_profit / interest_exp if (op_profit and interest_exp and interest_exp != 0) else None
         fcf = (ocf - capex) if (ocf is not None and capex is not None) else None
-        earnings_quality = ocf / net_profit if (ocf and net_profit and net_profit != 0) else None
+        # earnings_quality 仅在净利>0 时计算（ISSUE-030）：OCF/净利双负时比值为正伪信号
+        # （如 OCF=-0.48亿/净利=-0.12亿=4.0，表面像盈利质量高，实为双重负数）。
+        earnings_quality = ocf / net_profit if (ocf and net_profit and net_profit > 0) else None
 
         periods.append({
             "report_date": rd,

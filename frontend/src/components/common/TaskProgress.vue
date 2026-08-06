@@ -101,6 +101,10 @@ const connectionStatus = ref<'connecting' | 'connected' | 'polling'>('connecting
 
 let abortController: AbortController | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
+// ISSUE-030: track the SSE reconnect timer so onUnmounted can clear it
+// (otherwise a backoff scheduled before unmount fires connectSSE() on a dead
+// component -> zombie fetch / reader loop).
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let sseRetryCount = 0
 const MAX_SSE_RETRIES = 3
 
@@ -250,7 +254,8 @@ async function connectSSE() {
       startPolling()
     } else {
       // Brief backoff then retry the authenticated SSE connection.
-      setTimeout(() => {
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
         if (task.value && !isTerminalStatus(task.value.status)) connectSSE()
       }, 1500 * sseRetryCount)
     }
@@ -332,5 +337,11 @@ onMounted(async () => {
 onUnmounted(() => {
   closeSSE()
   stopPolling()
+  // ISSUE-030: cancel a pending SSE reconnect so it doesn't fire on a dead
+  // component (zombie fetch / reader loop).
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
 })
 </script>

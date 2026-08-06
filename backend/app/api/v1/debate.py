@@ -362,7 +362,6 @@ async def _finish_debate_background(session_id: int, agents: list[dict], target_
             llm = llm_manager.get()
             orchestrator = DebateOrchestrator(llm, db=db)
 
-            round_num = 0
             async for ev in orchestrator.run_debate_stream(agents, target, rounds, resume=resume):
                 t = ev.get("type")
                 if t == "collecting":
@@ -371,7 +370,6 @@ async def _finish_debate_background(session_id: int, agents: list[dict], target_
                     # 已在 live stream 落库（resume 时 context 从 DB 读），跳过
                     continue
                 elif t == "agent_done":
-                    round_num = ev["round_num"]
                     meta = {"round_type": ev["round_type"], "round_num": ev["round_num"],
                             "agent_id": ev["agent_id"], "agent_name": ev["agent_name"]}
                     if ev.get("reasoning"):
@@ -382,7 +380,11 @@ async def _finish_debate_background(session_id: int, agents: list[dict], target_
                     ))
                     await db.commit()
                 elif t == "summary_done":
-                    meta = {"round_type": "summary", "round_num": round_num + 1}
+                    # ISSUE-030: background resume may reach summary with no
+                    # agent_done in THIS run (all already persisted by the live
+                    # stream), so round_num=0 would mislabel summary as round 1.
+                    # The summary is the final round = max_rounds.
+                    meta = {"round_type": "summary", "round_num": rounds}
                     if ev.get("reasoning"):
                         meta["reasoning"] = ev["reasoning"]
                     db.add(ChatMessage(

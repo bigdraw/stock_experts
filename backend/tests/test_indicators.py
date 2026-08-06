@@ -43,11 +43,13 @@ def main() -> int:
     check("ema warmup NaN count == 4", e.iloc[:4].isna().all() and e.iloc[4:].notna().all())
     check("ema seed == SMA(5)", abs(e.iloc[4] - close.iloc[:5].mean()) < 1e-9)
 
-    # RSI(14): bounded [0,100]; Wilder ewm(adjust=False) computes from index 1
-    # (row 0 is NaN due to close.diff()). Unlike SMA/EMA there's no full warmup.
+    # RSI(14): Wilder seed = SMA of first 14 deltas -> warmup NaN for indices
+    # 0..13, first finite at index 14 (ISSUE-030). The old no-seed impl produced
+    # finite values from row 1, disagreeing with pandas-ta/TA-Lib.
     r = rsi(close, 14)
     check("rsi in [0,100] after warmup", r.dropna().between(0, 100).all())
-    check("rsi row 0 NaN (diff), row 1+ finite", np.isnan(r.iloc[0]) and r.iloc[1:].notna().all())
+    check("rsi warmup NaN 0..13", r.iloc[:14].isna().all())
+    check("rsi finite from index 14", r.iloc[14:].notna().all())
 
     # MACD returns 3 columns
     m = macd(close)
@@ -70,6 +72,40 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def _wilder_rsi_ref(close: pd.Series, period: int = 14) -> pd.Series:
+    """Reference Wilder RSI (SMA seed + recursive avg) to validate our
+    vectorized rsi() matches the textbook form (ISSUE-030)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+    avg_g = pd.Series(np.nan, index=close.index, dtype=float)
+    avg_l = pd.Series(np.nan, index=close.index, dtype=float)
+    avg_g.iloc[period] = gain.iloc[1 : period + 1].mean()
+    avg_l.iloc[period] = loss.iloc[1 : period + 1].mean()
+    for i in range(period + 1, len(close)):
+        avg_g.iloc[i] = (avg_g.iloc[i - 1] * (period - 1) + gain.iloc[i]) / period
+        avg_l.iloc[i] = (avg_l.iloc[i - 1] * (period - 1) + loss.iloc[i]) / period
+    rs = avg_g / avg_l
+    out = 100 - 100 / (1 + rs)
+    flat = (avg_g + avg_l) == 0
+    return out.mask(flat, 50.0)
+
+
+def test_rsi_matches_wilder_reference():
+    """ISSUE-030: rsi must seed with the SMA of the first `period` deltas
+    (Wilder's method), matching the textbook recursive form."""
+    from app.services.technical.indicators import rsi
+
+    rng = np.random.default_rng(42)
+    n = 80
+    close = pd.Series(np.cumsum(rng.normal(0.1, 1.5, n)) + 100)
+    got = rsi(close, 14)
+    ref = _wilder_rsi_ref(close, 14)
+    valid = ref.notna()
+    diff = (got[valid] - ref[valid]).abs().max()
+    assert diff < 1e-9, f"rsi diverges from Wilder reference by {diff}"
 
 
 def test_indicators_math():

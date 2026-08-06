@@ -35,17 +35,32 @@ def ema(close: pd.Series, period: int) -> pd.Series:
 
 
 def rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    """Relative strength index，Wilder 平滑 (``ewm(alpha=1/period, adjust=False)``)。
+    """Relative strength index, Wilder smoothing.
+
+    ISSUE-030: seed ``avg_gain``/``avg_loss`` with the SMA of the first
+    ``period`` deltas (Wilder's method), then ``ewm(alpha=1/period,
+    adjust=False)`` from that seed — matching pandas-ta / TA-Lib. The previous
+    implementation started ewm from the first delta (no SMA seed), giving early
+    RSI values full-weight-to-recent bias and disagreeing with standard
+    libraries (so screening thresholds like rsi<30 were wrong on short series).
 
     持平序列（平均增益与平均损失均为 0）定义为 50.0（中性）而非字面 0/0 的 NaN。
     """
-    if len(close) < period:
+    # Need period+1 bars to form `period` deltas (diff[0] is NaN).
+    if len(close) < period + 1:
         return pd.Series(np.nan, index=close.index, dtype=float)
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = (-delta).clip(lower=0)
-    avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
+    avg_gain = gain.astype(float).copy()
+    avg_loss = loss.astype(float).copy()
+    avg_gain.iloc[:period] = np.nan  # leading warmup
+    avg_loss.iloc[:period] = np.nan
+    # Wilder seed: SMA of the first `period` deltas (indices 1..period).
+    avg_gain.iloc[period] = gain.iloc[1 : period + 1].mean()
+    avg_loss.iloc[period] = loss.iloc[1 : period + 1].mean()
+    avg_gain = avg_gain.ewm(alpha=1 / period, adjust=False).mean()
+    avg_loss = avg_loss.ewm(alpha=1 / period, adjust=False).mean()
     total = avg_gain + avg_loss
     safe_total = total.replace(0, np.nan)
     result = 100 * avg_gain / safe_total

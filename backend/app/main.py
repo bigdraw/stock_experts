@@ -69,18 +69,32 @@ async def lifespan(app: FastAPI):
 
     # Start scheduler
     _hour, _minute = map(int, settings.scheduler.daily_update_time.split(":"))
-    scheduler.add_job(daily_data_update, "cron", hour=_hour, minute=_minute, id="daily_data_update")
-    scheduler.add_job(alert_check, "interval", minutes=30, id="alert_check")
+    # ISSUE-030: misfire grace + coalesce + max_instances so a missed run (server
+    # down at 16:30) recovers for an hour instead of being dropped, concurrent
+    # triggers collapse to one, and a slow run isn't overlapped by the next.
+    _job_kw = {"misfire_grace_time": 3600, "coalesce": True, "max_instances": 1}
+    scheduler.add_job(
+        daily_data_update, "cron", hour=_hour, minute=_minute, id="daily_data_update", **_job_kw
+    )
+    scheduler.add_job(alert_check, "interval", minutes=30, id="alert_check", **_job_kw)
     scheduler.add_job(
         backup_reminder,
         "cron",
         day_of_week=settings.scheduler.backup_day[:3],
         hour=9,
         id="backup_reminder",
+        **_job_kw,
     )
-    # 月底跑财报刷新（每月最后一个 23:00）
+    # 月底跑财报刷新（每月最后一个 23:00）——ISSUE-030: day=28 既非月末也非 2 月
+    # 最后一天，改用 APScheduler 的 "last" 真正落在月末。
     scheduler.add_job(
-        monthly_financial_update, "cron", day="28", hour=23, minute=0, id="monthly_financial_update"
+        monthly_financial_update,
+        "cron",
+        day="last",
+        hour=23,
+        minute=0,
+        id="monthly_financial_update",
+        **_job_kw,
     )
     scheduler.start()
 

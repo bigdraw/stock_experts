@@ -358,7 +358,9 @@ async def chat_stream(
                         fn = tc.get("function", {}) or {}
                         result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
                         llm_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
-                yield f"event: stop\ndata: {json.dumps({'reason': 'stop'})}\n\n"
+                # ISSUE-030: persist the assistant message BEFORE yielding stop,
+                # so a client disconnect between stop and the finally-commit
+                # doesn't lose the message (stop would tell the UI it's done).
                 if full_response:
                     _sa_meta: dict = {}
                     if full_reasoning:
@@ -369,6 +371,8 @@ async def chat_stream(
                         stocks_detected=stock_codes[:3], token_count=estimate_tokens(full_response),
                         meta=_sa_meta,
                     ))
+                    await db.commit()
+                yield f"event: stop\ndata: {json.dumps({'reason': 'stop'})}\n\n"
         except Exception as e:
             logger.error(f"Chat stream error: {e}")
             yield f"event: error\ndata: {json.dumps({'message': str(e)}, ensure_ascii=False)}\n\n"
