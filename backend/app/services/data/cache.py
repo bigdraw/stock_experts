@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stock import DailyQuote, FinancialReport
-from app.services.data.akshare_provider import AkShareProvider
+from app.services.data.akshare_provider import AkShareProvider, _valid_bar
 from app.services.data.provider import FinancialReport as FR
 
 logger = logging.getLogger(__name__)
@@ -215,13 +215,18 @@ async def ensure_full_daily_quotes(
     """
     provider = provider or AkShareProvider()
     existing = await db.execute(
-        select(DailyQuote.date)
+        select(DailyQuote.date, DailyQuote.close)
         .where(DailyQuote.stock_code == code)
         .order_by(DailyQuote.date.desc())
     )
-    have_dates = [r[0] for r in existing.all()]
+    have_rows = existing.all()
+    have_dates = [r[0] for r in have_rows]
     have_set = set(have_dates)
     latest = have_dates[0] if have_dates else None
+    # Last persisted close — used to validate the first new bar against a glitch
+    # jump (provider-level _valid_bar only tracks prev_close WITHIN one fetch;
+    # a delta-increment fetch's first bar has no in-fetch prev, so check vs DB).
+    db_prev_close = float(have_rows[0][1]) if have_rows and have_rows[0][1] is not None else None
     today = date.today()
     days_behind = (today - latest).days if latest else 999
     is_weekend = today.weekday() >= 5
@@ -251,6 +256,12 @@ async def ensure_full_daily_quotes(
         qd = _parse_date(q.date)
         if qd is None or qd in have_set:
             continue
+        # Defensive validate-on-persist (provider already filters, but covers
+        # delta-increment first-bar-no-prev case + any future provider change).
+        if not _valid_bar(db_prev_close, float(q.close), float(q.high) if q.high is not None else None,
+                          float(q.low) if q.low is not None else None):
+            logger.warning(f"ensure_full_daily_quotes: bad bar rejected {code} {qd} close={q.close}")
+            continue
         db.add(
             DailyQuote(
                 stock_code=code, date=qd,
@@ -259,6 +270,7 @@ async def ensure_full_daily_quotes(
             )
         )
         have_set.add(qd)
+        db_prev_close = float(q.close)
         added += 1
     if added:
         await db.flush()

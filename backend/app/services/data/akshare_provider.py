@@ -140,6 +140,41 @@ def _parse_cn_number(v) -> float | None:
         return None
 
 
+def _valid_bar(prev_close: float | None, close: float, high: float | None = None, low: float | None = None) -> bool:
+    """Sanity-check a daily-quote bar before persisting/summarizing.
+
+    Rejects akshare glitch bars (e.g. a 0.24 close for 宇通客车 whose real price
+    is ~15). A-share daily limit is ±10% (±20% for 创业板/科创板), so a one-day
+    move to <5% or >20× of the prior close is impossible outside 退市整理期 —
+    treat as a data glitch and skip. Pure function so it's unit-testable.
+    """
+    if close is None or close <= 0 or close < 0.10:
+        return False
+    if prev_close and prev_close > 0:
+        if close < prev_close * 0.05 or close > prev_close * 20:
+            return False
+    if high is not None and low is not None and high >= 0 and low >= 0:
+        if not (high >= low):
+            return False
+    return True
+
+
+def _normalize_per_share(payout: float | None, src_col_name: str) -> float | None:
+    """Normalize a dividend payout to per-share, based on the ACTUAL source column
+    name (not a fragile row.index heuristic).
+
+    Columns named 每10股派息/派息比例/分红金额 carry 每10股 amounts → divide by 10.
+    Columns named 每股派息/每股派息额 are already per-share → keep as-is.
+    """
+    if payout is None or payout <= 0:
+        return None
+    name = src_col_name or ""
+    if "每股" in name:
+        return round(payout, 4)
+    # 每10股 / 派息比例 / 分红金额 → 每10股口径，除以 10
+    return round(payout / 10, 4)
+
+
 class AkShareProvider(DataProvider):
     """Free data provider using AkShare."""
 
@@ -429,39 +464,58 @@ class AkShareProvider(DataProvider):
                     return []
 
             quotes = []
+            prev_close = None
             if source == "sina":
                 # 新浪 stock_zh_a_daily 列: date/open/high/low/close/volume/(outstanding_share/turnover)
                 for _, row in df.iterrows():
+                    try:
+                        c = float(row["close"])
+                        o = float(row["open"])
+                        h = float(row["high"])
+                        lo = float(row["low"])
+                        v = float(row["volume"])
+                    except (TypeError, ValueError):
+                        continue
+                    if not _valid_bar(prev_close, c, h, lo):
+                        logger.warning(f"akshare bad bar rejected {code} {row['date']} close={c}")
+                        continue
                     quotes.append(
                         DailyQuote(
                             code=code,
                             date=str(row["date"]),
-                            open=float(row["open"]),
-                            high=float(row["high"]),
-                            low=float(row["low"]),
-                            close=float(row["close"]),
-                            volume=float(row["volume"]),
+                            open=o, high=h, low=lo, close=c,
+                            volume=v,
                             amount=float(row.get("turnover")) if pd.notna(row.get("turnover")) else None,
                             turnover_rate=None,
                         )
                     )
+                    prev_close = c
             else:
                 for _, row in df.iterrows():
+                    try:
+                        c = float(row["收盘"])
+                        o = float(row["开盘"])
+                        h = float(row["最高"])
+                        lo = float(row["最低"])
+                        v = float(row["成交量"])
+                    except (TypeError, ValueError):
+                        continue
+                    if not _valid_bar(prev_close, c, h, lo):
+                        logger.warning(f"akshare bad bar rejected {code} {row['日期']} close={c}")
+                        continue
                     quotes.append(
                         DailyQuote(
                             code=code,
                             date=str(row["日期"]),
-                            open=float(row["开盘"]),
-                            high=float(row["最高"]),
-                            low=float(row["最低"]),
-                            close=float(row["收盘"]),
-                            volume=float(row["成交量"]),
+                            open=o, high=h, low=lo, close=c,
+                            volume=v,
                             amount=float(row["成交额"]),
                             turnover_rate=float(row.get("换手率"))
                             if pd.notna(row.get("换手率"))
                             else None,
                         )
                     )
+                    prev_close = c
             return quotes
 
     def _fetch_daily_quotes_sync(self, code: str, start_date: str, end_date: str):
@@ -697,6 +751,14 @@ class AkShareProvider(DataProvider):
                         or brow.get("所有者权益(或股东权益)合计")
                         or brow.get("所有者权益合计")
                     ),
+                    # 所有者权益合计（含少数股东）——供 debt_ratio 反推勾稽：
+                    # (total_assets − total_equity)/total_assets == 资产负债率。
+                    # equity 是归母口径，用它反推会把少数股东权益算进负债、偏高。
+                    "total_equity": _parse_cn_number(
+                        brow.get("所有者权益(或股东权益)合计")
+                        or brow.get("所有者权益合计")
+                        or brow.get("归属于母公司股东权益合计")
+                    ),
                     "cash": _parse_cn_number(brow.get("货币资金")),
                     "revenue": _parse_cn_number(irow.get("营业总收入") or irow.get("营业收入")),
                     "cost": _parse_cn_number(irow.get("营业成本")),
@@ -745,10 +807,15 @@ class AkShareProvider(DataProvider):
                 if df is not None and len(df) > 0:
                     out = []
                     for _, row in df.iterrows():
-                        payout = _parse_cn_number(row.get("每10股派息(税前)")) or _parse_cn_number(row.get("每股派息额"))
-                        per_share = round(payout / 10, 4) if payout and "每10股" in str(row.index) else (round(payout, 4) if payout else None)
-                        if per_share is None and payout:
-                            per_share = round(payout / 10, 4)
+                        # Pick the actual source column; normalize by name, not row.index.
+                        src_col, payout = None, None
+                        for col in ("每10股派息(税前)", "每股派息额"):
+                            if col in row.index:
+                                payout = _parse_cn_number(row.get(col))
+                                if payout:
+                                    src_col = col
+                                    break
+                        per_share = _normalize_per_share(payout, src_col)
                         out.append({
                             "announce_date": str(row.get("公告日", "")),
                             "dividend_per_share": per_share,
@@ -769,8 +836,15 @@ class AkShareProvider(DataProvider):
                     return []
                 out = []
                 for _, row in df2.iterrows():
-                    payout = _parse_cn_number(row.get("分红金额")) or _parse_cn_number(row.get("每股派息"))
-                    per_share = round(payout / 10, 4) if payout else None
+                    # 分红金额=每10股派息额 → /10；每股派息=已每股 → 原值
+                    src_col, payout = None, None
+                    for col in ("分红金额", "每股派息"):
+                        if col in row.index:
+                            payout = _parse_cn_number(row.get(col))
+                            if payout:
+                                src_col = col
+                                break
+                    per_share = _normalize_per_share(payout, src_col)
                     out.append({
                         "announce_date": str(row.get("公告日期", "")),
                         "dividend_per_share": per_share,

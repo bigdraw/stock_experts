@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -110,7 +110,7 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         roa = net_profit / total_assets if (net_profit and total_assets) else None
         current_ratio = current_assets / current_liab if (current_assets and current_liab) else None
         cash_ratio = s.get("cash") / current_liab if (s.get("cash") and current_liab) else None
-        interest_coverage = op_profit / interest_exp if (op_profit and interest_exp and interest_exp != 0) else None
+        interest_coverage = op_profit / interest_exp if (op_profit and interest_exp and interest_exp > 0) else None
         fcf = (ocf - capex) if (ocf is not None and capex is not None) else None
         # earnings_quality 仅在净利>0 时计算（ISSUE-030）：OCF/净利双负时比值为正伪信号
         # （如 OCF=-0.48亿/净利=-0.12亿=4.0，表面像盈利质量高，实为双重负数）。
@@ -121,7 +121,10 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
             # 复用缓存
             "roe": c.get("roe"), "eps": c.get("eps"), "bps": c.get("bps"),
             "revenue": revenue, "net_profit": net_profit,
-            "gross_margin": c.get("gross_margin"), "net_margin": c.get("net_margin"),
+            "gross_margin": c.get("gross_margin"),
+            # net_margin 改算（ISSUE-030 口径）：用 net_profit/revenue 保证与展示的
+            # net_profit+revenue 内部一致；缓存 ths 销售净利率仅兜底（口径/归母不一致）。
+            "net_margin": (net_profit / revenue) if (net_profit is not None and revenue) else c.get("net_margin"),
             "debt_ratio": c.get("debt_ratio") or (s.get("total_liab") / total_assets if (s.get("total_liab") and total_assets) else None),
             "revenue_growth": c.get("revenue_growth"), "net_profit_growth": c.get("net_profit_growth"),
             # 新算
@@ -129,6 +132,9 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
             "interest_coverage": interest_coverage, "ocf": ocf, "fcf": fcf, "capex": capex,
             "earnings_quality": earnings_quality,
             "total_assets": total_assets, "equity": equity,
+            # 所有者权益合计（含少数股东）——供 debt_ratio 反推勾稽：
+            # (total_assets − total_equity)/total_assets == 资产负债率；equity 是归母口径。
+            "total_equity": s.get("total_equity"),
         })
 
     if not periods:
@@ -151,6 +157,26 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
     for f in ("revenue", "net_profit", "equity"):
         growth[f] = {"cagr_3y": _cagr(f, 3), "cagr_5y": _cagr(f, 5)}
 
+    # net_profit_growth 重算 + 负基期守卫（ISSUE-030 口径）：缓存 YoY 在基期为负时
+    # 产出无意义正值（迪安 406% 因 2025Q1 基期 -21M）。改算 latest vs 同季上年，
+    # 基期 ≤0 → None。回填 latest（trend 是同 list，mutation 传播）。
+    def _yoy(field: str):
+        if latest.get(field) is None:
+            return None
+        rd = latest["report_date"]
+        try:
+            same_q_prev = f"{int(rd[:4]) - 1}{rd[4:]}"
+        except (ValueError, IndexError):
+            return None
+        prev = next((p for p in periods if p["report_date"] == same_q_prev and p.get(field) is not None), None)
+        if prev is None or prev[field] is None or prev[field] <= 0:
+            return None  # 负/零基期 → 增长率无意义
+        return (latest[field] - prev[field]) / prev[field]
+
+    np_growth = _yoy("net_profit")
+    if np_growth is not None:
+        latest["net_profit_growth"] = np_growth
+
     # 4.5 TTM（滚动 12 个月）累计值：最近年报累计 − 同季上年累计 + 最新累计
     #     用于 Graham/PCF/FCF yield，避免直接用单季累计 ×4 在季节性强的字段上失真。
     def _ttm(field: str):
@@ -171,7 +197,9 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         prev = next((p for p in periods
                      if p["report_date"] == same_q_prev and p.get(field) is not None), None)
         if prev is None:
-            return last_annual  # 缺同季上年 → 退回最近年报值，不强行 ×4
+            # 缺同季上年 → 无法算真 TTM，返回 None（优于用过期年报值误导 PE/graham）。
+            # 之前 return last_annual 会把最近年报 EPS 当 TTM，导致迪安 graham 偏 2×、安科 PE 用 2024 年报。
+            return None
         return last_annual - prev[field] + latest[field]
 
     # 5. 估值：复用 Latest 快照
@@ -233,19 +261,27 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         return ""
     dividends = sorted(dividends, key=_div_date, reverse=True)
     if price and dividends:
-        today_str = date.today().strftime("%Y-%m-%d")
-        cutoff = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
-        ttm_dps = 0.0
-        has_recent = False
-        for d in dividends:
-            dd = _div_date(d)
-            if dd and cutoff <= dd <= today_str:
-                ttm_dps += d.get("dividend_per_share") or 0
-                has_recent = True
-        # 只用近 12 个月有分红时才算股息率——5 年前的旧分红不算（避免误报）
-        if has_recent and ttm_dps > 0:
-            valuation["dividend_yield"] = ttm_dps / price
-        # 无近 12 个月分红 → dividend_yield 不设（None），表示"当前无分红"
+        # TTM 锚到最近一次除权日（非 today）：cutoff = latest_ex_date − 365。
+        # 之前锚 today 会把"刚过 12 个月"的分红排除——600690 today=2026-08-06
+        # cutoff=2025-08-06 排除了 2025-05 的分红，只算到晚 2025 一次（0.2692）→
+        # yield 1.205% 而非全年 1.2342/22.34=5.53%。锚 latest_ex_date 后两者都在窗内。
+        latest_ex = next((_div_date(d) for d in dividends if _div_date(d)), "")
+        if latest_ex:
+            try:
+                latest_ex_dt = datetime.strptime(latest_ex, "%Y-%m-%d").date()
+            except ValueError:
+                latest_ex_dt = None
+            if latest_ex_dt:
+                cutoff = (latest_ex_dt - timedelta(days=365)).strftime("%Y-%m-%d")
+                ttm_dps = 0.0
+                for d in dividends:
+                    dd = _div_date(d)
+                    if dd and cutoff <= dd <= latest_ex:
+                        ttm_dps += d.get("dividend_per_share") or 0
+                if ttm_dps > 0:
+                    valuation["dividend_yield"] = ttm_dps / price
+                    valuation["dividend_yield_basis"] = "ttm_trailing_ex_date"
+        # 无分红或最近 ex_date 缺失 → dividend_yield 不设（None）
 
     return {
         "latest": latest,

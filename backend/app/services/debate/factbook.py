@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stock import DailyQuote, FinancialReport, Stock
-from app.services.data.akshare_provider import AkShareProvider
+from app.services.data.akshare_provider import AkShareProvider, _valid_bar
 from app.services.data.cache import (
     ensure_daily_quotes,
     ensure_financial_reports,
@@ -217,17 +217,32 @@ class FactBook:
         """从 DB 读日K → 趋势摘要（日/周/月 + 缺口）。短数据自动返回 None 字段。"""
         rows = (
             await db.execute(
-                select(DailyQuote.date, DailyQuote.close, DailyQuote.volume)
+                select(DailyQuote.date, DailyQuote.close, DailyQuote.low, DailyQuote.high, DailyQuote.volume)
                 .where(DailyQuote.stock_code == code)
                 .order_by(DailyQuote.date.asc())
             )
         ).all()
         if not rows:
             return {"_error": "无日K数据"}
-        df = pd.DataFrame(rows, columns=["date", "close", "volume"]).dropna(subset=["close"])
+        df = pd.DataFrame(rows, columns=["date", "close", "low", "high", "volume"]).dropna(subset=["close"])
         if df.empty:
             return {"_error": "无有效收盘价"}
         df["date"] = pd.to_datetime(df["date"])
+        # 内存过滤坏 bar（不删 DB）：close < 0.10 或单日 <5%/ >20× 前根（A 股 ±10%/±20%
+        # 涨跌停，不可能）——宇通 0.24 之类 akshare glitch 不再污染 low_5y/max_drawdown。
+        df = df.sort_values("date").reset_index(drop=True)
+        prev = None
+        keep_mask = []
+        for c in df["close"].astype(float):
+            keep_mask.append(_valid_bar(prev, c))
+            if keep_mask[-1]:
+                prev = c
+        n_bad = len(keep_mask) - sum(keep_mask)
+        if n_bad:
+            df = df.loc[keep_mask].reset_index(drop=True)
+            logger.warning(f"_kline_summarize {code}: filtered {n_bad} bad bars in-memory")
+        if df.empty:
+            return {"_error": "所有日K均为坏数据"}
 
         daily_summary = self._kline_daily_summary(df)
         weekly_summary = self._kline_period_summary(df, "W", {"近13周": 13, "近26周": 26, "近52周": 52})
@@ -252,13 +267,21 @@ class FactBook:
         last = float(close.iloc[-1])
         vol = df["volume"].astype(float)
 
+        # 日历锚 _change：取 today−N月 的最后一个交易日 close 作 base，与月线
+        # `近6月`（月末日历锚）对齐——之前用 close.iloc[-n-1]（交易日回溯，132≈6.3 月）
+        # 与月线口径不一致（华电 日线6m −27.57% vs 月线6m −49.23%）。
+        _N_TO_MONTHS = {22: 1, 66: 3, 132: 6, 252: 12, 1260: 60}
+
         def _change(n: int) -> float | None:
-            if len(close) <= n:
+            months = _N_TO_MONTHS.get(n) or max(1, round(n / 21))
+            target = df["date"].iloc[-1] - pd.DateOffset(months=months)
+            mask = df["date"] <= target
+            if not mask.any():
                 return None
-            base = float(close.iloc[-n - 1])
+            base = float(close.loc[mask].iloc[-1])
             return round((last / base - 1) * 100, 2) if base else None
 
-        # 5年最大回撤
+        # 5年最大回撤（close-based，peak-to-trough；在已过滤坏 bar 的 close 上算）
         window = close.tail(_KLINE_YEARS * 252 + 10) if len(close) > _KLINE_YEARS * 252 else close
         cummax = window.cummax()
         drawdown = (window / cummax - 1) * 100
@@ -270,10 +293,11 @@ class FactBook:
         if change_5y is not None:
             ann_5y = round(((1 + change_5y / 100) ** (1 / _KLINE_YEARS) - 1) * 100, 2)
 
-        # 近5年高低点
-        w5 = close.tail(_KLINE_YEARS * 252 + 10)
-        high5 = round(float(w5.max()), 4) if not w5.empty else None
-        low5 = round(float(w5.min()), 4) if not w5.empty else None
+        # 近5年高低点：用 intraday low/high 列（真·日内最低/最高），非 close min/max。
+        w5_low = df["low"].astype(float).tail(_KLINE_YEARS * 252 + 10) if "low" in df.columns else None
+        w5_high = df["high"].astype(float).tail(_KLINE_YEARS * 252 + 10) if "high" in df.columns else None
+        high5 = round(float(w5_high.max()), 4) if w5_high is not None and not w5_high.empty else None
+        low5 = round(float(w5_low.min()), 4) if w5_low is not None and not w5_low.empty else None
         near_high = bool(high5 and last >= high5 * 0.97)
         near_low = bool(low5 and last <= low5 * 1.03)
 
@@ -282,7 +306,7 @@ class FactBook:
         v5y = float(vol.tail(_KLINE_YEARS * 252).mean()) if len(vol) >= 60 else None
         vol_ratio = round(v20 / v5y, 2) if (v20 and v5y) else None
 
-        return {
+        out = {
             "last_close": last,
             "change_1m": _change(22),
             "change_3m": _change(66),
@@ -297,6 +321,11 @@ class FactBook:
             "near_5y_low": near_low,
             "volume_ratio_20d_vs_5y": vol_ratio,
         }
+        # 数据可疑标记：max_dd < -90 几乎必是坏 bar（A 股单日 ±10%/±20%，5 年回撤
+        # 极少 < -90）。已在 _kline_summarize 内存过滤，但留作下游告警。
+        if max_dd is not None and max_dd < -90:
+            out["_data_suspect"] = True
+        return out
 
     def _kline_period_summary(self, df: pd.DataFrame, freq: str, lookbacks: dict[str, int]) -> dict[str, float | None]:
         """周/月K趋势：各回看周期涨跌幅（%）。
