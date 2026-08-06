@@ -92,7 +92,8 @@ async function batchDelete() {
 .session-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
 .session-item {
   padding: 8px 12px 8px 10px; border-radius: var(--radius-sm); cursor: pointer;
-  transition: all var(--transition); margin-bottom: 2px; position: relative;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+  margin-bottom: 2px; position: relative;
   display: flex; align-items: center; gap: 6px;
   border-left: 3px solid transparent;
 }
@@ -111,7 +112,7 @@ async function batchDelete() {
 .session-title {
   font-size: 14px; color: var(--text-secondary); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
-  transition: color var(--transition), font-weight var(--transition);
+  transition: color var(--transition-fast);
 }
 .type-tag { flex-shrink: 0; }
 .empty { text-align: center; padding: 40px 0; color: var(--text-tertiary); font-size: var(--fs-label); }
