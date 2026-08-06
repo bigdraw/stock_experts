@@ -67,6 +67,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useMessage } from 'naive-ui'
 import { tasksApi } from '../../api'
+import { handleStreamAuthFailure } from '../../api/client'
 
 interface TaskData {
   task_id: string
@@ -171,7 +172,7 @@ async function connectSSE() {
   closeSSE()
   connectionStatus.value = 'connecting'
 
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')
   if (!token) {
     // No token to authenticate with — go straight to polling.
     startPolling()
@@ -214,6 +215,7 @@ async function connectSSE() {
       signal: abortController.signal,
     })
     if (!resp.ok || !resp.body) {
+      handleStreamAuthFailure(resp.status)
       throw new Error(`SSE HTTP ${resp.status}`)
     }
     connectionStatus.value = 'connected'

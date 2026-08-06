@@ -28,9 +28,13 @@ function addAuthInterceptor(client: ReturnType<typeof axios.create>) {
     (response) => response,
     (error) => {
       if (error.response?.status === 401) {
+        // Guard against N concurrent 401s all calling logout/push at once
+        // (ISSUE-027): only the first one (when a token still exists) acts.
         const authStore = useAuthStore()
-        authStore.logout()
-        router.push('/login')
+        if (authStore.token) {
+          authStore.logout()
+          router.push('/login')
+        }
       }
       return Promise.reject(error)
     }
@@ -39,6 +43,22 @@ function addAuthInterceptor(client: ReturnType<typeof axios.create>) {
 
 addAuthInterceptor(apiClient)
 addAuthInterceptor(adminClient)
+
+/**
+ * Handle auth failure on a streaming (fetch) path that bypasses the axios
+ * interceptor (ISSUE-027). SSE streams use raw fetch; a 401 there previously
+ * only surfaced as a ⚠️ HTTP 401 bubble, leaving the user on a stale
+ * "logged-in" UI. Call this in the `!res.ok` branch of every stream fetch.
+ */
+export function handleStreamAuthFailure(status: number): void {
+  if (status === 401) {
+    const authStore = useAuthStore()
+    if (authStore.token) {
+      authStore.logout()
+      router.push('/login')
+    }
+  }
+}
 
 export { adminClient }
 export default apiClient

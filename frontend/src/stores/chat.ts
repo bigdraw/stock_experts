@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import apiClient from '../api/client'
+import apiClient, { handleStreamAuthFailure } from '../api/client'
 
 export interface ChatMessageData {
   id?: number
@@ -147,14 +147,17 @@ export const useChatStore = defineStore('chat', () => {
     abortController = new AbortController()
 
     try {
-      const token = localStorage.getItem('token')
+      const token = sessionStorage.getItem('token')
       const res = await fetch(`/api/v1/chat/sessions/${sessionId}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: text, agent_ids: agentIds }),
         signal: abortController.signal,
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        handleStreamAuthFailure(res.status)
+        throw new Error(`HTTP ${res.status}`)
+      }
       const reader = res.body!.getReader()
       const decoder = new TextDecoder()
       let sseBuf = ''
@@ -259,14 +262,17 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = true
     abortController = new AbortController()
     try {
-      const token = localStorage.getItem('token')
+      const token = sessionStorage.getItem('token')
       const res = await fetch('/api/v1/debate/start-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ agent_ids: agentIds, target_type: 'stock', target_id: targetCode, rounds, validate_data: validateData }),
         signal: abortController.signal,
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        handleStreamAuthFailure(res.status)
+        throw new Error(`HTTP ${res.status}`)
+      }
       await _streamDebate(res, { agentIds, targetName, targetCode })
     } catch (e: any) {
       if (e.name !== 'AbortError') {
@@ -285,13 +291,16 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = true
     abortController = new AbortController()
     try {
-      const token = localStorage.getItem('token')
+      const token = sessionStorage.getItem('token')
       const res = await fetch(`/api/v1/debate/sessions/${currentSessionId.value}/resume-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         signal: abortController.signal,
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        handleStreamAuthFailure(res.status)
+        throw new Error(`HTTP ${res.status}`)
+      }
       await _streamDebate(res, { isResume: true })
     } catch (e: any) {
       if (e.name !== 'AbortError') {

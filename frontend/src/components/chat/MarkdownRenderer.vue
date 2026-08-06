@@ -6,6 +6,7 @@
 import { computed } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
+import DOMPurify from 'dompurify'
 
 const props = defineProps<{ content: string }>()
 
@@ -22,7 +23,17 @@ const md: MarkdownIt = new MarkdownIt({
   },
 })
 
-const rendered = computed(() => md.render(props.content || ''))
+// Agent output is untrusted LLM content (prompt-injectable). markdown-it
+// html:false already escapes raw HTML, but sanitize the rendered HTML too so
+// javascript:/data: URIs, on* handlers, <script>/<iframe>/<style> injected via
+// highlight.js output or linkify can't reach the v-html DOM (ISSUE-026).
+const rendered = computed(() =>
+  DOMPurify.sanitize(md.render(props.content || ''), {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ['style', 'iframe', 'form', 'object', 'embed'],
+    FORBID_ATTR: ['style'],
+  })
+)
 </script>
 
 <style scoped>

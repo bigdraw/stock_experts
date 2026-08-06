@@ -84,7 +84,7 @@ export const debateApi = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
+        Authorization: `Bearer ${sessionStorage.getItem('token')}`,
       },
       body: JSON.stringify({ agent_ids: agentIds, target_type: targetType, target_id: targetId, rounds }),
     }),

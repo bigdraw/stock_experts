@@ -4,14 +4,18 @@ import { authApi } from '../api'
 import type { User } from '../types'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref<string | null>(localStorage.getItem('token'))
+  // sessionStorage (not localStorage) so the token dies with the tab instead
+  // of persisting across restarts/browsing history (ISSUE-026). DOMPurify in
+  // MarkdownRenderer closes the XSS-to-token-theft chain; sessionStorage is
+  // defense-in-depth. Full fix = httpOnly cookie + CSRF (tracked in ISSUES).
+  const token = ref<string | null>(sessionStorage.getItem('token'))
   const user = ref<User | null>(null)
   const isLoggedIn = computed(() => !!token.value)
 
   async function login(username: string, password: string) {
     const res = await authApi.login(username, password)
     token.value = res.data.access_token
-    localStorage.setItem('token', res.data.access_token)
+    sessionStorage.setItem('token', res.data.access_token)
     await fetchUser()
   }
 
@@ -32,7 +36,7 @@ export const useAuthStore = defineStore('auth', () => {
   function logout() {
     token.value = null
     user.value = null
-    localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
   }
 
   return { token, user, isLoggedIn, login, register, fetchUser, logout }
