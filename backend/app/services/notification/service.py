@@ -84,21 +84,19 @@ data 包含股票最新数据（code, name, close, pe_ratio, pb_ratio, roe, mark
         return code.group(1).strip() if code else response.content.strip()
 
     def _evaluate(self, code: str, data: dict) -> bool:
-        safe_globals = {
-            "__builtins__": {
-                "len": len,
-                "float": float,
-                "int": int,
-                "str": str,
-                "bool": bool,
-                "True": True,
-                "False": False,
-                "None": None,
-            }
-        }
-        exec(code, safe_globals)
-        check_fn = safe_globals.get("check")
-        return bool(check_fn(data)) if check_fn else False
+        """Evaluate an alert's LLM-generated ``check(data)`` in the sandbox.
+
+        Routed through FilterSandbox.run_function (ISSUE-018): the previous
+        bare ``exec`` with a hand-rolled ``__builtins__`` had no dunder guards,
+        so a prompt-injected ``check`` could escape via
+        ``().__class__.__subclasses__()`` and RCE. Now dunder access is blocked
+        by RestrictedPython and pandas/numpy IO is AST-blocked.
+        """
+        try:
+            return bool(self.sandbox.run_function(code, "check", (data,)))
+        except Exception as e:
+            logger.warning(f"Alert condition eval failed: {e}")
+            return False
 
     async def _send_notification(self, user_id: int, type: str, title: str, content: str):
         self.db.add(Notification(user_id=user_id, type=type, title=title, content=content))

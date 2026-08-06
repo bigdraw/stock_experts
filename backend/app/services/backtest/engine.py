@@ -60,42 +60,27 @@ class BacktestEngine:
 
         trading_dates = sorted(market_data["date"].unique())
 
-        # 2. Compile strategy
-        safe_globals = {
-            "__builtins__": {
-                "len": len,
-                "range": range,
-                "enumerate": enumerate,
-                "zip": zip,
-                "map": map,
-                "filter": filter,
-                "sorted": sorted,
-                "sum": sum,
-                "min": min,
-                "max": max,
-                "abs": abs,
-                "round": round,
-                "int": int,
-                "float": float,
-                "str": str,
-                "bool": bool,
-                "list": list,
-                "dict": dict,
-                "set": set,
-                "tuple": tuple,
-                "True": True,
-                "False": False,
-                "None": None,
-            },
-            "pd": pd,
-            "np": np,
-        }
-        exec(strategy_code, safe_globals)
+        # 2. Compile strategy through the hardened sandbox (ISSUE-018): no raw
+        # exec — dunder introspection escapes are blocked by RestrictedPython
+        # guards, and pandas/numpy IO (pd.read_csv / df.to_pickle / np.load,
+        # which would give file read/write + pickle RCE) is AST-blocked.
+        try:
+            safe_globals = self.sandbox.exec_namespace(
+                strategy_code,
+                ("init_strategy", "select_stocks", "generate_signals"),
+                require_all=False,
+            )
+        except Exception as e:
+            raise ValueError(f"Strategy compile failed: {e}") from e
         init_fn = safe_globals.get("init_strategy")
         select_fn = safe_globals.get("select_stocks")
         signal_fn = safe_globals.get("generate_signals")
 
-        init_fn() if init_fn else {}
+        if init_fn:
+            try:
+                init_fn()
+            except Exception as e:
+                logger.warning(f"init_strategy error: {e}")
 
         # 3. Simulate day by day
         cash = initial_capital
