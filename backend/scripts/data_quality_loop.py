@@ -230,11 +230,30 @@ async def llm_validate(raw: dict, digest: str, stock_code: str, stock_name: str,
         if not text:
             logger.warning("llm_validate: LLM content 为空（thinking 吃满？）")
             return None
+        # 提取 JSON：从第一个 { 到最后一个 }，但 LLM 偶发输出中文引号/尾逗号/多余文本
         start = text.find("{")
         end = text.rfind("}")
         if start >= 0 and end > start:
-            result = json.loads(text[start:end + 1])
-            return result
+            raw_json = text[start:end + 1]
+            try:
+                return json.loads(raw_json)
+            except json.JSONDecodeError:
+                # 修复常见格式问题：中文引号→英文、尾逗号、多余空白
+                fixed = raw_json.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+                fixed = fixed.replace(",}", "}").replace(",]", "]")  # 尾逗号
+                try:
+                    return json.loads(fixed)
+                except json.JSONDecodeError:
+                    # 仍失败→尝试提取 ```json ... ``` 块
+                    import re
+                    m = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+                    if m:
+                        try:
+                            return json.loads(m.group(1))
+                        except json.JSONDecodeError:
+                            pass
+                    logger.warning(f"llm_validate: JSON 解析失败, raw[:200]={raw_json[:200]}")
+                    return None
         else:
             logger.warning(f"llm_validate: LLM 返回无 JSON, content[:300]={text[:300]}")
     except Exception as e:
