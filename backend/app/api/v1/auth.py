@@ -33,7 +33,10 @@ async def get_current_user(
     payload = decode_access_token(token)
     if payload is None:
         raise UnauthorizedException("Invalid or expired token")
-    user_id = int(payload.get("sub", 0))
+    try:
+        user_id = int(payload.get("sub", 0))
+    except (TypeError, ValueError):
+        raise UnauthorizedException("Invalid token subject") from None
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:

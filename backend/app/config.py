@@ -38,6 +38,30 @@ def _expand_env_vars(text: str) -> str:
     return _ENV_PATTERN.sub(_repl, text)
 
 
+# Shipped placeholder. A publicly-known default secret lets any attacker forge
+# an admin JWT and fully take over the platform — ensure_secret_configured()
+# refuses to start the server while this (or any <32-char secret) is in effect.
+DEFAULT_SECRET_KEY = "change-me-in-production-use-a-real-secret"
+
+
+def ensure_secret_configured(cfg: "Settings | None" = None) -> None:
+    """Fail-fast at startup if the JWT secret is the shipped default or too weak.
+
+    Production must set ``AUTH_SECRET_KEY`` (env or config.yaml). Called from
+    the FastAPI lifespan so it blocks an insecure boot without breaking tests,
+    which import the app module but don't run the lifespan.
+    """
+    cfg = cfg or settings
+    secret = cfg.auth.secret_key
+    if secret == DEFAULT_SECRET_KEY or len(secret) < 32:
+        raise RuntimeError(
+            "AUTH_SECRET_KEY is not securely configured (still the shipped default "
+            "or shorter than 32 chars). Set a strong AUTH_SECRET_KEY in backend/.env "
+            "or config.yaml before starting the server — a public default lets "
+            "attackers forge admin JWTs."
+        )
+
+
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
@@ -49,7 +73,7 @@ class DatabaseConfig(BaseModel):
 
 
 class AuthConfig(BaseModel):
-    secret_key: str = "change-me-in-production-use-a-real-secret"
+    secret_key: str = DEFAULT_SECRET_KEY
     algorithm: str = "HS256"
     token_expire_minutes: int = 1440  # 24 hours
 

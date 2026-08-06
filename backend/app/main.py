@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.admin import router as admin_router
 from app.api.agent import router as agent_router
 from app.api.v1 import api_router
-from app.config import settings
+from app.config import ensure_secret_configured, settings
 from app.database import init_db
 from app.scheduler.jobs import (
     alert_check,
@@ -38,6 +38,9 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown."""
+    # Fail-fast: refuse to boot with the shipped default JWT secret. A public
+    # default lets any attacker forge admin JWTs and take over the platform.
+    ensure_secret_configured(settings)
     # Startup
     logger.info("Initializing database...")
     await init_db()
