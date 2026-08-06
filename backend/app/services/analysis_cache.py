@@ -4,6 +4,10 @@
 - value_analysis 数据：24 小时有效（行情每日变，但估值/盈利等变化慢）
 - debate 结果：7 天有效（辩论结论不需要每次都重新跑，除非财报季）
 - 缓存 key：stock_code + agent_ids 排序后的 hash
+
+ISSUE-024: 缓存写入专用的 analysis_cache 表（payload 为无长度上限的 Text），
+而非复用 SystemSettings.value（String(500)）——后者会截断/抛 DataError，导致
+所有非平凡分析要么写不进、要么读出损坏 JSON，缓存层形同虚设。
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.system import SystemSettings
+from app.models.system import AnalysisCache
 
 logger = logging.getLogger(__name__)
 
@@ -42,15 +46,13 @@ async def get_cached_analysis(
     ttl = timedelta(days=DEBATE_TTL_DAYS) if analysis_type == "debate" else timedelta(hours=VALUE_ANALYSIS_TTL_HOURS)
     key = f"analysis_cache:{analysis_type}:{_cache_key(stock_code, agent_ids)}"
 
-    result = await db.execute(
-        select(SystemSettings).where(SystemSettings.key == key)
-    )
-    setting = result.scalar_one_or_none()
-    if not setting:
+    result = await db.execute(select(AnalysisCache).where(AnalysisCache.key == key))
+    row = result.scalar_one_or_none()
+    if not row:
         return None
 
     try:
-        cached = json.loads(setting.value)
+        cached = json.loads(row.payload)
         created_at = datetime.fromisoformat(cached.get("created_at", ""))
         if datetime.now() - created_at > ttl:
             logger.info(f"Analysis cache expired for {stock_code} ({analysis_type}), age={(datetime.now() - created_at).total_seconds()/3600:.1f}h")
@@ -65,20 +67,23 @@ async def get_cached_analysis(
 async def set_cached_analysis(
     db: AsyncSession, stock_code: str, agent_ids: list[int], data: dict, analysis_type: str = "debate"
 ) -> None:
-    """写入分析结果到缓存。"""
+    """写入分析结果到缓存。payload 为无长度上限的 Text（ISSUE-024）。"""
     key = f"analysis_cache:{analysis_type}:{_cache_key(stock_code, agent_ids)}"
-    value = json.dumps({
+    payload = json.dumps({
         "created_at": datetime.now().isoformat(),
         "stock_code": stock_code,
         "agent_ids": sorted(agent_ids),
         "data": data,
     }, ensure_ascii=False, default=str)
 
-    result = await db.execute(select(SystemSettings).where(SystemSettings.key == key))
-    setting = result.scalar_one_or_none()
-    if setting:
-        setting.value = value
+    result = await db.execute(select(AnalysisCache).where(AnalysisCache.key == key))
+    row = result.scalar_one_or_none()
+    if row:
+        row.payload = payload
+        row.created_at = datetime.now()
     else:
-        db.add(SystemSettings(key=key, value=value))
+        db.add(AnalysisCache(
+            key=key, payload=payload, stock_code=stock_code, analysis_type=analysis_type,
+        ))
     await db.flush()
     logger.info(f"Analysis cache stored for {stock_code} ({analysis_type})")

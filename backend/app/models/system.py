@@ -49,3 +49,22 @@ class SystemSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class AnalysisCache(Base):
+    """Dedicated table for cached analysis results (ISSUE-024).
+
+    Previously analysis_cache stuffed multi-KB debate/value-analysis JSON into
+    ``SystemSettings.value`` (String(500)), which truncated or raised DataError
+    — so the cache silently never stored anything non-trivial. This table uses
+    an unbounded ``Text`` payload.
+    """
+
+    __tablename__ = "analysis_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)  # JSON blob
+    stock_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    analysis_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
