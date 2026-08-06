@@ -247,6 +247,39 @@ async def chat_stream(
     from app.services.llm.provider import LLMMessage
     from app.services.llm.tools import DEBATE_TOOLS, execute_tool
 
+    async def _classify_intent(message: str, llm) -> str:
+        """快速分类用户意图：分析请求(需取数) vs 观点讨论(不需取数)。
+
+        避免"提到茅台"但只是举例讨论理念时，误触发 FactBook 取数 + 围绕茅台分析。
+        analysis = 用户要求分析/评估特定股票（需查看数据/估值/财报）。
+        discussion = 讨论理念/哲学/方法论/观点交流/学习（可能提到股票名但只是举例）。
+        """
+        try:
+            resp = await llm.chat(
+                [
+                    LLMMessage(
+                        role="system",
+                        content=(
+                            "判断用户消息的意图类型。只返回一个词：analysis 或 discussion。\n"
+                            "analysis = 要求分析/评估特定股票（需查看数据/估值/财报/K线）。"
+                            "特征：提到股票+分析/估值/值不值得买/财报/PE/ROE/财务。\n"
+                            "discussion = 讨论投资理念/哲学/方法论/观点交流/感慨/闲聊。"
+                            "可能提到股票名但只是举例，不是要分析它。"
+                            "关键线索：你们说呢/怎么看/什么是/为什么/聊一聊/感慨。"
+                        ),
+                    ),
+                    LLMMessage(role="user", content=message[:500]),
+                ],
+                max_tokens=10,
+                temperature=0.0,
+            )
+            result = (resp.content or "").strip().lower()
+            logger.info(f"Chat intent: '{result}' for message: {message[:60]}")
+            return "analysis" if "analysis" in result else "discussion"
+        except Exception as e:
+            logger.warning(f"Intent classification failed ({e}), defaulting to analysis")
+            return "analysis"  # 安全默认：出错时走分析流程（取数）
+
     async def event_stream():
         try:
             llm = llm_manager.get()
@@ -285,78 +318,93 @@ async def chat_stream(
                     f"【{m['role']}】: {m['content'][:600]}" for m in messages[-8:] if m["role"] in ("user", "assistant")
                 )
 
-                # 1. 平台 FactBook 数据采集（gated stock_codes）→ fb_digest，注入 fact-agent
-                #    上下文（优先于 tavily；平台 K线/行业/宏观/regime/全 trend+分红 更准）。
-                fb_digest = ""
-                if stock_codes:
-                    fb = FactBook()
-                    _raw: dict = {}
-                    try:
-                        async for ev in fb.collect_streaming(stock_codes[0], db):
-                            if ev.get("type") == "collecting":
-                                yield f"event: collecting\ndata: {json.dumps({'stage': ev.get('stage'), 'message': ev.get('message')}, ensure_ascii=False)}\n\n"
-                            elif ev.get("type") == "factbook_raw":
-                                _raw = ev.get("raw") or {}
-                    except Exception:
-                        logger.exception(f"FactBook collect failed for {stock_codes[0]}")
-                    fb_digest = fb.format(_raw) if _raw else ""
+                # 意图分类：分析请求(需取数) vs 观点讨论(不需取数)。
+                # 避免"提到茅台但只是举例"时误触发 FactBook 取数。
+                intent = await _classify_intent(req.message, llm)
 
-                # 2. 数据获取 agent（LLM + tavily function-calling ReAct）：复用辩论的 FACT_AGENT_SYSTEM（不评价只给数据）
-                yield "event: factbook_start\ndata: {}\n\n"
-                fact_system = FACT_AGENT_SYSTEM + (
-                    "\n\n**额外能力**：你可以根据用户问题调用 tavily_search 获取必要的信息（公司/行业/宏观/分红/财报等），"
-                    "然后按上述格式整理检索到的数据。检索结果与已有数据合并，缺失项标注。"
-                )
-                fact_user = f"用户问题：{req.message}\n\n近期对话上下文：\n{history_text}"
-                if fb_digest:
-                    fact_user = (
-                        f"【平台 FactBook 数据（已采集，优先引用；缺失项已标注；如需实时新闻再调 tavily_search）】\n"
-                        f"{fb_digest}\n\n{fact_user}"
-                    )
-                fact_messages = [
-                    LLMMessage(role="system", content=fact_system),
-                    LLMMessage(role="user", content=fact_user),
-                ]
                 data_summary = ""
-                fact_reasoning = ""
-                for _ in range(5):  # ReAct 最多 5 轮（检索+消化）
-                    tool_calls = None
-                    turn_content = ""
-                    async for chunk in llm.chat_stream(
-                        fact_messages, tools=DEBATE_TOOLS, max_tokens=None, enable_thinking=True,
-                    ):
-                        if chunk.tool_calls:
-                            tool_calls = chunk.tool_calls
-                        if chunk.reasoning:
-                            fact_reasoning += chunk.reasoning
-                            yield f"event: factbook_reasoning\ndata: {json.dumps({'delta': chunk.reasoning}, ensure_ascii=False)}\n\n"
-                        if chunk.content:
-                            turn_content += chunk.content
-                            data_summary += chunk.content
-                            yield f"event: factbook_token\ndata: {json.dumps({'delta': chunk.content}, ensure_ascii=False)}\n\n"
-                    if not tool_calls:
-                        break
-                    fact_messages.append(LLMMessage(role="assistant", content=turn_content, tool_calls=tool_calls))
-                    for tc in tool_calls:
-                        fn = tc.get("function", {}) or {}
-                        result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
-                        fact_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
-                yield f"event: factbook_done\ndata: {json.dumps({'content': data_summary, 'reasoning': fact_reasoning}, ensure_ascii=False)}\n\n"
-                db.add(ChatMessage(session_id=session_id, role="system", content=data_summary,
-                                   meta={"round_type": "factbook"}))
-                await db.commit()
+                if intent == "analysis":
+                    # 1. 平台 FactBook 数据采集（gated stock_codes）→ fb_digest，注入 fact-agent
+                    fb_digest = ""
+                    if stock_codes:
+                        fb = FactBook()
+                        _raw: dict = {}
+                        try:
+                            async for ev in fb.collect_streaming(stock_codes[0], db):
+                                if ev.get("type") == "collecting":
+                                    yield f"event: collecting\ndata: {json.dumps({'stage': ev.get('stage'), 'message': ev.get('message')}, ensure_ascii=False)}\n\n"
+                                elif ev.get("type") == "factbook_raw":
+                                    _raw = ev.get("raw") or {}
+                        except Exception:
+                            logger.exception(f"FactBook collect failed for {stock_codes[0]}")
+                        fb_digest = fb.format(_raw) if _raw else ""
 
-                # 2. 每 @agent 顺序流式分析（基于数据摘要 + 上下文）
+                    # 2. 数据获取 agent（LLM + tavily function-calling ReAct）
+                    yield "event: factbook_start\ndata: {}\n\n"
+                    fact_system = FACT_AGENT_SYSTEM + (
+                        "\n\n**额外能力**：你可以根据用户问题调用 tavily_search 获取必要的信息（公司/行业/宏观/分红/财报等），"
+                        "然后按上述格式整理检索到的数据。检索结果与已有数据合并，缺失项标注。"
+                    )
+                    fact_user = f"用户问题：{req.message}\n\n近期对话上下文：\n{history_text}"
+                    if fb_digest:
+                        fact_user = (
+                            f"【平台 FactBook 数据（已采集，优先引用；缺失项已标注；如需实时新闻再调 tavily_search）】\n"
+                            f"{fb_digest}\n\n{fact_user}"
+                        )
+                    fact_messages = [
+                        LLMMessage(role="system", content=fact_system),
+                        LLMMessage(role="user", content=fact_user),
+                    ]
+                    fact_reasoning = ""
+                    for _ in range(5):
+                        tool_calls = None
+                        turn_content = ""
+                        async for chunk in llm.chat_stream(
+                            fact_messages, tools=DEBATE_TOOLS, max_tokens=None, enable_thinking=True,
+                        ):
+                            if chunk.tool_calls:
+                                tool_calls = chunk.tool_calls
+                            if chunk.reasoning:
+                                fact_reasoning += chunk.reasoning
+                                yield f"event: factbook_reasoning\ndata: {json.dumps({'delta': chunk.reasoning}, ensure_ascii=False)}\n\n"
+                            if chunk.content:
+                                turn_content += chunk.content
+                                data_summary += chunk.content
+                                yield f"event: factbook_token\ndata: {json.dumps({'delta': chunk.content}, ensure_ascii=False)}\n\n"
+                        if not tool_calls:
+                            break
+                        fact_messages.append(LLMMessage(role="assistant", content=turn_content, tool_calls=tool_calls))
+                        for tc in tool_calls:
+                            fn = tc.get("function", {}) or {}
+                            result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
+                            fact_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
+                    yield f"event: factbook_done\ndata: {json.dumps({'content': data_summary, 'reasoning': fact_reasoning}, ensure_ascii=False)}\n\n"
+                    db.add(ChatMessage(session_id=session_id, role="system", content=data_summary,
+                                       meta={"round_type": "factbook"}))
+                    await db.commit()
+                # else (discussion): 跳过取数，data_summary="" — 大师直接讨论
+
+                # 3. 每 @agent 顺序流式分析/讨论
                 for ag in agents:
                     yield f"event: agent_start\ndata: {json.dumps({'agent_id': ag.id, 'agent_name': ag.name, 'round_type': 'analysis', 'round_num': 1}, ensure_ascii=False)}\n\n"
-                    sys_prompt = (ag.system_prompt or "") + (
-                        "\n\n（数据摘要已在下方提供，直接引用即可，无需调用外部工具）"
-                    )
-                    user_content = (
-                        f"用户问题：{req.message}\n\n数据摘要（数据 agent 整理）：\n{data_summary or '（无）'}\n\n"
-                        f"上下文（近期对话）：\n{history_text}\n\n"
-                        f"请基于你的投资理念，结合数据摘要与上下文，对该问题给出补充分析。"
-                    )
+                    if intent == "analysis":
+                        sys_prompt = (ag.system_prompt or "") + (
+                            "\n\n（数据摘要已在下方提供，直接引用即可，无需调用外部工具）"
+                        )
+                        user_content = (
+                            f"用户问题：{req.message}\n\n数据摘要（数据 agent 整理）：\n{data_summary or '（无）'}\n\n"
+                            f"上下文（近期对话）：\n{history_text}\n\n"
+                            f"请基于你的投资理念，结合数据摘要与上下文，对该问题给出补充分析。"
+                        )
+                    else:  # discussion: 不取数，大师直接基于理念讨论
+                        sys_prompt = ag.system_prompt or ""
+                        user_content = (
+                            f"用户想和你们讨论：{req.message}\n\n"
+                            f"上下文（近期对话）：\n{history_text}\n\n"
+                            f"请基于你的投资理念，对这个话题发表你的观点。重在理念和方法论，"
+                            f"不需要引用具体股票数据。如果用户提到了某只股票，它只是话题的引子，"
+                            f"不是要你分析那只股票。"
+                        )
                     content = ""
                     reasoning = ""
                     try:
@@ -388,9 +436,12 @@ async def chat_stream(
                 llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
                 full_reasoning = ""
 
-                # 平台 FactBook 数据采集（gated stock_codes）→ digest 注入 user 消息（优先于 tavily）。
-                # 之前单 agent 仅注入 800 字 latest 切片，需财务数据时只能调 tavily（数据未必比平台好）。
-                if stock_codes:
+                # 意图分类：分析请求(需取数) vs 观点讨论(不需取数)。
+                intent = await _classify_intent(req.message, llm)
+
+                # 平台 FactBook 数据采集：仅 analysis 意图 + 检测到股票码时触发。
+                # discussion 意图不取数（避免"提到茅台举例"误触发取数）。
+                if stock_codes and intent == "analysis":
                     async for sse in _factbook_phase(stock_codes[0]):
                         yield sse
                     _digest = fb_digest_holder["digest"]
