@@ -1,7 +1,7 @@
 <template>
   <div class="chat-shell">
-    <!-- 侧边栏 -->
-    <SessionSidebar />
+    <!-- 侧边栏（移动端隐藏） -->
+    <div class="desktop-only"><SessionSidebar /></div>
 
     <!-- 主区：纵向 flex，消息区 flex:1 滚动，输入栏同级沉底 -->
     <div class="chat-main">
@@ -12,9 +12,9 @@
           <div v-if="!chatStore.messages.length" class="welcome">
             <div class="welcome-spacer" />
             <div class="welcome-content">
-              <div class="welcome-icon">📈</div>
-              <h2 class="welcome-title">AI 投资分析</h2>
-              <p class="welcome-desc">@巴菲特 分析 600519 — 大师替你思考，工具替你取数</p>
+              <div class="welcome-icon">⚡</div>
+              <h2 class="welcome-title">嗨～我是小雷</h2>
+              <p class="welcome-desc">问我任何一只股票，我来替你看数据、找大师辩论 ⚡</p>
               <div class="suggestions">
                 <button v-for="s in suggestions" :key="s" class="suggestion" @click="quickFill(s)">{{ s }}</button>
               </div>
@@ -22,7 +22,7 @@
                 <n-button size="small" secondary @click="$router.push('/stocks')">股票</n-button>
                 <n-button size="small" secondary @click="$router.push('/portfolios')">组合</n-button>
                 <n-button size="small" secondary @click="$router.push('/backtest')">回测</n-button>
-                <n-button size="small" type="primary" secondary @click="showDebateModal = true">辩论</n-button>
+                <n-button size="small" type="primary" secondary @click="showDebateModal = true">⚖️ 辩论</n-button>
               </div>
             </div>
           </div>
@@ -440,7 +440,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
   width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-medium);
   background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; font-size: 18px;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.25); transition: opacity var(--transition);
+  box-shadow: 0 2px 10px rgba(45, 42, 38, 0.12); transition: opacity var(--transition);
 }
 .scroll-bottom-btn:hover { border-color: var(--primary); color: var(--primary); }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
@@ -525,7 +525,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .mention-pop {
   position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 4px;
   background: var(--bg-elevated); border: 1px solid var(--border-medium); border-radius: var(--radius-md);
-  box-shadow: 0 -4px 16px rgba(0,0,0,0.3); max-height: 240px; overflow-y: auto; z-index: 100;
+  box-shadow: 0 -4px 16px rgba(45, 42, 38, 0.15); max-height: 240px; overflow-y: auto; z-index: 100;
 }
 .mention-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; }
 .mention-item:hover, .mention-item.active { background: var(--bg-surface); }

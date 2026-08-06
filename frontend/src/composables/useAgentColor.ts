@@ -1,5 +1,5 @@
-/** agent 颜色 hash → 调色板。通用，chat/debate/任何渲染 agent 气泡的视图复用。 */
-const AGENT_COLORS = ['#e94560', '#0f9b8e', '#f5a623', '#5856d6', '#007aff', '#34c759', '#ff9500', '#af52de']
+/** agent 颜色 hash → 暖色调色板（活泼可爱风）。chat/debate/任何渲染 agent 气泡的视图复用。 */
+const AGENT_COLORS = ['#FF6B5C', '#FFC857', '#5BA882', '#9B7BC4', '#5B8FB9', '#F4A6B0', '#F08A4B', '#4FB0BF']
 
 export function agentColor(name: string): string {
   let hash = 0

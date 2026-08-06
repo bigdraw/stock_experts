@@ -1,6 +1,8 @@
 <template>
   <n-layout has-sider style="height: 100vh">
+    <!-- 桌面侧栏（移动端隐藏） -->
     <n-layout-sider
+      v-if="!isMobile"
       bordered
       collapse-mode="width"
       :collapsed-width="64"
@@ -12,12 +14,7 @@
       :native-scrollbar="false"
       style="background: var(--bg-elevated); border-right: 1px solid var(--border-subtle);"
     >
-      <div style="padding: 20px 16px 12px;">
-        <h2 style="margin:0; font-size: 18px; font-weight: 700;">
-          <span class="gradient-text">Stock</span> Analysis
-        </h2>
-        <p style="margin:2px 0 0; font-size: 12px; color: var(--text-tertiary);">AI 投资平台</p>
-      </div>
+      <BrandBlock :collapsed="collapsed" />
       <n-menu
         :collapsed="collapsed"
         :collapsed-width="64"
@@ -27,16 +24,31 @@
         @update:value="handleMenuClick"
       />
     </n-layout-sider>
+
+    <!-- 移动端 drawer -->
+    <n-drawer v-model:show="mobileDrawerOpen" placement="left" :width="240">
+      <n-drawer-content title="⚡ 小雷是股神" :native-scrollbar="false">
+        <n-menu :options="menuOptions" :value="activeKey" @update:value="handleMenuClick" />
+      </n-drawer-content>
+    </n-drawer>
+
     <n-layout>
       <n-layout-header
         bordered
         style="padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-glass); backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid var(--border-subtle);"
       >
-        <n-breadcrumb>
-          <n-breadcrumb-item>
-            <span style="font-weight: 600; color: var(--text-primary);">{{ currentRoute }}</span>
-          </n-breadcrumb-item>
-        </n-breadcrumb>
+        <!-- 左：移动端汉堡 + 面包屑 -->
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <n-button quaternary circle class="mobile-only" @click="mobileDrawerOpen = true">
+            <span style="font-size: 20px;">☰</span>
+          </n-button>
+          <n-breadcrumb class="desktop-only">
+            <n-breadcrumb-item>
+              <span style="font-weight: 600; color: var(--text-primary);">{{ currentRoute }}</span>
+            </n-breadcrumb-item>
+          </n-breadcrumb>
+          <span class="mobile-only" style="font-weight: 700; font-size: 15px; color: var(--text-primary);">⚡ 小雷是股神</span>
+        </div>
         <n-space :size="12">
           <n-badge :value="notificationStore.unreadCount" :max="99">
             <n-button quaternary circle @click="$router.push('/alerts')" style="transition: all 0.3s;">
@@ -45,8 +57,7 @@
               </template>
             </n-button>
           </n-badge>
-          <!-- 语言切换 (idea17) -->
-          <n-dropdown :options="langOptions" @select="(k: string) => setLocale(k as any)" trigger="click">
+          <n-dropdown :options="langOptions" @select="(k: string) => setLocale(k as any)" trigger="click" class="desktop-only">
             <n-button quaternary size="small">
               <span style="font-size: 13px; font-weight: 500;">{{ locale === 'zh' ? '中' : locale === 'en' ? 'EN' : locale === 'ja' ? '日' : '한' }}</span>
             </n-button>
@@ -56,7 +67,7 @@
               <template #icon>
                 <n-icon :size="20"><PersonCircleOutline /></n-icon>
               </template>
-              <span style="font-weight: 500;">{{ authStore.user?.username || 'User' }}</span>
+              <span class="desktop-only" style="font-weight: 500;">{{ authStore.user?.username || 'User' }}</span>
             </n-button>
           </n-dropdown>
         </n-space>
@@ -67,7 +78,7 @@
         style="background: var(--bg-base); height: calc(100vh - 57px);"
       >
         <router-view v-slot="{ Component }">
-          <transition name="fade-in" mode="out-in">
+          <transition name="page-slide" mode="out-in">
             <component :is="Component" />
           </transition>
         </router-view>
@@ -103,7 +114,26 @@ const route = useRoute()
 const authStore = useAuthStore()
 const notificationStore = useNotificationStore()
 const collapsed = ref(false)
+const mobileDrawerOpen = ref(false)
 let notifTimer: ReturnType<typeof setInterval> | null = null
+
+// 移动端检测：≤768px
+const isMobile = ref(false)
+function checkMobile() { isMobile.value = window.innerWidth <= 768 }
+if (typeof window !== 'undefined') {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+}
+
+// 品牌块组件（侧栏头部）
+const BrandBlock = (props: { collapsed?: boolean }) => h(
+  'div', { style: 'padding: 20px 16px 12px;' }, [
+    h('h2', { style: 'margin:0; font-size: 18px; font-weight: 700;' }, [
+      props.collapsed ? '⚡' : ['⚡ ', h('span', { class: 'gradient-text' }, '小雷是股神')]
+    ]),
+    props.collapsed ? null : h('p', { style: 'margin:2px 0 0; font-size: 12px; color: var(--text-tertiary);' }, '让小雷替你看股票')
+  ]
+)
 
 const langOptions = [
   { label: '中文', key: 'zh' },
@@ -132,16 +162,9 @@ const menuOptions = computed(() => {
     { label: '告警管理', key: 'AlertManager', icon: renderIcon(NotificationsOutline) },
     { label: '系统设置', key: 'Settings', icon: renderIcon(SettingsOutline) },
   ]
-  
-  // Add admin menu if user is admin
   if (authStore.user?.role === 'admin') {
-    baseMenu.push({
-      label: '用户管理',
-      key: 'AdminUsers',
-      icon: renderIcon(ShieldCheckmarkOutline)
-    })
+    baseMenu.push({ label: '用户管理', key: 'AdminUsers', icon: renderIcon(ShieldCheckmarkOutline) })
   }
-  
   return baseMenu
 })
 
@@ -151,6 +174,7 @@ const userMenuOptions = [
 
 function handleMenuClick(key: string) {
   router.push({ name: key })
+  mobileDrawerOpen.value = false
 }
 
 function handleUserMenu(key: string) {
@@ -164,7 +188,6 @@ onMounted(async () => {
   if (authStore.isLoggedIn) {
     await authStore.fetchUser()
     await notificationStore.fetchUnreadCount()
-    // Periodically refresh the unread badge so the bell stays current.
     notifTimer = setInterval(() => {
       notificationStore.fetchUnreadCount().catch(() => {})
     }, 60000)
@@ -172,9 +195,9 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  if (notifTimer) {
-    clearInterval(notifTimer)
-    notifTimer = null
+  if (notifTimer) { clearInterval(notifTimer); notifTimer = null }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', checkMobile)
   }
 })
 </script>

@@ -3,6 +3,9 @@ import { createPinia } from 'pinia'
 import naive from 'naive-ui'
 import router from './router'
 import App from './App.vue'
+import '@fontsource/nunito/400.css'
+import '@fontsource/nunito/600.css'
+import '@fontsource/nunito/700.css'
 import './style.css'
 
 const app = createApp(App)

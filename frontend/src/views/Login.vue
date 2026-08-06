@@ -10,8 +10,8 @@
     <!-- 登录卡片 -->
     <div class="login-card glass">
       <div class="card-header">
-        <h1 class="title gradient-text">股票分析平台</h1>
-        <p class="subtitle">智能投资 · 数据驱动 · AI赋能</p>
+        <h1 class="title gradient-text">⚡ 小雷是股神</h1>
+        <p class="subtitle">让小雷替你看股票</p>
       </div>
 
       <n-tabs type="segment" animated>
@@ -24,7 +24,7 @@
                 size="large"
               >
                 <template #prefix>
-                  <n-icon :size="18" color="#64748b">
+                  <n-icon :size="18" color="var(--text-tertiary)">
                     <PersonOutline />
                   </n-icon>
                 </template>
@@ -41,7 +41,7 @@
                 @keyup.enter="handleLogin"
               >
                 <template #prefix>
-                  <n-icon :size="18" color="#64748b">
+                  <n-icon :size="18" color="var(--text-tertiary)">
                     <LockClosedOutline />
                   </n-icon>
                 </template>
@@ -70,7 +70,7 @@
                 size="large"
               >
                 <template #prefix>
-                  <n-icon :size="18" color="#64748b">
+                  <n-icon :size="18" color="var(--text-tertiary)">
                     <PersonOutline />
                   </n-icon>
                 </template>
@@ -87,7 +87,7 @@
                 @keyup.enter="handleRegister"
               >
                 <template #prefix>
-                  <n-icon :size="18" color="#64748b">
+                  <n-icon :size="18" color="var(--text-tertiary)">
                     <LockClosedOutline />
                   </n-icon>
                 </template>
@@ -110,7 +110,7 @@
 
       <div class="card-footer">
         <p class="footer-text">
-          <n-icon :size="14" color="#64748b">
+          <n-icon :size="14" color="var(--text-tertiary)">
             <ShieldCheckmarkOutline />
           </n-icon>
           安全加密 · 数据保护
@@ -215,7 +215,7 @@ async function handleRegister() {
 .glow-1 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, #00d4aa 0%, transparent 70%);
+  background: radial-gradient(circle, #FF6B5C 0%, transparent 70%);
   top: -10%;
   left: -10%;
   animation-delay: 0s;
@@ -224,7 +224,7 @@ async function handleRegister() {
 .glow-2 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, #6366f1 0%, transparent 70%);
+  background: radial-gradient(circle, #FFC857 0%, transparent 70%);
   bottom: -10%;
   right: -10%;
   animation-delay: 7s;
@@ -233,7 +233,7 @@ async function handleRegister() {
 .glow-3 {
   width: 300px;
   height: 300px;
-  background: radial-gradient(circle, #10b981 0%, transparent 70%);
+  background: radial-gradient(circle, #5BA882 0%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -259,10 +259,10 @@ async function handleRegister() {
   max-width: 440px;
   padding: 48px 40px;
   border-radius: 20px;
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(20px);
   border: 1px solid var(--border-medium);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px rgba(45, 42, 38, 0.15);
   animation: slideUp 0.5s ease-out;
 }
 
@@ -340,7 +340,7 @@ async function handleRegister() {
   font-size: 16px !important;
   font-weight: 600 !important;
   border-radius: 10px !important;
-  background: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%) !important;
+  background: linear-gradient(135deg, #FF6B5C 0%, #FFC857 100%) !important;
   border: none !important;
   transition: all 0.3s !important;
   position: relative;
