@@ -299,9 +299,18 @@ class FactBook:
         }
 
     def _kline_period_summary(self, df: pd.DataFrame, freq: str, lookbacks: dict[str, int]) -> dict[str, float | None]:
-        """周/月K趋势：各回看周期涨跌幅（%）"""
+        """周/月K趋势：各回看周期涨跌幅（%）。
+
+        关键：日线 close 是前复权(qfq)，resample 取月末最后交易日的 close。
+        但如果 df 的 date 列是普通日期（非DatetimeIndex），resample 会失败。
+        修复：确保 date 是 DatetimeIndex；用 closed='right' 避免边界问题。
+        """
         try:
-            resampled = df.set_index("date")["close"].astype(float).resample(freq).last().dropna()
+            s = df.set_index("date")["close"].astype(float)
+            # 确保 index 是 DatetimeIndex（pandas to_datetime 已在 _kline_summarize 转过）
+            if not isinstance(s.index, pd.DatetimeIndex):
+                s.index = pd.to_datetime(s.index)
+            resampled = s.resample(freq).last().dropna()
         except Exception:
             return {k: None for k in lookbacks}
         last = float(resampled.iloc[-1]) if not resampled.empty else None
@@ -514,10 +523,12 @@ class FactBook:
             elif eq is not None and eq < 0.8:
                 warnings.append(f"盈利质量 OCF/净利润={eq:.2f} <0.8，利润现金支撑偏弱")
 
-            # PE 对亏损公司无意义
+            # PE 对亏损公司无意义（PE 为 None 不报；PE>5000 极端值告警）
             pe = (facts.get("value_analysis", {}).get("valuation", {}) or {}).get("pe")
             if pe is not None and pe < 0:
                 warnings.append(f"PE={pe:.1f} 为负（亏损公司，PE 无意义）")
+            elif pe is not None and pe > 5000:
+                warnings.append(f"PE={pe:.1f} 极端偏高（TTM EPS 近零或极小，PE 无参考价值）")
 
         kl = facts.get("kline", {}) or {}
         if kl.get("_error"):

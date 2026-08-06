@@ -179,12 +179,11 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
     if snap:
         market_cap = (snap.mktcap or 0) * 10000 if snap.mktcap else None  # 万元→元
         price = snap.price
-        # PE 用 TTM EPS（与 Graham 一致），而非年报 EPS；EPS≤0 时 PE 无意义→None
+        # PE 用 TTM EPS；EPS≤0 或极小（<0.01，PE>5000 无意义）→ 不退回 snap.per（避免亏损公司给出正 PE）
         ttm_eps = _ttm("eps")
-        if price and ttm_eps and ttm_eps > 0:
+        if price and ttm_eps and ttm_eps > 0.01:
             valuation["pe"] = price / ttm_eps
-        elif snap.per is not None:
-            valuation["pe"] = snap.per  # 退回 Latest 快照的 PE（若 TTM 算不出）
+        # EPS≤0 或极小 → PE 不设（None），不退回快照
         valuation["pb"] = snap.pb
         # PS 用 TTM 营收（与 PCF/FCF yield 口径一致），不用 Q1 年化
         ttm_rev = _ttm("revenue")
@@ -241,6 +240,6 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         "growth": growth,
         "trend": periods[-20:],
         "dividends": dividends[:20],
-        "annual_count": len(annuals),
+        "annual_count": len(annuals),  # 年报期数（非连续分红年数，事实 agent 勿当连续分红年用）
         "dividend_count": len(dividends),
     }
