@@ -285,7 +285,7 @@ async function refreshStats() {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--transition-slow);
 }
 
 /* 统计卡片网格 */
@@ -301,11 +301,11 @@ async function refreshStats() {
   align-items: center;
   gap: 16px;
   padding: 24px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-slow);
 }
 
 .stat-card::before {
@@ -321,24 +321,24 @@ async function refreshStats() {
 
 .stat-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lift);
   border-color: var(--card-color);
 }
 
 .stat-card-primary {
-  --card-color: #00d4aa;
+  --card-color: var(--primary);
 }
 
 .stat-card-info {
-  --card-color: #6366f1;
+  --card-color: var(--accent);
 }
 
 .stat-card-success {
-  --card-color: #10b981;
+  --card-color: var(--success);
 }
 
 .stat-card-warning {
-  --card-color: #f59e0b;
+  --card-color: var(--warning);
 }
 
 .stat-icon {
@@ -347,8 +347,8 @@ async function refreshStats() {
   justify-content: center;
   width: 56px;
   height: 56px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  background: var(--primary-tint);
   backdrop-filter: blur(8px);
 }
 
@@ -357,8 +357,8 @@ async function refreshStats() {
 }
 
 .stat-label {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -366,9 +366,9 @@ async function refreshStats() {
 }
 
 .stat-value {
-  font-size: 32px;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--card-color), rgba(255, 255, 255, 0.8));
+  font-size: var(--fs-display);
+  font-weight: var(--fw-bold);
+  background: linear-gradient(135deg, var(--card-color), var(--bg-surface));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -385,13 +385,13 @@ async function refreshStats() {
 .action-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
-  transition: all 0.3s;
+  border-radius: var(--radius-md) !important;
+  transition: all var(--transition-slow);
 }
 
 .action-card:hover {
   border-color: var(--border-medium) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-soft);
 }
 
 .quick-actions,
@@ -405,8 +405,8 @@ async function refreshStats() {
 .collection-button {
   justify-content: flex-start !important;
   height: 48px !important;
-  font-weight: 500 !important;
-  transition: all 0.3s !important;
+  font-weight: var(--fw-medium) !important;
+  transition: all var(--transition-slow) !important;
   border: 1px solid var(--border-subtle) !important;
   background: var(--bg-surface) !important;
 }
@@ -414,14 +414,14 @@ async function refreshStats() {
 .action-button:hover,
 .collection-button:hover {
   border-color: var(--action-color) !important;
-  background: rgba(255, 255, 255, 0.05) !important;
-  box-shadow: 0 0 20px rgba(var(--action-color), 0.2) !important;
+  background: var(--primary-tint) !important;
+  box-shadow: var(--shadow-glow) !important;
   transform: translateX(4px);
 }
 
 /* 任务进度容器 */
 .task-progress-container {
-  animation: slideDown 0.3s ease-out;
+  animation: slideDown var(--transition-slow);
 }
 
 @keyframes slideDown {
@@ -439,7 +439,7 @@ async function refreshStats() {
 .notification-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
+  border-radius: var(--radius-md) !important;
 }
 
 .notification-list {
@@ -448,7 +448,7 @@ async function refreshStats() {
 
 .notification-item {
   border-bottom: 1px solid var(--border-subtle) !important;
-  transition: all 0.2s;
+  transition: all var(--transition);
 }
 
 .notification-item:last-child {
@@ -456,17 +456,17 @@ async function refreshStats() {
 }
 
 .notification-item:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--primary-tint);
 }
 
 .notification-title {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
 }
 
 .notification-content {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-label);
 }
 
 /* 响应式 */
@@ -480,7 +480,7 @@ async function refreshStats() {
   .stats-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .action-grid {
     grid-template-columns: 1fr;
   }

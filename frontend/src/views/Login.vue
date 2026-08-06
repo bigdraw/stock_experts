@@ -206,7 +206,7 @@ async function handleRegister() {
 
 .glow {
   position: absolute;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   filter: blur(100px);
   opacity: 0.3;
   animation: float 20s ease-in-out infinite;
@@ -215,7 +215,7 @@ async function handleRegister() {
 .glow-1 {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, #FF6B5C 0%, transparent 70%);
+  background: radial-gradient(circle, var(--primary) 0%, transparent 70%);
   top: -10%;
   left: -10%;
   animation-delay: 0s;
@@ -224,7 +224,7 @@ async function handleRegister() {
 .glow-2 {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, #FFC857 0%, transparent 70%);
+  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
   bottom: -10%;
   right: -10%;
   animation-delay: 7s;
@@ -233,7 +233,7 @@ async function handleRegister() {
 .glow-3 {
   width: 300px;
   height: 300px;
-  background: radial-gradient(circle, #5BA882 0%, transparent 70%);
+  background: radial-gradient(circle, var(--success) 0%, transparent 70%);
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
@@ -258,23 +258,12 @@ async function handleRegister() {
   width: 100%;
   max-width: 440px;
   padding: 48px 40px;
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(20px);
   border: 1px solid var(--border-medium);
-  box-shadow: 0 20px 60px rgba(45, 42, 38, 0.15);
+  box-shadow: var(--shadow-lift);
   animation: slideUp 0.5s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .card-header {
@@ -283,8 +272,8 @@ async function handleRegister() {
 }
 
 .title {
-  font-size: 32px;
-  font-weight: 700;
+  font-size: var(--fs-display);
+  font-weight: var(--fw-bold);
   margin: 0 0 8px 0;
   letter-spacing: -0.5px;
 }
@@ -308,29 +297,29 @@ async function handleRegister() {
 }
 
 .login-form :deep(.n-form-item-label) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-label);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .login-form :deep(.n-input) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 10px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .login-form :deep(.n-input:hover) {
   border-color: var(--primary) !important;
-  background: rgba(30, 41, 59, 0.8) !important;
+  background: var(--bg-surface) !important;
 }
 
 .login-form :deep(.n-input--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.15) !important;
-  background: rgba(30, 41, 59, 0.9) !important;
+  box-shadow: 0 0 0 3px var(--primary-glow) !important;
+  background: var(--bg-surface) !important;
 }
 
 /* 登录按钮 */
@@ -338,11 +327,11 @@ async function handleRegister() {
   margin-top: 8px;
   height: 48px !important;
   font-size: 16px !important;
-  font-weight: 600 !important;
-  border-radius: 10px !important;
-  background: linear-gradient(135deg, #FF6B5C 0%, #FFC857 100%) !important;
+  font-weight: var(--fw-semibold) !important;
+  border-radius: var(--radius-sm) !important;
+  background: var(--gradient-logo) !important;
   border: none !important;
-  transition: all 0.3s !important;
+  transition: all var(--transition-slow) !important;
   position: relative;
   overflow: hidden;
 }
@@ -368,7 +357,7 @@ async function handleRegister() {
 }
 
 .login-button:hover {
-  box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4) !important;
+  box-shadow: var(--shadow-lift) !important;
   transform: translateY(-2px);
 }
 
@@ -387,7 +376,7 @@ async function handleRegister() {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-meta);
   color: var(--text-tertiary);
   margin: 0;
 }
@@ -398,19 +387,19 @@ async function handleRegister() {
 }
 
 :deep(.n-tabs-nav) {
-  background: rgba(30, 41, 59, 0.6);
-  border-radius: 10px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
   padding: 4px;
 }
 
 :deep(.n-tabs-tab) {
   border-radius: 8px;
-  font-weight: 600;
-  transition: all 0.3s;
+  font-weight: var(--fw-semibold);
+  transition: all var(--transition-slow);
 }
 
 :deep(.n-tabs-tab--active) {
-  background: linear-gradient(135deg, rgba(0, 212, 170, 0.2) 0%, rgba(99, 102, 241, 0.2) 100%);
+  background: linear-gradient(135deg, var(--primary-glow) 0%, var(--accent-tint) 100%);
   color: var(--primary);
 }
 
@@ -422,7 +411,7 @@ async function handleRegister() {
   }
 
   .title {
-    font-size: 28px;
+    font-size: var(--fs-stat);
   }
 }
 </style>

@@ -468,15 +468,15 @@ onMounted(() => {
 .empty-state :deep(.n-button) {
   padding: 12px 32px;
   font-size: 16px;
-  font-weight: 600;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 212, 170, 0.3);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: var(--fw-semibold);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-glow);
+  transition: all var(--transition-slow);
 }
 
 .empty-state :deep(.n-button:hover) {
   transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4);
+  box-shadow: var(--shadow-glow);
 }
 
 .content-container {
@@ -499,22 +499,22 @@ onMounted(() => {
 .search-autocomplete :deep(.n-input) {
   background: var(--bg-elevated) !important;
   border: 2px solid var(--border-subtle) !important;
-  border-radius: 16px !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  font-size: 15px;
+  border-radius: var(--radius-md) !important;
+  transition: all var(--transition-slow) !important;
+  box-shadow: var(--shadow-soft);
+  font-size: var(--fs-body);
 }
 
 .search-autocomplete :deep(.n-input:hover) {
   border-color: var(--primary) !important;
   background: var(--bg-elevated) !important;
-  box-shadow: 0 6px 20px rgba(0, 212, 170, 0.2) !important;
+  box-shadow: var(--shadow-glow) !important;
   transform: translateY(-2px);
 }
 
 .search-autocomplete :deep(.n-input--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 4px rgba(0, 212, 170, 0.15), 0 8px 24px rgba(0, 212, 170, 0.25) !important;
+  box-shadow: 0 0 0 4px var(--primary-glow), var(--shadow-glow) !important;
   background: var(--bg-elevated) !important;
   transform: translateY(-2px);
 }
@@ -526,12 +526,12 @@ onMounted(() => {
   padding: 8px 12px;
   width: 100%;
   gap: 8px;
-  transition: all 0.2s ease;
+  transition: all var(--transition);
   flex-wrap: nowrap;
 }
 
 :deep(.search-option-item:hover) {
-  background: rgba(0, 212, 170, 0.08);
+  background: var(--primary-tint);
   transform: translateX(2px);
 }
 
@@ -545,7 +545,7 @@ onMounted(() => {
 }
 
 :deep(.search-option-name) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -569,47 +569,47 @@ onMounted(() => {
 
 .portfolio-tabs :deep(.n-tabs-nav) {
   background: var(--bg-elevated);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   padding: 14px;
   margin-bottom: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-soft);
 }
 
 .portfolio-tabs :deep(.n-tabs-tab) {
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 12px 20px;
-  font-size: 15px;
-  font-weight: 500;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  transition: all var(--transition-slow);
   text-align: center;
   white-space: nowrap;
 }
 
 .portfolio-tabs :deep(.n-tabs-tab--active) {
-  background: linear-gradient(135deg, rgba(0, 212, 170, 0.18) 0%, rgba(99, 102, 241, 0.18) 100%);
+  background: linear-gradient(135deg, var(--primary-tint-strong), var(--accent-tint));
   color: var(--primary);
-  font-weight: 600;
-  box-shadow: 0 4px 12px rgba(0, 212, 170, 0.25);
+  font-weight: var(--fw-semibold);
+  box-shadow: var(--shadow-glow);
   transform: translateY(-2px);
 }
 
 .portfolio-tabs :deep(.n-tabs-tab:hover:not(.n-tabs-tab--active)) {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--primary-tint);
   transform: translateY(-1px);
 }
 
 .data-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 16px !important;
+  border-radius: var(--radius-md) !important;
   overflow: hidden;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: all var(--transition-slow);
+  box-shadow: var(--shadow-soft);
 }
 
 .data-card:hover {
   border-color: var(--border-medium) !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lift);
   transform: translateY(-2px);
 }
 
@@ -618,15 +618,15 @@ onMounted(() => {
 }
 
 .data-card :deep(.n-data-table-thead) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
 }
 
 .data-card :deep(.n-data-table-th) {
   background: transparent !important;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: var(--fs-meta);
   letter-spacing: 0.5px;
   padding: 14px 16px !important;
 }
@@ -638,7 +638,7 @@ onMounted(() => {
 }
 
 .data-card :deep(.n-data-table-tr:hover .n-data-table-td) {
-  background: rgba(0, 212, 170, 0.06) !important;
+  background: var(--primary-tint) !important;
   transform: translateX(2px);
 }
 
@@ -649,9 +649,9 @@ onMounted(() => {
   top: 0;
   bottom: 0;
   width: 4px;
-  background: linear-gradient(180deg, #00d4aa 0%, #6366f1 100%);
+  background: linear-gradient(180deg, var(--primary) 0%, var(--accent) 100%);
   animation: slideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 0 8px rgba(0, 212, 170, 0.4);
+  box-shadow: var(--shadow-glow);
 }
 
 @keyframes slideIn {
@@ -666,53 +666,44 @@ onMounted(() => {
 }
 
 .data-card :deep(.n-data-table-tr:nth-child(even) .n-data-table-td) {
-  background: rgba(30, 41, 59, 0.25);
+  background: var(--bg-base);
 }
 
 .data-card :deep(.n-pagination) {
   margin-top: 24px;
   padding: 18px;
-  background: rgba(30, 41, 59, 0.4);
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-soft);
 }
 
 .create-portfolio-section {
   margin-top: 24px;
   text-align: center;
   padding: 20px;
-  background: rgba(30, 41, 59, 0.3);
-  border-radius: 16px;
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
   border: 2px dashed var(--border-subtle);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--transition-slow);
 }
 
 .create-portfolio-section:hover {
   border-color: var(--primary);
-  background: rgba(0, 212, 170, 0.05);
+  background: var(--primary-tint);
   transform: translateY(-2px);
 }
 
 .create-portfolio-section :deep(.n-button) {
   padding: 12px 28px;
-  font-size: 15px;
-  font-weight: 600;
-  border-radius: 12px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-slow);
 }
 
 .create-portfolio-section :deep(.n-button:hover) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 212, 170, 0.3);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
+  box-shadow: var(--shadow-glow);
 }
 
 @keyframes fadeInUp {

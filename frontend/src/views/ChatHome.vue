@@ -437,13 +437,13 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; }
 .scroll-bottom-btn {
   position: sticky; bottom: 12px; margin-left: auto; margin-right: 12px;
-  width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--border-medium);
+  width: 36px; height: 36px; border-radius: var(--radius-pill); border: 1px solid var(--border-medium);
   background: var(--bg-elevated); color: var(--text-primary); cursor: pointer; font-size: 18px;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 10px rgba(45, 42, 38, 0.12); transition: opacity var(--transition);
+  box-shadow: var(--shadow-soft); transition: opacity var(--transition);
 }
 .scroll-bottom-btn:hover { border-color: var(--primary); color: var(--primary); }
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+.fade-enter-active, .fade-leave-active { transition: opacity var(--transition); }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .msg-inner { max-width: var(--chat-max-width); margin: 0 auto; padding: 20px 16px 14vh; display: flex; flex-direction: column; min-height: 100%; box-sizing: border-box; }
 
@@ -451,12 +451,12 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .welcome { flex: 1; display: flex; flex-direction: column; justify-content: center; }
 .welcome-content { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 0; }
 .welcome-icon { font-size: 40px; }
-.welcome-title { font-size: 22px; font-weight: 600; }
+.welcome-title { font-size: 22px; font-weight: var(--fw-semibold); }
 .welcome-desc { font-size: 14px; color: var(--text-tertiary); text-align: center; }
 .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 600px; margin-top: 8px; }
 .suggestion {
-  padding: 8px 16px; border-radius: 48px; background: var(--bg-surface); border: 1px solid var(--border-medium);
-  color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: opacity var(--transition);
+  padding: 8px 16px; border-radius: var(--radius-pill); background: var(--bg-surface); border: 1px solid var(--border-medium);
+  color: var(--text-secondary); font-size: var(--fs-label); cursor: pointer; transition: opacity var(--transition);
 }
 .suggestion:hover { opacity: 0.85; border-color: var(--primary); color: var(--primary); }
 .quick-nav { display: flex; gap: 8px; margin-top: 8px; }
@@ -467,13 +467,12 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .user-bubble {
   background: var(--bubble-user); color: var(--text-primary); padding: 10px 14px;
   border-radius: var(--radius-md); max-width: 75%; word-wrap: break-word; white-space: pre-wrap;
-  font-size: 15px; line-height: 1.6;
+  font-size: var(--fs-body); line-height: 1.6;
 }
-.msg-agents { font-size: 12px; color: var(--text-tertiary); margin-bottom: 6px; }
-.assistant-content { color: var(--text-primary); font-size: 15px; line-height: 1.6; max-width: 100%; }
+.msg-agents { font-size: var(--fs-meta); color: var(--text-tertiary); margin-bottom: 6px; }
+.assistant-content { color: var(--text-primary); font-size: var(--fs-body); line-height: 1.6; max-width: 100%; }
 /* .reasoning-panel / .thinking / .think-dot 移入 ReasoningPanel.vue + ThinkingDots.vue 组件 */
-.cursor { color: var(--primary); animation: blink 1s infinite; }
-@keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+.cursor { color: var(--primary); animation: softPulse 1s infinite; }
 .retry-bar { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
 
 /* 辩论 agent 气泡：左侧色条 + agent 名 + 轮次标签；拉大内边距与下间距 */
@@ -482,7 +481,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
   border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 12px;
 }
 .debate-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.debate-agent { font-weight: 700; font-size: 14px; }
+.debate-agent { font-weight: var(--fw-bold); font-size: 14px; }
 
 /* 总结气泡：与上方气泡拉开距离，加左边色条与 agent 气泡呼应 */
 .summary-bubble {
@@ -490,7 +489,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
   background: var(--bg-elevated); border-radius: var(--radius-md);
   padding: 14px 16px; margin: 16px 0 12px;
 }
-.summary-head { font-weight: 700; font-size: 14px; margin-bottom: 10px; color: var(--primary); }
+.summary-head { font-weight: var(--fw-bold); font-size: 14px; margin-bottom: 10px; color: var(--primary); }
 
 /* FactBook 折叠面板：与上下气泡拉开距离 */
 .factbook-panel {
@@ -499,19 +498,19 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 }
 .factbook-head {
   display: flex; justify-content: space-between; align-items: center; cursor: pointer;
-  padding: 10px 14px; font-size: 13px; color: var(--text-secondary); font-weight: 600;
+  padding: 10px 14px; font-size: var(--fs-label); color: var(--text-secondary); font-weight: var(--fw-semibold);
 }
 .factbook-head:hover { background: var(--bg-elevated); }
-.factbook-toggle { font-size: 12px; color: var(--primary); }
+.factbook-toggle { font-size: var(--fs-meta); color: var(--primary); }
 .factbook-body { padding: 10px 14px 14px; max-height: 420px; overflow-y: auto; border-top: 1px solid var(--border-subtle); }
 
 .collecting-status { padding: 8px 12px; }
 .error-bubble {
-  background: rgba(231, 76, 60, 0.12); border: 1px solid rgba(231, 76, 60, 0.3);
-  color: #e74c3c; padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
+  background: var(--error-tint); border: 1px solid var(--error);
+  color: var(--error); padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
 }
 .info-bubble {
-  background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3);
+  background: var(--accent-tint); border: 1px solid var(--accent);
   color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
 }
 
@@ -525,11 +524,11 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 .mention-pop {
   position: absolute; bottom: 100%; left: 0; right: 0; margin-bottom: 4px;
   background: var(--bg-elevated); border: 1px solid var(--border-medium); border-radius: var(--radius-md);
-  box-shadow: 0 -4px 16px rgba(45, 42, 38, 0.15); max-height: 240px; overflow-y: auto; z-index: 100;
+  box-shadow: var(--shadow-lift); max-height: 240px; overflow-y: auto; z-index: 100;
 }
 .mention-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; }
 .mention-item:hover, .mention-item.active { background: var(--bg-surface); }
-.mention-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.mention-name { font-size: 14px; font-weight: var(--fw-semibold); color: var(--text-primary); }
 .mention-desc { font-size: 11px; color: var(--text-tertiary); }
 .mention-empty { padding: 12px; text-align: center; color: var(--text-tertiary); font-size: 13px; }
 .chat-input {
@@ -540,5 +539,5 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 
 .debate-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .debate-selected { margin-top: 6px; font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
-.debate-selected-name { font-weight: 600; color: var(--text-primary); }
+.debate-selected-name { font-weight: var(--fw-semibold); color: var(--text-primary); }
 </style>

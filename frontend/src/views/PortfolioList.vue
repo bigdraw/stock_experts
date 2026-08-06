@@ -157,7 +157,7 @@ onMounted(load)
 
 <style scoped>
 .page-container {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--transition-slow);
 }
 
 .page-header {
@@ -176,29 +176,29 @@ onMounted(load)
 }
 
 .page-title {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: var(--fs-stat);
+  font-weight: var(--fw-bold);
   margin: 0;
   letter-spacing: -0.5px;
 }
 
 .create-button {
-  background: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%) !important;
+  background: var(--gradient-logo) !important;
   border: none !important;
-  font-weight: 600 !important;
-  transition: all 0.3s !important;
+  font-weight: var(--fw-semibold) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .create-button:hover {
-  box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4) !important;
+  box-shadow: var(--shadow-glow) !important;
   transform: translateY(-2px);
 }
 
 .portfolio-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-md) !important;
+  transition: all var(--transition-slow) !important;
   cursor: pointer;
   position: relative;
   overflow: hidden;
@@ -211,9 +211,9 @@ onMounted(load)
   left: 0;
   right: 0;
   height: 3px;
-  background: linear-gradient(90deg, #00d4aa 0%, #6366f1 100%);
+  background: var(--gradient-logo);
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: opacity var(--transition-slow);
 }
 
 .portfolio-card:hover::before {
@@ -222,7 +222,7 @@ onMounted(load)
 
 .portfolio-card:hover {
   border-color: var(--primary) !important;
-  box-shadow: 0 8px 32px rgba(0, 212, 170, 0.2) !important;
+  box-shadow: var(--shadow-glow) !important;
   transform: translateY(-4px);
 }
 
@@ -231,7 +231,7 @@ onMounted(load)
 }
 
 .portfolio-card :deep(.n-card-header__main) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: 18px;
   color: var(--text-primary);
 }
@@ -251,7 +251,7 @@ onMounted(load)
 .portfolio-card :deep(.n-card__action) {
   border-top: 1px solid var(--border-subtle);
   padding: 12px 16px;
-  background: rgba(30, 41, 59, 0.4);
+  background: var(--bg-surface);
 }
 
 .empty-state {
@@ -267,7 +267,7 @@ onMounted(load)
 .create-modal :deep(.n-card) {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-medium) !important;
-  border-radius: 16px !important;
+  border-radius: var(--radius-md) !important;
 }
 
 .modal-header {
@@ -275,29 +275,29 @@ onMounted(load)
   align-items: center;
   gap: 12px;
   font-size: 20px;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 .create-form :deep(.n-form-item-label) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
 }
 
 .create-form :deep(.n-input) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .create-form :deep(.n-input:hover) {
   border-color: var(--primary) !important;
-  background: rgba(30, 41, 59, 0.8) !important;
+  background: var(--bg-surface) !important;
 }
 
 .create-form :deep(.n-input--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15) !important;
-  background: rgba(30, 41, 59, 0.9) !important;
+  box-shadow: var(--primary-glow) !important;
+  background: var(--bg-surface) !important;
 }
 </style>

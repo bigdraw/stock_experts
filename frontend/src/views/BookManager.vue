@@ -235,7 +235,7 @@ onMounted(load)
 
 <style scoped>
 .page-container {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--transition-slow);
 }
 
 .page-header {
@@ -254,8 +254,8 @@ onMounted(load)
 }
 
 .page-title {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: var(--fs-stat);
+  font-weight: var(--fw-bold);
   margin: 0;
   letter-spacing: -0.5px;
 }
@@ -264,15 +264,15 @@ onMounted(load)
 .data-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
+  border-radius: var(--radius-md) !important;
   margin-bottom: 20px;
-  transition: all 0.3s;
+  transition: all var(--transition-slow);
 }
 
 .action-card:hover,
 .data-card:hover {
   border-color: var(--border-medium) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-soft);
 }
 
 .action-card :deep(.n-card-header),
@@ -282,7 +282,7 @@ onMounted(load)
 
 .action-card :deep(.n-card-header__main),
 .data-card :deep(.n-card-header__main) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: 18px;
   color: var(--text-primary);
 }
@@ -291,12 +291,12 @@ onMounted(load)
 .combined-input-zone {
   position: relative;
   border: 2px dashed var(--border-subtle);
-  border-radius: 10px;
-  transition: all 0.2s;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
 }
 .combined-input-zone.dragover {
-  border-color: #00d4aa;
-  background: rgba(0, 212, 170, 0.08);
+  border-color: var(--primary);
+  background: var(--primary-tint);
 }
 .combined-input-zone :deep(.n-input) {
   --n-border: 0 !important;
@@ -309,14 +309,14 @@ onMounted(load)
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: rgba(0, 212, 170, 0.12);
-  border-radius: 10px;
-  color: #00d4aa;
-  font-weight: 600;
+  background: var(--primary-tint-strong);
+  border-radius: var(--radius-sm);
+  color: var(--primary);
+  font-weight: var(--fw-semibold);
   pointer-events: none;
 }
 .drop-hint {
-  font-size: 12px;
+  font-size: var(--fs-meta);
   color: var(--text-tertiary);
   text-align: center;
 }
@@ -326,25 +326,25 @@ onMounted(load)
 }
 
 .data-card :deep(.n-data-table-thead) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
 }
 
 .data-card :deep(.n-data-table-th) {
   background: transparent !important;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: var(--fs-meta);
   letter-spacing: 0.5px;
 }
 
 .data-card :deep(.n-data-table-td) {
   border-bottom: 1px solid var(--border-subtle) !important;
-  transition: all 0.2s;
+  transition: all var(--transition);
 }
 
 .data-card :deep(.n-data-table-tr:hover .n-data-table-td) {
-  background: rgba(0, 212, 170, 0.05) !important;
+  background: var(--primary-tint) !important;
 }
 
 .data-card :deep(.n-data-table-tr:hover .n-data-table-td::before) {
@@ -354,8 +354,8 @@ onMounted(load)
   top: 0;
   bottom: 0;
   width: 3px;
-  background: linear-gradient(180deg, #00d4aa 0%, #6366f1 100%);
-  animation: slideIn 0.2s ease-out;
+  background: var(--gradient-logo);
+  animation: slideIn var(--transition);
 }
 
 @keyframes slideIn {
@@ -368,6 +368,6 @@ onMounted(load)
 }
 
 .data-card :deep(.n-data-table-tr:nth-child(even) .n-data-table-td) {
-  background: rgba(30, 41, 59, 0.3);
+  background: var(--primary-tint);
 }
 </style>

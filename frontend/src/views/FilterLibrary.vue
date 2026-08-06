@@ -205,7 +205,7 @@ onMounted(load)
 
 <style scoped>
 .page-container {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--transition-slow);
 }
 
 .page-header {
@@ -224,8 +224,8 @@ onMounted(load)
 }
 
 .page-title {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: var(--fs-stat);
+  font-weight: var(--fw-bold);
   margin: 0;
   letter-spacing: -0.5px;
 }
@@ -234,15 +234,15 @@ onMounted(load)
 .data-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
+  border-radius: var(--radius-md) !important;
   margin-bottom: 20px;
-  transition: all 0.3s;
+  transition: all var(--transition-slow);
 }
 
 .action-card:hover,
 .data-card:hover {
   border-color: var(--border-medium) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-soft);
 }
 
 .action-card :deep(.n-card-header),
@@ -252,43 +252,43 @@ onMounted(load)
 
 .action-card :deep(.n-card-header__main),
 .data-card :deep(.n-card-header__main) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: 18px;
   color: var(--text-primary);
 }
 
 .create-form :deep(.n-form-item-label) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
 }
 
 .create-form :deep(.n-input) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .create-form :deep(.n-input:hover) {
   border-color: var(--primary) !important;
-  background: rgba(30, 41, 59, 0.8) !important;
+  background: var(--bg-surface) !important;
 }
 
 .create-form :deep(.n-input--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15) !important;
-  background: rgba(30, 41, 59, 0.9) !important;
+  box-shadow: var(--primary-glow) !important;
+  background: var(--bg-surface) !important;
 }
 
 .action-button {
-  background: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%) !important;
+  background: var(--gradient-logo) !important;
   border: none !important;
-  font-weight: 600 !important;
-  transition: all 0.3s !important;
+  font-weight: var(--fw-semibold) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .action-button:hover {
-  box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4) !important;
+  box-shadow: var(--shadow-glow) !important;
   transform: translateY(-2px);
 }
 
@@ -297,25 +297,25 @@ onMounted(load)
 }
 
 .data-card :deep(.n-data-table-thead) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
 }
 
 .data-card :deep(.n-data-table-th) {
   background: transparent !important;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: var(--fs-meta);
   letter-spacing: 0.5px;
 }
 
 .data-card :deep(.n-data-table-td) {
   border-bottom: 1px solid var(--border-subtle) !important;
-  transition: all 0.2s;
+  transition: all var(--transition);
 }
 
 .data-card :deep(.n-data-table-tr:hover .n-data-table-td) {
-  background: rgba(0, 212, 170, 0.05) !important;
+  background: var(--primary-tint) !important;
 }
 
 .data-card :deep(.n-data-table-tr:hover .n-data-table-td::before) {
@@ -325,8 +325,8 @@ onMounted(load)
   top: 0;
   bottom: 0;
   width: 3px;
-  background: linear-gradient(180deg, #00d4aa 0%, #6366f1 100%);
-  animation: slideIn 0.2s ease-out;
+  background: var(--gradient-logo);
+  animation: slideIn var(--transition);
 }
 
 @keyframes slideIn {
@@ -339,6 +339,6 @@ onMounted(load)
 }
 
 .data-card :deep(.n-data-table-tr:nth-child(even) .n-data-table-td) {
-  background: rgba(30, 41, 59, 0.3);
+  background: var(--primary-tint);
 }
 </style>

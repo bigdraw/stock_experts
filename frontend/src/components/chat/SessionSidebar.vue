@@ -99,13 +99,13 @@ async function batchDelete() {
 .session-item.active { background: var(--bg-surface); }
 .session-item.manage { cursor: default; }
 .session-item.manage:hover { background: var(--bg-surface); }
-.session-item.checked { background: rgba(0, 212, 170, 0.12); }
-.session-item.checked:hover { background: rgba(0, 212, 170, 0.18); }
+.session-item.checked { background: var(--primary-tint-strong); }
+.session-item.checked:hover { background: var(--primary-glow); }
 .session-check { flex-shrink: 0; }
 .session-title {
   font-size: 14px; color: var(--text-secondary); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
 }
 .type-tag { flex-shrink: 0; }
-.empty { text-align: center; padding: 40px 0; color: var(--text-tertiary); font-size: 13px; }
+.empty { text-align: center; padding: 40px 0; color: var(--text-tertiary); font-size: var(--fs-label); }
 </style>

@@ -24,6 +24,23 @@
   --warning: #ffc857;
   --error: #e74c3c;
 
+  /* tint 系列 — 背景色透层（控件 hover/active/选中态用） */
+  --primary-tint: rgba(255, 107, 92, 0.08);
+  --primary-tint-strong: rgba(255, 107, 92, 0.12);
+  --accent-tint: rgba(255, 200, 87, 0.12);
+  --success-tint: rgba(91, 168, 130, 0.12);
+  --error-tint: rgba(231, 76, 60, 0.12);
+
+  /* agent 色 token — 暖 pastel 8 色 */
+  --agent-1: #ff6b5c;
+  --agent-2: #ffc857;
+  --agent-3: #5ba882;
+  --agent-4: #9b7bc4;
+  --agent-5: #5b8fb9;
+  --agent-6: #f4a6b0;
+  --agent-7: #f08a4b;
+  --agent-8: #4fb0bf;
+
   /* 边框 — 暖灰 */
   --border-subtle: rgba(45, 42, 38, 0.08);
   --border-medium: rgba(45, 42, 38, 0.12);
@@ -39,15 +56,20 @@
   --radius-sm: 10px;
   --radius-md: 16px;
   --radius-lg: 24px;
+  --radius-pill: 999px;
 
   /* 过渡 */
+  --transition-fast: 0.15s ease;
   --transition: 0.2s ease;
+  --transition-slow: 0.3s ease;
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* 间距 */
   --spacing-xs: 4px;
   --spacing-sm: 8px;
   --spacing-md: 16px;
   --spacing-lg: 24px;
+  --spacing-xl: 32px;
 
   /* 消息列宽 */
   --chat-max-width: 960px;
@@ -58,6 +80,14 @@
   /* 阴影 — 柔和暖 */
   --shadow-soft: 0 4px 16px rgba(45, 42, 38, 0.08);
   --shadow-lift: 0 8px 24px rgba(45, 42, 38, 0.12);
+  --shadow-glow: 0 0 20px rgba(255, 107, 92, 0.2);
+
+  /* 字体 */
+  --font-sans: "Nunito", -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
 
   /* 字号 type scale */
   --fs-display: 32px;

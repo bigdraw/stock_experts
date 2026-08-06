@@ -324,7 +324,7 @@ async function handleRun() {
 
 <style scoped>
 .page-container {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--transition-slow);
 }
 
 .page-header {
@@ -343,8 +343,8 @@ async function handleRun() {
 }
 
 .page-title {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: var(--fs-stat);
+  font-weight: var(--fw-bold);
   margin: 0;
   letter-spacing: -0.5px;
 }
@@ -353,15 +353,15 @@ async function handleRun() {
 .result-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
+  border-radius: var(--radius-md) !important;
   margin-bottom: 20px;
-  transition: all 0.3s;
+  transition: all var(--transition-slow);
 }
 
 .action-card:hover,
 .result-card:hover {
   border-color: var(--border-medium) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-soft);
 }
 
 .action-card :deep(.n-card-header),
@@ -371,14 +371,14 @@ async function handleRun() {
 
 .action-card :deep(.n-card-header__main),
 .result-card :deep(.n-card-header__main) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: 18px;
   color: var(--text-primary);
 }
 
 .create-form :deep(.n-form-item-label),
 .backtest-form :deep(.n-form-item-label) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
 }
 
@@ -386,10 +386,10 @@ async function handleRun() {
 .backtest-form :deep(.n-input),
 .create-form :deep(.n-input-number),
 .backtest-form :deep(.n-input-number) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .create-form :deep(.n-input:hover),
@@ -397,7 +397,7 @@ async function handleRun() {
 .create-form :deep(.n-input-number:hover),
 .backtest-form :deep(.n-input-number:hover) {
   border-color: var(--primary) !important;
-  background: rgba(30, 41, 59, 0.8) !important;
+  background: var(--bg-surface) !important;
 }
 
 .create-form :deep(.n-input--focus),
@@ -405,46 +405,46 @@ async function handleRun() {
 .create-form :deep(.n-input-number--focus),
 .backtest-form :deep(.n-input-number--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15) !important;
-  background: rgba(30, 41, 59, 0.9) !important;
+  box-shadow: var(--primary-glow) !important;
+  background: var(--bg-surface) !important;
 }
 
 .create-form :deep(.n-date-picker),
 .backtest-form :deep(.n-date-picker) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .create-form :deep(.n-date-picker:hover),
 .backtest-form :deep(.n-date-picker:hover) {
   border-color: var(--primary) !important;
-  background: rgba(30, 41, 59, 0.8) !important;
+  background: var(--bg-surface) !important;
 }
 
 .action-button {
-  background: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%) !important;
+  background: var(--gradient-logo) !important;
   border: none !important;
-  font-weight: 600 !important;
-  transition: all 0.3s !important;
+  font-weight: var(--fw-semibold) !important;
+  transition: all var(--transition-slow) !important;
   margin-top: 8px;
 }
 
 .action-button:hover {
-  box-shadow: 0 8px 24px rgba(0, 212, 170, 0.4) !important;
+  box-shadow: var(--shadow-glow) !important;
   transform: translateY(-2px);
 }
 
 .template-item {
-  padding: 10px 14px; border-radius: 10px; cursor: pointer;
+  padding: 10px 14px; border-radius: var(--radius-sm); cursor: pointer;
   background: var(--bg-surface); border: 1px solid var(--border-subtle);
-  transition: border-color 0.2s ease;
+  transition: border-color var(--transition);
 }
 .template-item:hover { border-color: var(--border-medium); }
 .template-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
 .template-head b { font-size: 14px; color: var(--text-primary); }
-.template-desc { font-size: 13px; color: var(--text-tertiary); margin: 0; }
+.template-desc { font-size: var(--fs-label); color: var(--text-tertiary); margin: 0; }
 
 .stats-grid {
   margin-bottom: 24px;
@@ -452,10 +452,10 @@ async function handleRun() {
 
 .stat-box {
   padding: 20px;
-  border-radius: 12px;
-  background: rgba(30, 41, 59, 0.6);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  transition: all 0.3s;
+  transition: all var(--transition-slow);
   position: relative;
   overflow: hidden;
 }
@@ -472,28 +472,28 @@ async function handleRun() {
 
 .stat-box:hover {
   transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-lift);
 }
 
 .stat-box-success::before {
-  background: linear-gradient(90deg, #10b981, transparent);
+  background: linear-gradient(90deg, var(--success), transparent);
 }
 
 .stat-box-error::before {
-  background: linear-gradient(90deg, #ef4444, transparent);
+  background: linear-gradient(90deg, var(--error), transparent);
 }
 
 .stat-box-info::before {
-  background: linear-gradient(90deg, #6366f1, transparent);
+  background: linear-gradient(90deg, var(--accent), transparent);
 }
 
 .stat-box-warning::before {
-  background: linear-gradient(90deg, #f59e0b, transparent);
+  background: linear-gradient(90deg, var(--warning), transparent);
 }
 
 .stat-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--fs-meta);
+  font-weight: var(--fw-semibold);
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -501,8 +501,8 @@ async function handleRun() {
 }
 
 .stat-value {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: var(--fs-stat);
+  font-weight: var(--fw-bold);
   background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -512,8 +512,8 @@ async function handleRun() {
 
 .chart-container {
   padding: 20px;
-  background: rgba(30, 41, 59, 0.4);
-  border-radius: 12px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
 }
 </style>

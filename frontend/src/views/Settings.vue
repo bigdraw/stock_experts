@@ -332,19 +332,19 @@ async function saveFriction() {
 
 <style scoped>
 .page-container {
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--transition-slow);
 }
 
 .settings-card {
   background: var(--bg-elevated) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 12px !important;
-  transition: all 0.3s;
+  border-radius: var(--radius-md) !important;
+  transition: all var(--transition-slow);
 }
 
 .settings-card:hover {
   border-color: var(--border-medium) !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-soft);
 }
 
 .settings-card :deep(.n-card-header) {
@@ -352,16 +352,16 @@ async function saveFriction() {
 }
 
 .settings-card :deep(.n-card-header__main) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: 18px;
-  background: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%);
+  background: var(--gradient-logo);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .settings-card :deep(.n-h3) {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
   margin-bottom: 16px;
   padding-bottom: 8px;
@@ -369,78 +369,78 @@ async function saveFriction() {
 }
 
 .settings-card :deep(.n-form-item-label) {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-secondary);
 }
 
 .settings-card :deep(.n-input) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .settings-card :deep(.n-input:hover) {
   border-color: var(--primary) !important;
-  background: rgba(30, 41, 59, 0.8) !important;
+  background: var(--bg-surface) !important;
 }
 
 .settings-card :deep(.n-input--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15) !important;
-  background: rgba(30, 41, 59, 0.9) !important;
+  box-shadow: var(--primary-glow) !important;
+  background: var(--bg-surface) !important;
 }
 
 .settings-card :deep(.n-input-number) {
-  background: rgba(30, 41, 59, 0.6) !important;
+  background: var(--bg-surface) !important;
   border: 1px solid var(--border-subtle) !important;
-  border-radius: 8px !important;
-  transition: all 0.3s !important;
+  border-radius: var(--radius-sm) !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .settings-card :deep(.n-input-number:hover) {
   border-color: var(--primary) !important;
-  background: rgba(30, 41, 59, 0.8) !important;
+  background: var(--bg-surface) !important;
 }
 
 .settings-card :deep(.n-input-number--focus) {
   border-color: var(--primary) !important;
-  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15) !important;
-  background: rgba(30, 41, 59, 0.9) !important;
+  box-shadow: var(--primary-glow) !important;
+  background: var(--bg-surface) !important;
 }
 
 .action-button {
-  background: linear-gradient(135deg, rgba(0, 212, 170, 0.1) 0%, rgba(99, 102, 241, 0.1) 100%) !important;
+  background: linear-gradient(135deg, var(--primary-tint) 0%, var(--accent-tint) 100%) !important;
   border: 1px solid var(--border-medium) !important;
-  transition: all 0.3s !important;
+  transition: all var(--transition-slow) !important;
 }
 
 .action-button:hover {
-  background: linear-gradient(135deg, rgba(0, 212, 170, 0.2) 0%, rgba(99, 102, 241, 0.2) 100%) !important;
+  background: linear-gradient(135deg, var(--primary-tint-strong) 0%, var(--accent-tint) 100%) !important;
   border-color: var(--primary) !important;
-  box-shadow: 0 0 20px rgba(0, 212, 170, 0.3) !important;
+  box-shadow: var(--shadow-glow) !important;
   transform: translateY(-1px);
 }
 
 .settings-card :deep(.n-switch__rail) {
-  background: rgba(30, 41, 59, 0.8);
+  background: var(--border-medium);
 }
 
 .settings-card :deep(.n-switch__rail--active) {
-  background: linear-gradient(135deg, #00d4aa 0%, #6366f1 100%);
+  background: var(--gradient-logo);
 }
 
 .settings-card :deep(.n-slider-rail) {
-  background: rgba(30, 41, 59, 0.8);
+  background: var(--border-medium);
 }
 
 .settings-card :deep(.n-slider-rail__fill) {
-  background: linear-gradient(90deg, #00d4aa 0%, #6366f1 100%);
+  background: var(--gradient-logo);
 }
 
 .settings-card :deep(.n-slider-handle) {
   background: var(--bg-elevated);
   border: 2px solid var(--primary);
-  box-shadow: 0 0 10px rgba(0, 212, 170, 0.3);
+  box-shadow: var(--shadow-glow);
 }
 </style>

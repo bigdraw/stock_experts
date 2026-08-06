@@ -250,7 +250,7 @@ onMounted(() => {
 <style scoped>
 .admin-container {
   padding: 24px;
-  animation: fadeIn 0.3s ease-out;
+  animation: fadeIn var(--transition-slow);
 }
 
 .page-header {
@@ -258,8 +258,8 @@ onMounted(() => {
 }
 
 .page-header h1 {
-  font-size: 32px;
-  font-weight: 700;
+  font-size: var(--fs-display);
+  font-weight: var(--fw-bold);
   margin: 0 0 8px 0;
 }
 
@@ -272,14 +272,14 @@ onMounted(() => {
 .admin-card {
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .username-cell {
@@ -288,23 +288,12 @@ onMounted(() => {
 }
 
 .username {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-primary);
 }
 
 .action-buttons {
   display: flex;
   gap: 8px;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 </style>
