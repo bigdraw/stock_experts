@@ -441,5 +441,145 @@ async def test_debate_resume():
     assert await _resume_main() == 0
 
 
+async def test_start_does_not_cache_failed_empty_result():
+    """ISSUE-022 (cache poisoning): /debate/start must NOT cache an empty/
+    failed DebateResult for 7 days. run_debate returns empty rounds when the
+    stream ends via agent_failed; the `if result.rounds:` guard skips caching.
+    """
+    from sqlalchemy import select as _select
+
+    from app.api.v1 import debate as debate_mod
+    from app.models.system import AnalysisCache
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp.name}", future=True)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with factory() as db:
+        db.add(User(username="debate_cp", email="cp@cp.com",
+                    password_hash=hash_password("pw"), role="user", is_active=True))
+        db.add(Agent(id=1, name="A", type="master", system_prompt="A", description=""))
+        db.add(Agent(id=2, name="B", type="master", system_prompt="B", description=""))
+        db.add(Stock(code="600519", name="贵州茅台", market="SH", is_active=True))
+        await db.commit()
+
+    async def _gdb():
+        async with factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except BaseException:
+                try:
+                    await session.rollback()
+                except BaseException:
+                    pass
+                raise
+
+    app.dependency_overrides[get_db] = _gdb
+    orig_gen = DebateOrchestrator.run_debate_stream
+    orig_get = llm_mod.llm_manager.get
+    DebateOrchestrator.run_debate_stream = _fail_first_agent_stream
+    llm_mod.llm_manager.get = lambda: type("L", (), {})()
+    debate_mod._running_debates.clear()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            tok = (await c.post("/api/v1/auth/login",
+                                 json={"username": "debate_cp", "password": "pw"})).json()["access_token"]
+            h = {"Authorization": f"Bearer {tok}"}
+            r = await c.post("/api/v1/debate/start", headers=h,
+                             json={"agent_ids": [1, 2], "target_type": "stock",
+                                   "target_id": "600519", "rounds": 1})
+            # Either 500 (run_debate raised) or 200 with empty rounds — both
+            # must result in NO analysis_cache row for this stock.
+            if r.status_code == 200:
+                assert r.json().get("rounds") == [], "failed debate must not be cached"
+            # No cache row written either way (poisoning defense).
+            async with factory() as db2:
+                rows = (await db2.execute(_select(AnalysisCache).where(AnalysisCache.stock_code == "600519"))).scalars().all()
+                assert rows == [], f"failed debate was cached (poison): {rows}"
+    finally:
+        DebateOrchestrator.run_debate_stream = orig_gen
+        llm_mod.llm_manager.get = orig_get
+        app.dependency_overrides.clear()
+        debate_mod._running_debates.clear()
+        await engine.dispose()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
+async def test_resume_refused_while_background_running():
+    """ISSUE-022: resume-stream must refuse (not race) when a background
+    continuation is still running for the session."""
+    from app.api.v1 import debate as debate_mod
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp.name}", future=True)
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with factory() as db:
+        db.add(User(username="debate_race", email="rr@r.com",
+                    password_hash=hash_password("pw"), role="user", is_active=True))
+        db.add(Agent(id=1, name="A", type="master", system_prompt="A", description=""))
+        db.add(Agent(id=2, name="B", type="master", system_prompt="B", description=""))
+        db.add(Stock(code="600519", name="贵州茅台", market="SH", is_active=True))
+        await db.commit()
+
+    async def _gdb():
+        async with factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except BaseException:
+                try:
+                    await session.rollback()
+                except BaseException:
+                    pass
+                raise
+
+    app.dependency_overrides[get_db] = _gdb
+    orig_gen = DebateOrchestrator.run_debate_stream
+    orig_get = llm_mod.llm_manager.get
+    DebateOrchestrator.run_debate_stream = _fail_first_agent_stream
+    llm_mod.llm_manager.get = lambda: type("L", (), {})()
+    debate_mod._running_debates.clear()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+            tok = (await c.post("/api/v1/auth/login",
+                                 json={"username": "debate_race", "password": "pw"})).json()["access_token"]
+            h = {"Authorization": f"Bearer {tok}"}
+            r = await c.post("/api/v1/debate/start-stream", headers=h,
+                             json={"agent_ids": [1, 2], "target_type": "stock",
+                                   "target_id": "600519", "rounds": 1})
+            sid = None
+            for block in r.text.split("\n\n"):
+                lines = block.strip().split("\n")
+                if len(lines) >= 2 and lines[0].replace("event: ", "") == "session":
+                    sid = __import__("json").loads(lines[1].replace("data: ", "")).get("session_id")
+            assert sid is not None
+
+            # Simulate a background continuation in flight for this session.
+            debate_mod._running_debates.add(sid)
+            r2 = await c.post(f"/api/v1/debate/sessions/{sid}/resume-stream", headers=h)
+            assert r2.status_code == 200
+            body = r2.json()
+            assert "error" in body and "后台续跑" in body["error"], body
+    finally:
+        DebateOrchestrator.run_debate_stream = orig_gen
+        llm_mod.llm_manager.get = orig_get
+        app.dependency_overrides.clear()
+        debate_mod._running_debates.clear()
+        await engine.dispose()
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
 if __name__ == "__main__":
     sys.exit(0 if asyncio.run(_main()) == 0 and asyncio.run(_cancel_main()) == 0 and asyncio.run(_resume_main()) == 0 else 1)

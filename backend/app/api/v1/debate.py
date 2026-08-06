@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 ROUND_TYPE_LABELS = {"analysis": "独立分析", "challenge": "质疑", "response": "回应"}
 
+# Sessions whose background continuation is running after a client disconnect
+# (ISSUE-022). A resume-stream request for one of these must refuse rather than
+# race the background task (which would double-execute the failed agent and
+# write duplicate ChatMessages / hit SQLite "database is locked").
+_running_debates: set[int] = set()
+# Strong references to background debate tasks so the event loop doesn't GC them
+# mid-execution (ISSUE-022 / asyncio.create_task footgun).
+_background_tasks: set[asyncio.Task] = set()
+
 
 async def _prepare_debate(req: DebateStartRequest, db: AsyncSession, current_user: User):
     """Shared: validate + load agents + target info."""
@@ -85,8 +94,11 @@ async def start_debate(
         "summary": result.summary,
     }
 
-    # 写入缓存
-    await set_cached_analysis(db, target_info["code"], list(req.agent_ids), response, "debate")
+    # Only cache a completed, non-empty result (ISSUE-022): run_debate now
+    # raises on failure, but defend in depth — caching an empty/failed result
+    # for 7 days would poison every subsequent /debate/start for this stock.
+    if result.rounds:
+        await set_cached_analysis(db, target_info["code"], list(req.agent_ids), response, "debate")
     await db.commit()
     return response
 
@@ -155,8 +167,24 @@ async def start_debate_stream(
                 await db.commit()  # 保留已完成的 agent_done/factbook（不 rollback）
             except Exception:
                 pass
-            # 后台续跑：用 resume 机制从已落库 messages 重建 → 继续到完成/暂停
-            asyncio.create_task(_finish_debate_background(session_id, agents, target_info, req.rounds))
+            # 后台续跑：用 resume 机制从已落库 messages 重建 → 继续到完成/暂停。
+            # Claim the session so a concurrent resume-stream can't race the
+            # background task (double-write / SQLite lock) — ISSUE-022.
+            if session_id not in _running_debates:
+                _running_debates.add(session_id)
+                task = asyncio.create_task(
+                    _finish_debate_background(session_id, agents, target_info, req.rounds)
+                )
+                # Hold a strong reference so the loop doesn't GC the task
+                # mid-execution (ISSUE-022 / asyncio.create_task footgun).
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
+            # NOTE: CancelledError is intentionally NOT re-raised here. The
+            # documented behaviour is "commit + background continuation": the
+            # live SSE response ends cleanly (200) with already-committed
+            # opinions persisted, and the background task finishes the debate.
+            # Re-raising would cancel the response task and break that contract
+            # (see test_debate_cancel). See ISSUE-022 note in ISSUES.md.
         except Exception as e:
             logger.exception(f"Debate stream error (session {session_id})")
             try:
@@ -369,6 +397,9 @@ async def _finish_debate_background(session_id: int, agents: list[dict], target_
             logger.info(f"Background debate {session_id}: completed")
     except Exception as e:
         logger.exception(f"Background debate {session_id} error: {e}")
+    finally:
+        # Release the claim so a later resume-stream can proceed (ISSUE-022).
+        _running_debates.discard(session_id)
 
 
 @router.post("/sessions/{session_id}/resume-stream")
@@ -381,6 +412,11 @@ async def resume_debate_stream(
     session = await db.get(ChatSession, session_id)
     if not session or session.user_id != current_user.id or (session.type or "chat") != "debate":
         return {"error": "辩论会话不存在"}
+
+    # Refuse while the background continuation is still running (ISSUE-022):
+    # racing it would re-execute the failed agent and write duplicate messages.
+    if session_id in _running_debates:
+        return {"error": "该辩论正在后台续跑，请稍后刷新查看结果"}
 
     # 重建 agents（从 session.agent_ids）
     agent_rows = (await db.execute(select(Agent).where(Agent.id.in_(session.agent_ids or [])))).scalars().all()

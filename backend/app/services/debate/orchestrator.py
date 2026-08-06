@@ -42,6 +42,12 @@ class DebateOrchestrator:
         self.llm = llm
         self.db = db
         self.validate_data = validate_data
+        # Instance-level stream state (NOT class-level — class-level mutable
+        # defaults would leak across orchestrator instances and make a failed
+        # run_debate return a stale/empty DebateResult). Set fresh each stream.
+        self._stream_history: list[DebateRound] = []
+        self._stream_summary: str = ""
+        self._stream_failed: bool = False
 
     async def run_debate(
         self,
@@ -49,13 +55,18 @@ class DebateOrchestrator:
         target_info: dict,
         max_rounds: int = 3,
     ) -> DebateResult:
-        """Run a full debate (blocking, returns complete result)."""
+        """Run a full debate (blocking, returns complete result).
+
+        Raises ``RuntimeError`` if the stream ended via ``agent_failed`` /
+        ``summary_failed`` (ISSUE-022): previously a failed run returned an empty
+        ``DebateResult(rounds=[], summary="")`` and ``/debate/start`` cached that
+        empty result for 7 days (cache poisoning). Now the caller must not cache.
+        """
         async for _ in self.run_debate_stream(agents, target_info, max_rounds):
             pass  # drain the generator
+        if self._stream_failed:
+            raise RuntimeError("Debate did not complete (agent or summary failed) — not cacheable")
         return DebateResult(rounds=self._stream_history, summary=self._stream_summary)
-
-    _stream_history: list = []
-    _stream_summary: str = ""
 
     async def run_debate_stream(
         self,
@@ -80,19 +91,28 @@ class DebateOrchestrator:
         完成 agent_done；失败（重试3次仍错）发 agent_failed 后 **return 暂停**——不自动跳过，
         等前端原地点重试（调 resume-stream 端点，从失败点继续，已完成的 agent 跳过）。
         """
+        # Fresh per-stream state (ISSUE-022): avoid leaking a previous run's
+        # history/summary into this one, and clear any stale failure flag.
+        self._stream_history = []
+        self._stream_summary = ""
+        self._stream_failed = False
+
         if resume:
             history: list[DebateRound] = list(resume.get("history") or [])
             completed: set = resume.get("completed") or set()
             context_data: str = resume.get("context") or ""
             summary_done_flag: bool = resume.get("summary_done", False)
             if not context_data:
-                # resume 但无 context（罕见）→ 重新采集（不流式，静默）
+                # resume 但无 context（罕见，live stream 在 factbook_done 落库前断连）
+                # → 重新采集 raw 并用 FactBook.format 重建 digest，否则后续 agent
+                # 会拿到空 FactBook 跑（ISSUE-022）。非 resume 路径有同样兜底（见下）。
                 raw = None
                 async for ev in self._collect_raw_factbook(target_info):
                     if ev.get("type") == "factbook_raw":
                         raw = ev["raw"]
                 if raw is None:
                     raw = {"_error": "FactBook 采集失败"}
+                context_data = FactBook().format(raw)  # 重建 digest
         else:
             # 阶段1a：FactBook 数据采集（流式进度事件：正在获取价值分析/K线/行业/宏观/市场状态…）
             raw = None
@@ -141,6 +161,7 @@ class DebateOrchestrator:
                             yield {"type": "summary_token", "delta": chunk.content}
                 except Exception as e:
                     logger.exception("Debate summary failed; emit summary_failed + pause")
+                    self._stream_failed = True
                     yield {"type": "summary_failed", "error": f"{e!r}"}
                     return
                 yield {"type": "summary_done", "content": summary, "reasoning": summary_reasoning}
@@ -201,6 +222,7 @@ class DebateOrchestrator:
                         continue
                 if not content:
                     logger.exception(f"Agent {agent['name']} {round_type} no content after retries")
+                    self._stream_failed = True
                     yield {
                         "type": "agent_failed", "round_num": round_num + 1, "round_type": round_type,
                         "agent_id": agent["id"], "agent_name": agent["name"],
