@@ -1,7 +1,7 @@
 """Book and Agent API routes."""
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from fastapi import APIRouter, Depends, UploadFile
 from pydantic import BaseModel, Field
@@ -24,6 +24,33 @@ router = APIRouter(tags=["books & agents"])
 UPLOAD_DIR = Path("data/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Cap upload body so a malicious/large upload can't exhaust worker memory (ISSUE-020).
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+def _confine_upload_path(file_path: str, user_id: int) -> Path:
+    """Resolve ``file_path`` and confine it to UPLOAD_DIR, requiring the
+    caller's user-id prefix (ISSUE-020).
+
+    Blocks path traversal (``/etc/passwd``, ``../../backend/.env``) and
+    cross-user reads (a request naming another user's uploaded file). Any
+    failure resolves to a generic 404 so the caller can't probe the filesystem.
+    """
+    try:
+        resolved = Path(file_path).resolve()
+    except (OSError, ValueError):
+        raise NotFoundException(f"File not found: {file_path}") from None
+    try:
+        upload_root = UPLOAD_DIR.resolve()
+    except OSError:  # pragma: no cover - UPLOAD_DIR always created above
+        upload_root = UPLOAD_DIR
+    # Must live inside UPLOAD_DIR and carry this user's prefix.
+    if (resolved.parent != upload_root) or not resolved.name.startswith(f"{user_id}_"):
+        raise NotFoundException(f"File not found: {file_path}")
+    if not resolved.exists():
+        raise NotFoundException(f"File not found: {file_path}")
+    return resolved
+
 
 # --- Books ---
 @router.post("/books/upload")
@@ -32,15 +59,24 @@ async def upload_book(
     current_user: User = Depends(get_current_user),
 ):
     """Upload a book file (PDF/EPUB/TXT)."""
-    ext = Path(file.filename).suffix.lower()
+    # Strip any path components from the client-supplied filename (ISSUE-020):
+    # ``../../app/main.py`` -> ``main.py`` so it can't escape UPLOAD_DIR.
+    safe_name = PurePath(file.filename or "").name
+    if not safe_name:
+        raise BadRequestException("Invalid filename")
+    ext = Path(safe_name).suffix.lower()
     if ext not in (".pdf", ".epub", ".txt"):
         raise BadRequestException(f"Unsupported format: {ext}. Use PDF, EPUB, or TXT.")
 
-    file_path = UPLOAD_DIR / f"{current_user.id}_{file.filename}"
-    content = await file.read()
+    # Stream-read with a hard size cap so a huge upload can't OOM the worker.
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise BadRequestException(f"File too large (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)")
+
+    file_path = UPLOAD_DIR / f"{current_user.id}_{safe_name}"
     file_path.write_bytes(content)
 
-    return {"filename": file.filename, "path": str(file_path), "status": "uploaded"}
+    return {"filename": safe_name, "path": str(file_path), "status": "uploaded"}
 
 
 @router.post("/books/generate-agent")
@@ -50,11 +86,11 @@ async def generate_agent_from_book(
     db: AsyncSession = Depends(get_db),
 ):
     """Analyze uploaded book and generate investment agent."""
-    if not Path(file_path).exists():
-        raise NotFoundException(f"File not found: {file_path}")
+    # Confine to this user's uploads (ISSUE-020): no arbitrary file read.
+    safe_path = _confine_upload_path(file_path, current_user.id)
 
     parser = BookParser()
-    content = parser.parse(file_path)
+    content = parser.parse(str(safe_path))
 
     llm = llm_manager.get()
     analyzer = BookAnalyzer(llm)
