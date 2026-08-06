@@ -91,20 +91,27 @@ async function batchDelete() {
 .manage-btn { flex-shrink: 0; }
 .session-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
 .session-item {
-  padding: 8px 12px; border-radius: var(--radius-sm); cursor: pointer;
-  transition: background var(--transition); margin-bottom: 2px;
+  padding: 8px 12px 8px 10px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: all var(--transition); margin-bottom: 2px; position: relative;
   display: flex; align-items: center; gap: 6px;
+  border-left: 3px solid transparent;
 }
-.session-item:hover { background: var(--bg-surface); }
-.session-item.active { background: var(--bg-surface); }
+.session-item:hover { background: var(--primary-tint); transform: translateX(2px); }
+.session-item:hover .session-title { color: var(--primary); }
+.session-item.active {
+  background: var(--primary-tint-strong); border-left: 3px solid var(--primary);
+}
+.session-item.active .session-title { color: var(--primary); font-weight: var(--fw-bold); }
 .session-item.manage { cursor: default; }
-.session-item.manage:hover { background: var(--bg-surface); }
-.session-item.checked { background: var(--primary-tint-strong); }
+.session-item.manage:hover { background: var(--bg-surface); transform: none; }
+.session-item.manage:hover .session-title { color: var(--text-secondary); }
+.session-item.checked { background: var(--primary-tint-strong); border-left: 3px solid var(--accent); }
 .session-item.checked:hover { background: var(--primary-glow); }
 .session-check { flex-shrink: 0; }
 .session-title {
   font-size: 14px; color: var(--text-secondary); overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+  transition: color var(--transition), font-weight var(--transition);
 }
 .type-tag { flex-shrink: 0; }
 .empty { text-align: center; padding: 40px 0; color: var(--text-tertiary); font-size: var(--fs-label); }

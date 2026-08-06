@@ -18,6 +18,8 @@
   /* 语义色 — 珊瑚=小雷签名+A 股红涨；鼠尾草=绿跌；蜜糖=强调 */
   --primary: #ff6b5c;
   --primary-hover: #ff8275;
+  --primary-pressed: #e85a4d;
+  --primary-deep: #d9442f;
   --primary-glow: rgba(255, 107, 92, 0.12);
   --accent: #ffc857;
   --success: #5ba882;
@@ -134,10 +136,12 @@ h1 { font-size: 26px; } h2 { font-size: 21px; } h3 { font-size: 17px; } h4 { fon
   border-radius: var(--radius-sm) !important; font-weight: 700 !important;
   transition: opacity var(--transition), transform var(--transition) !important;
 }
-.n-button--primary-type { background: var(--primary) !important; border: none !important; box-shadow: none !important; }
-.n-button--primary-type:hover { background: var(--primary-hover) !important; transform: translateY(-1px); }
+.n-button--primary-type { background: var(--primary-deep) !important; border: none !important; box-shadow: var(--shadow-soft) !important; color: #FFFFFF !important; }
+.n-button--primary-type:hover { background: var(--primary-pressed) !important; transform: translateY(-1px); color: #FFFFFF !important; }
 .n-button--default-type { background: var(--bg-surface) !important; border: 1px solid var(--border-medium) !important; color: var(--text-primary) !important; }
-.n-button--default-type:hover { opacity: 0.85; transform: translateY(-1px); }
+.n-button--default-type:hover { background: var(--primary-tint) !important; border-color: var(--primary) !important; color: var(--primary) !important; transform: translateY(-1px); }
+.n-button--tertiary-type, .n-button--quaternary-type { color: var(--text-secondary) !important; }
+.n-button--tertiary-type:hover, .n-button--quaternary-type:hover { color: var(--primary) !important; background: var(--primary-tint) !important; }
 
 .n-input { border-radius: var(--radius-sm) !important; }
 .n-input .n-input__border { border-radius: var(--radius-sm) !important; }

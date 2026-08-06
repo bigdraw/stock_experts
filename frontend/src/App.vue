@@ -49,9 +49,9 @@ const themeOverrides: GlobalThemeOverrides = {
     borderRadiusSmall: '10px',
   },
   Button: {
-    colorPrimary: '#FF6B5C',
-    colorHoverPrimary: '#FF8275',
-    colorPressedPrimary: '#E85A4D',
+    colorPrimary: '#D9442F',
+    colorHoverPrimary: '#E85A4D',
+    colorPressedPrimary: '#C93A26',
     borderPrimary: 'none',
     borderHoverPrimary: 'none',
     borderPressedPrimary: 'none',
