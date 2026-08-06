@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Alert, Notification
+from app.models.stock import FinancialReport, Stock
 from app.services.filter.sandbox import FilterSandbox
 from app.services.llm.provider import LLMMessage, LLMProvider
 
@@ -45,13 +46,20 @@ class AlertEngine:
         return alert
 
     async def check_alerts(self):
-        """Check all active alerts (called by scheduler)."""
+        """Check all active alerts (called by scheduler).
+
+        Assembles the target's latest data per alert so the generated
+        ``check(data)`` can read ``data['close']`` / ``data['pe_ratio']`` etc.
+        (ISSUE-025: previously passed ``data={}`` → KeyError swallowed by the
+        broad except → alerts never fired even when the scheduler ran).
+        """
         result = await self.db.execute(select(Alert).where(Alert.is_active))
         alerts = result.scalars().all()
 
         for alert in alerts:
             try:
-                triggered = self._evaluate(alert.condition_code, {})
+                data = await self._assemble_alert_data(alert)
+                triggered = self._evaluate(alert.condition_code, data)
                 if triggered:
                     await self._send_notification(
                         alert.user_id,
@@ -64,6 +72,51 @@ class AlertEngine:
                 logger.warning(f"Alert {alert.id} evaluation failed: {e}")
 
         await self.db.flush()
+
+    async def _assemble_alert_data(self, alert: Alert) -> dict:
+        """Build the data dict the alert's ``check(data)`` expects (ISSUE-025).
+
+        For a stock target, pull the latest 'Latest' financial snapshot and map
+        the fields the generator prompt advertises (close/pe_ratio/pb_ratio/
+        market_cap/...). Non-stock targets get an empty dict (condition may not
+        fire, which is acceptable until portfolio/market data wiring is added).
+        """
+        data: dict = {}
+        if alert.target_type == "stock" and alert.target_id:
+            code = alert.target_id
+            fr = (
+                await self.db.execute(
+                    select(FinancialReport)
+                    .where(
+                        FinancialReport.stock_code == code,
+                        FinancialReport.report_type == "Latest",
+                    )
+                    .order_by(FinancialReport.report_date.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            stock = await self.db.get(Stock, code)
+            name = stock.name if stock else code
+            if fr:
+                data.update({
+                    "code": code,
+                    "name": name,
+                    "close": fr.price,
+                    "price": fr.price,
+                    "open": fr.open,
+                    "high": fr.high,
+                    "low": fr.low,
+                    "volume": fr.volume,
+                    "amount": fr.amount,
+                    "pe_ratio": fr.pe_ratio,
+                    "pb_ratio": fr.pb_ratio,
+                    "market_cap": fr.market_cap,
+                    "turnoverratio": fr.turnoverratio,
+                    "changepercent": fr.changepercent,
+                })
+            else:
+                data.update({"code": code, "name": name})
+        return data
 
     async def _generate_condition_code(self, nl_condition: str) -> str:
         response = await self.llm.chat(

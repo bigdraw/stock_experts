@@ -70,13 +70,35 @@ async def monthly_financial_update():
 
 
 async def alert_check():
-    """Check all active alerts (placeholder)."""
+    """Evaluate all active alerts (scheduled every 30 min).
+
+    ISSUE-025: previously a stub that only logged, so user alerts were never
+    evaluated. Now drives AlertEngine.check_alerts(), which assembles the
+    target's latest data and runs the alert's check(data) in the sandbox.
+    """
     logger.info("Checking alerts...")
+    try:
+        async with async_session_factory() as db:
+            from app.services.llm.manager import llm_manager
+            from app.services.notification.service import AlertEngine
+
+            await AlertEngine(db, llm_manager.get()).check_alerts()
+            await db.commit()
+    except Exception as e:
+        logger.error(f"alert_check failed: {e}", exc_info=True)
 
 
 async def backup_reminder():
-    """Weekly backup reminder."""
+    """Weekly backup reminder (ISSUE-025: previously a stub that only logged)."""
     logger.info("Backup reminder triggered.")
+    try:
+        async with async_session_factory() as db:
+            from app.services.notification.service import SystemNotifier
+
+            await SystemNotifier(db).backup_reminder()
+            await db.commit()
+    except Exception as e:
+        logger.error(f"backup_reminder failed: {e}", exc_info=True)
 
 
 async def startup_check():
