@@ -6,7 +6,7 @@
     <!-- 主区：纵向 flex，消息区 flex:1 滚动，输入栏同级沉底 -->
     <div class="chat-main">
       <!-- 消息区 -->
-      <div class="msg-scroll" ref="msgList" @scroll="onMsgScroll">
+      <div class="msg-scroll" ref="msgList" @scroll="onScroll">
         <div class="msg-inner">
           <!-- 空状态 -->
           <div v-if="!chatStore.messages.length" class="welcome">
@@ -223,11 +223,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { NButton, NTag, NInput, NModal, NForm, NFormItem, NSelect, NAutoComplete, NInputNumber, NSwitch } from 'naive-ui'
 import { useChatStore } from '../stores/chat'
 import { agentColor } from '../composables/useAgentColor'
+import { useScrollAnchoring } from '../composables/useScrollAnchoring'
+import { useResizeSync } from '../composables/useResizeSync'
 import ReasoningPanel from '../components/chat/ReasoningPanel.vue'
 import ThinkingDots from '../components/chat/ThinkingDots.vue'
 import SessionSidebar from '../components/chat/SessionSidebar.vue'
@@ -239,10 +241,16 @@ import type { Agent, Stock } from '../types'
 const chatStore = useChatStore()
 const route = useRoute()
 const input = ref('')
-// 是否贴底：用户主动上滚（距底 >80px）则不强制拉回，方便回看前面的内容
-const autoScroll = ref(true)
 const msgList = ref<HTMLElement | null>(null)
 const inputAreaRef = ref<HTMLElement | null>(null)
+
+// 布局稳定 composable：滚动锚定（rAF 节流跟底 + 用户上滚不拉回）
+const { autoScroll, onScroll, maybeScrollToBottom, scrollToBottom } = useScrollAnchoring(msgList)
+// 输入区高度→CSS 变量→msg-inner padding 动态跟随；贴底时同步滚动消除一帧延迟
+useResizeSync(inputAreaRef, '--input-area-h', () => {
+  if (autoScroll.value && msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
+})
+
 const agentList = ref<Agent[]>([])
 const selectedAgents = ref<Agent[]>([])
 const suggestions = ['分析 600519 的估值和盈利能力', '@巴菲特 茅台值不值得买', '分析我的投资组合风险']
@@ -284,7 +292,7 @@ function selectMention(a: Agent) {
   closeMention()
   nextTick(() => {
     const t = textareaEl()
-    if (t) { const pos = atIdx + a.name.length + 2; t.setSelectionRange(pos, pos); t.focus() }
+    if (t) { const pos = atIdx + a.name.length + 2; t.setSelectionRange(pos, pos); t.focus({ preventScroll: true } as FocusOptions) }
   })
 }
 function onInputKey(e: KeyboardEvent) {
@@ -370,11 +378,6 @@ async function startDebate() {
   await scrollToBottom()
 }
 
-// ResizeObserver：跟踪输入区实际高度→设 CSS 变量→msg-inner 底部 padding 动态跟随。
-// 输入区 absolute 脱离 flex 流后，msg-scroll 高度恒定（不再因 textarea 增高而缩小→抖动），
-// 但 msg-inner 底部需留出输入区高度的空间（否则最后一条消息被输入区遮挡）。
-let _inputResizeObserver: ResizeObserver | null = null
-
 onMounted(async () => {
   await chatStore.loadSessions()
   const sid = route.params.sessionId
@@ -382,23 +385,6 @@ onMounted(async () => {
   else if (chatStore.currentSessionId) await chatStore.selectSession(chatStore.currentSessionId)
   try { agentList.value = (await apiClient.get('/chat/agents')).data } catch {}
   if (route.query.debate === '1') showDebateModal.value = true
-
-  if (inputAreaRef.value) {
-    const updateInputHeight = () => {
-      if (inputAreaRef.value) {
-        document.documentElement.style.setProperty(
-          '--input-area-h', `${inputAreaRef.value.offsetHeight}px`
-        )
-      }
-    }
-    updateInputHeight()
-    _inputResizeObserver = new ResizeObserver(updateInputHeight)
-    _inputResizeObserver.observe(inputAreaRef.value)
-  }
-})
-
-onUnmounted(() => {
-  if (_inputResizeObserver) { _inputResizeObserver.disconnect(); _inputResizeObserver = null }
 })
 
 function removeAgent(id: number) { selectedAgents.value = selectedAgents.value.filter(a => a.id !== id) }
@@ -430,30 +416,9 @@ async function handleSend() {
   await chatStore.sendMessage(text, agentIds)
   await scrollToBottom()
 }
-// 滚动监听：判断用户是否贴底。距底 < 80px 视为贴底（流式时自动跟随），
-// 否则用户主动上滚了——不再强制拉回，让其自由查看前面的内容。
-function onMsgScroll() {
-  const el = msgList.value
-  if (!el) return
-  autoScroll.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-}
-// rAF 节流：多个 token delta 合并到一帧一次滚动，避免每 token scrollTop=scrollHeight 跳变 → 画面抖动。
-let _scrollPending = false
-function maybeScrollToBottom() {
-  if (!autoScroll.value) return
-  if (_scrollPending) return
-  _scrollPending = true
-  requestAnimationFrame(() => {
-    _scrollPending = false
-    if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
-  })
-}
-// 强制滚到底（用户主动操作：发消息/新会话/重试）
-async function scrollToBottom() {
-  autoScroll.value = true
-  await nextTick()
-  if (msgList.value) msgList.value.scrollTop = msgList.value.scrollHeight
-}
+
+// 滚动 + 跟底逻辑由 useScrollAnchoring composable 管理（onScroll / maybeScrollToBottom / scrollToBottom）。
+// 输入区高度同步由 useResizeSync composable 管理（ResizeObserver → --input-area-h → padding）。
 watch(() => chatStore.messages.length, () => maybeScrollToBottom())
 watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 </script>
