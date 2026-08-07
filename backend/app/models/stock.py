@@ -93,6 +93,18 @@ class FinancialReport(Base):
     # 衍生指标
     is_profitable: Mapped[bool | None] = mapped_column(Boolean)
 
+    # 精筛扩展列（value_analysis 计算后 upsert 到 Latest 行，供筛选管道直接从 DB 取）
+    ocf: Mapped[float | None] = mapped_column(Float)  # 经营现金流净额
+    fcf: Mapped[float | None] = mapped_column(Float)  # 自由现金流 (OCF - capex)
+    roic: Mapped[float | None] = mapped_column(Float)  # 投入资本回报率（EBIT 口径）
+    current_ratio: Mapped[float | None] = mapped_column(Float)  # 流动比率
+    interest_coverage: Mapped[float | None] = mapped_column(Float)  # 利息保障倍数
+    earnings_quality: Mapped[float | None] = mapped_column(Float)  # OCF/净利润
+    cagr_3y_revenue: Mapped[float | None] = mapped_column(Float)  # 3 年营收 CAGR
+    cagr_3y_net_profit: Mapped[float | None] = mapped_column(Float)  # 3 年净利 CAGR
+    dividend_yield: Mapped[float | None] = mapped_column(Float)  # 股息率 TTM (trailing ex_date)
+    ps_ratio: Mapped[float | None] = mapped_column(Float)  # 市销率 (TTM or annualized)
+
     # 完整原始数据（JSON 格式，存储所有 196 个财务字段）
     raw_data: Mapped[str | None] = mapped_column(Text)  # JSON
 

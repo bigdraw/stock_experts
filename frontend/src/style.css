@@ -161,7 +161,7 @@ h1 { font-size: 26px; } h2 { font-size: 21px; } h3 { font-size: 17px; } h4 { fon
 
 .n-layout { background: var(--bg-base) !important; }
 .n-layout-sider { background: var(--bg-elevated) !important; border-right: 1px solid var(--border-subtle) !important; }
-.n-layout-header { background: var(--bg-glass) !important; backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid var(--border-subtle) !important; }
+.n-layout-header { background: var(--bg-elevated) !important; border-bottom: 1px solid var(--border-subtle) !important; }
 .n-layout-content { background: var(--bg-base) !important; }
 
 /* 工具类 */

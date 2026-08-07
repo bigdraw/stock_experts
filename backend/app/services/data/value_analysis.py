@@ -284,6 +284,30 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
                     valuation["dividend_yield_basis"] = "ttm_trailing_ex_date"
         # 无分红或最近 ex_date 缺失 → dividend_yield 不设（None）
 
+    # 精筛列 upsert 到 FinancialReport(Latest) 行——供筛选管道直接从 DB 取，无需 per-stock 调 analyze()
+    try:
+        lr_result = await db.execute(
+            select(FinancialReport).where(
+                FinancialReport.stock_code == stock_code,
+                FinancialReport.report_type == "Latest",
+            ).order_by(FinancialReport.report_date.desc()).limit(1)
+        )
+        lr = lr_result.scalar_one_or_none()
+        if lr:
+            lr.ocf = latest.get("ocf")
+            lr.fcf = latest.get("fcf")
+            lr.roic = latest.get("roic")
+            lr.current_ratio = latest.get("current_ratio")
+            lr.interest_coverage = latest.get("interest_coverage")
+            lr.earnings_quality = latest.get("earnings_quality")
+            lr.cagr_3y_revenue = growth.get("revenue", {}).get("cagr_3y")
+            lr.cagr_3y_net_profit = growth.get("net_profit", {}).get("cagr_3y")
+            lr.dividend_yield = valuation.get("dividend_yield")
+            lr.ps_ratio = valuation.get("ps")
+            await db.commit()
+    except Exception:
+        logger.warning(f"value_analysis: failed to upsert screening columns for {stock_code}")
+
     return {
         "latest": latest,
         "valuation": valuation,

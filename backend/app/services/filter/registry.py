@@ -107,37 +107,32 @@ class FilterRegistry:
         return list(result.scalars().all())
 
     async def _load_stock_data(self) -> pd.DataFrame:
-        """Load all active stocks with their latest indicators."""
+        """Load all active stocks with their latest indicators (incl. screening columns)."""
         stocks_result = await self.db.execute(select(Stock).where(Stock.is_active))
         stocks = stocks_result.scalars().all()
 
+        columns = [
+            "code", "name", "market_cap", "pe_ratio", "pb_ratio", "roe", "is_profitable",
+            "close", "volume", "turnover_rate",
+            "revenue", "net_profit", "eps", "bps", "revenue_growth", "net_profit_growth",
+            "gross_margin", "net_margin", "debt_ratio",
+            "ocf", "fcf", "roic", "current_ratio", "interest_coverage",
+            "earnings_quality", "cagr_3y_revenue", "cagr_3y_net_profit",
+            "dividend_yield", "ps_ratio",
+        ]
+
         if not stocks:
-            return pd.DataFrame(
-                columns=[
-                    "code",
-                    "name",
-                    "market_cap",
-                    "pe_ratio",
-                    "pb_ratio",
-                    "roe",
-                    "is_profitable",
-                    "close",
-                    "volume",
-                    "turnover_rate",
-                ]
-            )
+            return pd.DataFrame(columns=columns)
 
         data = []
         for stock in stocks:
-            # Get latest financial report
             report_result = await self.db.execute(
                 select(FinancialReport)
-                .where(FinancialReport.stock_code == stock.code)
+                .where(FinancialReport.stock_code == stock.code, FinancialReport.report_type == "Latest")
                 .order_by(FinancialReport.report_date.desc())
                 .limit(1)
             )
             report = report_result.scalar_one_or_none()
-
             row = {
                 "code": stock.code,
                 "name": stock.name,
@@ -146,6 +141,31 @@ class FilterRegistry:
                 "pb_ratio": report.pb_ratio if report else None,
                 "roe": report.roe if report else None,
                 "is_profitable": report.is_profitable if report else None,
+                # 行情（FinancialReport Latest 快照已含 Sina 20 字段）
+                "close": report.price if report else None,
+                "volume": report.volume if report else None,
+                "turnover_rate": report.turnoverratio if report else None,
+                # 财务报表（已有列，之前没查）
+                "revenue": report.revenue if report else None,
+                "net_profit": report.net_profit if report else None,
+                "eps": report.eps if report else None,
+                "bps": report.bps if report else None,
+                "revenue_growth": report.revenue_growth if report else None,
+                "net_profit_growth": report.net_profit_growth if report else None,
+                "gross_margin": report.gross_margin if report else None,
+                "net_margin": report.net_margin if report else None,
+                "debt_ratio": report.debt_ratio if report else None,
+                # 精筛扩展（value_analysis upsert 到 Latest 行）
+                "ocf": report.ocf if report else None,
+                "fcf": report.fcf if report else None,
+                "roic": report.roic if report else None,
+                "current_ratio": report.current_ratio if report else None,
+                "interest_coverage": report.interest_coverage if report else None,
+                "earnings_quality": report.earnings_quality if report else None,
+                "cagr_3y_revenue": report.cagr_3y_revenue if report else None,
+                "cagr_3y_net_profit": report.cagr_3y_net_profit if report else None,
+                "dividend_yield": report.dividend_yield if report else None,
+                "ps_ratio": report.ps_ratio if report else None,
             }
             data.append(row)
 

@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
 import DOMPurify from 'dompurify'
@@ -23,17 +23,25 @@ const md: MarkdownIt = new MarkdownIt({
   },
 })
 
-// Agent output is untrusted LLM content (prompt-injectable). markdown-it
-// html:false already escapes raw HTML, but sanitize the rendered HTML too so
-// javascript:/data: URIs, on* handlers, <script>/<iframe>/<style> injected via
-// highlight.js output or linkify can't reach the v-html DOM (ISSUE-026).
-const rendered = computed(() =>
-  DOMPurify.sanitize(md.render(props.content || ''), {
-    USE_PROFILES: { html: true },
-    FORBID_TAGS: ['style', 'iframe', 'form', 'object', 'embed'],
-    FORBID_ATTR: ['style'],
-  })
-)
+// Throttle DOMPurify + markdown-it re-render: during streaming, content changes
+// every token (~100ms). Re-parsing the ENTIRE accumulated string + sanitizing on
+// every token is O(n²) — long messages become janky. Debounce to 200ms so
+// multi-token batches coalesce into one render. Final render guaranteed on watch flush.
+const rendered = ref('')
+let _renderPending = false
+function scheduleRender() {
+  if (_renderPending) return
+  _renderPending = true
+  setTimeout(() => {
+    _renderPending = false
+    rendered.value = DOMPurify.sanitize(md.render(props.content || ''), {
+      USE_PROFILES: { html: true },
+      FORBID_TAGS: ['style', 'iframe', 'form', 'object', 'embed'],
+      FORBID_ATTR: ['style'],
+    })
+  }, 200)
+}
+watch(() => props.content, scheduleRender, { immediate: true })
 </script>
 
 <style scoped>

@@ -456,7 +456,7 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
 <style scoped>
 .chat-shell { display: flex; height: 100%; width: 100%; background: var(--bg-base); }
 .chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; position: relative; }
-.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; scroll-behavior: smooth; contain: layout; }
+.msg-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; position: relative; contain: layout; }
 .scroll-bottom-btn {
   position: sticky; bottom: 12px; margin-left: auto; margin-right: 12px;
   width: 36px; height: 36px; border-radius: var(--radius-pill); border: 1px solid var(--border-medium);
