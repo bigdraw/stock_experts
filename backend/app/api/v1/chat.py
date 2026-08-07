@@ -203,6 +203,7 @@ async def detect_stock_mention(
             ],
             max_tokens=10,
             temperature=0.0,
+            enable_thinking=False,  # 简单 yes/no 分类，不需要思考链
         )
         result = (resp.content or "").strip().lower()
         has_mention = "yes" in result
