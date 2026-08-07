@@ -157,7 +157,37 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function sendMessage(text: string, agentIds: number[] = []) {
+  // 意图确认气泡：detect-intent 检测到股票/组合 → push 气泡等用户选 analysis/discussion
+  let _pendingIntentConfirm: { text: string; agentIds: number[] } | null = null
+
+  function pushIntentConfirm(text: string, agentIds: number[]) {
+    const sid = currentSessionId.value
+    if (sid == null) return
+    _pendingIntentConfirm = { text, agentIds }
+    const buf = bufOf(sid)
+    buf.push({ role: 'user', content: text })
+    buf.push({
+      role: 'system',
+      content: '⚡ 小雷想确认：围绕特定股票分析数据，还是讨论投资理念？',
+      meta: { round_type: 'intent_confirm' },
+    })
+  }
+
+  function consumeIntentConfirm(): { text: string; agentIds: number[] } | null {
+    // 删除确认气泡（找到最后一条 intent_confirm 删除）
+    const sid = currentSessionId.value
+    if (sid != null) {
+      const buf = bufOf(sid)
+      for (let i = buf.length - 1; i >= 0; i--) {
+        if (buf[i].meta?.round_type === 'intent_confirm') { buf.splice(i, 1); break }
+      }
+    }
+    const pending = _pendingIntentConfirm
+    _pendingIntentConfirm = null
+    return pending
+  }
+
+  async function sendMessage(text: string, agentIds: number[] = [], mode?: string) {
     if (!currentSessionId.value) {
       const id = await createSession('新对话', agentIds)
       if (!id) return
@@ -175,7 +205,7 @@ export const useChatStore = defineStore('chat', () => {
       const res = await fetch(`/api/v1/chat/sessions/${sessionId}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: text, agent_ids: agentIds }),
+        body: JSON.stringify({ message: text, agent_ids: agentIds, mode: mode || undefined }),
         signal: ac.signal,
       })
       if (!res.ok) {
@@ -639,5 +669,6 @@ export const useChatStore = defineStore('chat', () => {
     loadSessions, createSession, selectSession, deleteSession, deleteSessions, renameSession,
     sendMessage, startDebate, resumeDebate, stopStreaming, retryLastMessage,
     continueOrRetryDebate, getContinueIntent,
+    pushIntentConfirm, consumeIntentConfirm,
   }
 })

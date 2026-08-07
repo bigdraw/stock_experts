@@ -57,6 +57,16 @@
             <div v-else-if="msg.meta?.round_type === 'error'" class="msg-row">
               <div class="error-bubble">{{ msg.content }}</div>
             </div>
+            <!-- 意图确认气泡（detect-intent 检测到股票/组合 → 用户选分析 or 讨论） -->
+            <div v-else-if="msg.meta?.round_type === 'intent_confirm'" class="msg-row">
+              <div class="intent-confirm-bubble">
+                <span class="confirm-text">{{ msg.content }}</span>
+                <div class="confirm-buttons">
+                  <n-button size="small" type="primary" @click="confirmIntent('analysis')">📊 分析股票</n-button>
+                  <n-button size="small" secondary @click="confirmIntent('discussion')">💬 讨论理念</n-button>
+                </div>
+              </div>
+            </div>
             <!-- 信息提示（NL 恢复的状态回复：在执行/重试中/已完成 等） -->
             <div v-else-if="msg.meta?.round_type === 'info'" class="msg-row">
               <div class="info-bubble">{{ msg.content }}</div>
@@ -413,7 +423,27 @@ async function handleSend() {
   // 优先用 @mention 解析出的 agent ids；否则用已选 selectedAgents
   const ids = parseMentions(text)
   const agentIds = ids.length ? ids : selectedAgents.value.map(a => a.id)
+
+  // 意图检测：消息是否提到 A 股特定标的或组合 → yes 则推确认气泡让用户选
+  try {
+    const resp = await apiClient.post('/chat/detect-intent', { message: text, agent_ids: agentIds })
+    if (resp.data?.mention) {
+      // 推确认气泡（不发后端），等用户点按钮
+      chatStore.pushIntentConfirm(text, agentIds)
+      await scrollToBottom()
+      return
+    }
+  } catch { /* detect-intent 失败 → 直接发送（安全默认 discussion） */ }
+
   await chatStore.sendMessage(text, agentIds)
+  await scrollToBottom()
+}
+
+// 确认气泡按钮回调
+async function confirmIntent(mode: 'analysis' | 'discussion') {
+  const pending = chatStore.consumeIntentConfirm()
+  if (!pending) return
+  await chatStore.sendMessage(pending.text, pending.agentIds, mode)
   await scrollToBottom()
 }
 
@@ -505,6 +535,13 @@ watch(() => chatStore.messages.at(-1)?.content, () => maybeScrollToBottom())
   background: var(--accent-tint); border: 1px solid var(--accent);
   color: var(--text-primary); padding: 8px 12px; border-radius: var(--radius-md); font-size: 14px;
 }
+
+.intent-confirm-bubble {
+  background: var(--accent-tint); border: 1px solid var(--accent);
+  border-radius: var(--radius-md); padding: 12px 16px; margin-bottom: 12px;
+}
+.confirm-text { font-size: 14px; color: var(--text-primary); display: block; }
+.confirm-buttons { display: flex; gap: 8px; margin-top: 10px; }
 
 .input-area { position: absolute; bottom: 0; left: 0; right: 0; z-index: 10; padding: 8px 16px 16px; background: var(--bg-base); border-top: 1px solid var(--border-subtle); }
 .input-container { max-width: var(--chat-max-width); margin: 0 auto; }

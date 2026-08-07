@@ -103,7 +103,7 @@ async def _main() -> int:
             sid = r.json()["id"]
             # message with a stock code → triggers FactBook phase
             r = await c.post(f"/api/v1/chat/sessions/{sid}/stream", headers=h,
-                              json={"message": "分析 600519 的估值", "agent_ids": [99]})
+                              json={"message": "分析 600519 的估值", "agent_ids": [99], "mode": "analysis"})
             body = r.text
             check("SSE has factbook_start", "event: factbook_start" in body)
             check("SSE has collecting progress", "event: collecting" in body)

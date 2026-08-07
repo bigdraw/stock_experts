@@ -177,6 +177,40 @@ async def delete_session(
 class StreamRequest(BaseModel):
     message: str
     agent_ids: list[int] = []
+    mode: str | None = None  # 'analysis' | 'discussion' | None(=discussion)
+
+
+@router.post("/detect-intent")
+async def detect_stock_mention(
+    req: StreamRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """快速检测用户消息是否提到了 A 股特定标的或组合。
+    返回 {"mention": true/false}。前端据此决定是否推确认气泡。"""
+    llm = llm_manager.get()
+    try:
+        resp = await llm.chat(
+            [
+                LLMMessage(
+                    role="system",
+                    content=(
+                        "判断用户消息是否提到了 A 股的特定股票（代码或名称）或用户组合。只返回 yes 或 no。\n"
+                        "yes = 提到了具体的股票（如茅台/600519/平安银行）或'我的组合/持仓'。\n"
+                        "no = 没提到具体标的，只是泛泛讨论理念/方法论/感慨。"
+                    ),
+                ),
+                LLMMessage(role="user", content=req.message[:500]),
+            ],
+            max_tokens=10,
+            temperature=0.0,
+        )
+        result = (resp.content or "").strip().lower()
+        has_mention = "yes" in result
+        logger.info(f"detect-intent: '{result}' (mention={has_mention}) for: {req.message[:60]}")
+        return {"mention": has_mention}
+    except Exception as e:
+        logger.warning(f"detect-intent failed ({e}), defaulting to no")
+        return {"mention": False}
 
 
 @router.post("/sessions/{session_id}/stream")
@@ -242,114 +276,93 @@ async def chat_stream(
     # 5. 执行管线
     messages = await _pipeline.run(messages, ctx)
 
-    # 6. 流式 SSE：多 agent（@mention ≥2）→ 一次 tavily 检索 + 每 agent 流式分析；
-    #    单 agent → function-calling ReAct（模型可调 tavily_search 真工具）
+    # 6. 流式 SSE — 单/多 agent 共享 helpers + event_stream
     from app.services.llm.provider import LLMMessage
     from app.services.llm.tools import DEBATE_TOOLS, execute_tool
 
-    async def _classify_intent(message: str, llm) -> str:
-        """快速分类用户意图：分析请求(需取数) vs 观点讨论(不需取数)。
+    mode = req.mode or "discussion"  # 用户确认气泡选的；None 默认 discussion（不取数）
 
-        避免"提到茅台"但只是举例讨论理念时，误触发 FactBook 取数 + 围绕茅台分析。
-        analysis = 用户要求分析/评估特定股票（需查看数据/估值/财报）。
-        discussion = 讨论理念/哲学/方法论/观点交流/学习（可能提到股票名但只是举例）。
-        """
-        try:
-            resp = await llm.chat(
-                [
-                    LLMMessage(
-                        role="system",
-                        content=(
-                            "判断用户消息的意图类型。只返回一个词：analysis 或 discussion。\n"
-                            "analysis = 要求分析/评估特定股票（需查看数据/估值/财报/K线）。"
-                            "特征：提到股票+分析/估值/值不值得买/财报/PE/ROE/财务。\n"
-                            "discussion = 讨论投资理念/哲学/方法论/观点交流/感慨/闲聊。"
-                            "可能提到股票名但只是举例，不是要分析它。"
-                            "关键线索：你们说呢/怎么看/什么是/为什么/聊一聊/感慨。"
-                        ),
-                    ),
-                    LLMMessage(role="user", content=message[:500]),
-                ],
-                max_tokens=10,
-                temperature=0.0,
+    def _build_agent_prompt(ag, message, data_summary, history_text, mode):
+        """按 mode 构造 investment agent 的 system + user prompt。"""
+        if mode == "analysis":
+            sys_prompt = (ag.system_prompt or "") + (
+                "\n\n（数据摘要已在下方提供，直接引用即可，无需调用外部工具）"
             )
-            result = (resp.content or "").strip().lower()
-            logger.info(f"Chat intent: '{result}' for message: {message[:60]}")
-            return "analysis" if "analysis" in result else "discussion"
-        except Exception as e:
-            logger.warning(f"Intent classification failed ({e}), defaulting to analysis")
-            return "analysis"  # 安全默认：出错时走分析流程（取数）
+            user_content = (
+                f"用户问题：{message}\n\n数据摘要（数据 agent 整理）：\n{data_summary or '（无）'}\n\n"
+                f"上下文（近期对话）：\n{history_text}\n\n"
+                f"请基于你的投资理念，结合数据摘要与上下文，对该问题给出补充分析。"
+            )
+        else:
+            sys_prompt = ag.system_prompt or ""
+            user_content = (
+                f"用户想和你们讨论：{message}\n\n"
+                f"上下文（近期对话）：\n{history_text}\n\n"
+                f"请基于你的投资理念，对这个话题发表你的观点。重在理念和方法论，"
+                f"不需要引用具体股票数据。如果用户提到了某只股票，它只是话题的引子，"
+                f"不是要你分析那只股票。"
+            )
+        return sys_prompt, user_content
+
+    def _build_react_messages(messages, message, data_summary, mode):
+        """构造单 agent ReAct 的 messages。analysis 注入 FactBook；discussion 不注入。"""
+        llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
+        if mode == "analysis" and data_summary:
+            for i in range(len(llm_messages) - 1, -1, -1):
+                if llm_messages[i].role == "user":
+                    llm_messages[i].content = (
+                        f"用户问题：{message}\n\n"
+                        f"【平台 FactBook 数据】（已为你采集，优先引用；缺失项已标注；"
+                        f"如需补充实时新闻再调 tavily_search）\n{data_summary}\n\n请基于以上数据回答。"
+                    )
+                    break
+        return llm_messages
 
     async def event_stream():
         try:
             llm = llm_manager.get()
 
-            # 平台 FactBook 数据采集（gated on detected stock code）：单/多 agent 共用。
-            # collect_streaming → FactBook.format 摘要 → 发 factbook SSE + 持久化 system 消息。
-            # 比 tavily 更准（K线/行业/宏观/regime/全 trend+分红，平台自有）。失败非致命（摘要空，tavily 兜底）。
-            fb_digest_holder = {"digest": ""}
-
-            async def _factbook_phase(code: str):
+            # ── FactBook 数据采集（共享，仅 analysis + stock_codes）──
+            data_summary = ""
+            if mode == "analysis" and stock_codes:
                 fb = FactBook()
                 yield "event: factbook_start\ndata: {}\n\n"
-                raw: dict = {}
+                _raw: dict = {}
                 try:
-                    async for ev in fb.collect_streaming(code, db):
-                        t = ev.get("type")
-                        if t == "collecting":
+                    async for ev in fb.collect_streaming(stock_codes[0], db):
+                        if ev.get("type") == "collecting":
                             yield f"event: collecting\ndata: {json.dumps({'stage': ev.get('stage'), 'message': ev.get('message')}, ensure_ascii=False)}\n\n"
-                        elif t == "factbook_raw":
-                            raw = ev.get("raw") or {}
+                        elif ev.get("type") == "factbook_raw":
+                            _raw = ev.get("raw") or {}
                 except Exception:
-                    logger.exception(f"FactBook collect failed for {code}")
-                digest = fb.format(raw) if raw else ""
-                fb_digest_holder["digest"] = digest
-                if digest:
-                    yield f"event: factbook_done\ndata: {json.dumps({'content': digest, 'reasoning': ''}, ensure_ascii=False)}\n\n"
-                    db.add(ChatMessage(session_id=session_id, role="system", content=digest,
+                    logger.exception(f"FactBook collect failed for {stock_codes[0]}")
+                data_summary = fb.format(_raw) if _raw else ""
+                if data_summary:
+                    yield f"event: factbook_done\ndata: {json.dumps({'content': data_summary, 'reasoning': ''}, ensure_ascii=False)}\n\n"
+                    db.add(ChatMessage(session_id=session_id, role="system", content=data_summary,
                                        meta={"round_type": "factbook"}))
                     await db.commit()
                 else:
                     yield f"event: factbook_done\ndata: {json.dumps({'content': '', 'reasoning': ''}, ensure_ascii=False)}\n\n"
 
             if len(agents) >= 2:
-                # ── 多 agent @mention 流程（同辩论结构：数据 agent → 投资 agent）──
+                # ── 多 agent @mention 流程 ──
                 history_text = "\n\n".join(
                     f"【{m['role']}】: {m['content'][:600]}" for m in messages[-8:] if m["role"] in ("user", "assistant")
                 )
 
-                # 意图分类：分析请求(需取数) vs 观点讨论(不需取数)。
-                # 避免"提到茅台但只是举例"时误触发 FactBook 取数。
-                intent = await _classify_intent(req.message, llm)
-
-                data_summary = ""
-                if intent == "analysis":
-                    # 1. 平台 FactBook 数据采集（gated stock_codes）→ fb_digest，注入 fact-agent
-                    fb_digest = ""
-                    if stock_codes:
-                        fb = FactBook()
-                        _raw: dict = {}
-                        try:
-                            async for ev in fb.collect_streaming(stock_codes[0], db):
-                                if ev.get("type") == "collecting":
-                                    yield f"event: collecting\ndata: {json.dumps({'stage': ev.get('stage'), 'message': ev.get('message')}, ensure_ascii=False)}\n\n"
-                                elif ev.get("type") == "factbook_raw":
-                                    _raw = ev.get("raw") or {}
-                        except Exception:
-                            logger.exception(f"FactBook collect failed for {stock_codes[0]}")
-                        fb_digest = fb.format(_raw) if _raw else ""
-
-                    # 2. 数据获取 agent（LLM + tavily function-calling ReAct）
+                # fact-agent（仅 analysis，tavily ReAct 增强 data_summary）
+                if mode == "analysis":
                     yield "event: factbook_start\ndata: {}\n\n"
                     fact_system = FACT_AGENT_SYSTEM + (
                         "\n\n**额外能力**：你可以根据用户问题调用 tavily_search 获取必要的信息（公司/行业/宏观/分红/财报等），"
                         "然后按上述格式整理检索到的数据。检索结果与已有数据合并，缺失项标注。"
                     )
                     fact_user = f"用户问题：{req.message}\n\n近期对话上下文：\n{history_text}"
-                    if fb_digest:
+                    if data_summary:
                         fact_user = (
                             f"【平台 FactBook 数据（已采集，优先引用；缺失项已标注；如需实时新闻再调 tavily_search）】\n"
-                            f"{fb_digest}\n\n{fact_user}"
+                            f"{data_summary}\n\n{fact_user}"
                         )
                     fact_messages = [
                         LLMMessage(role="system", content=fact_system),
@@ -382,29 +395,11 @@ async def chat_stream(
                     db.add(ChatMessage(session_id=session_id, role="system", content=data_summary,
                                        meta={"round_type": "factbook"}))
                     await db.commit()
-                # else (discussion): 跳过取数，data_summary="" — 大师直接讨论
 
-                # 3. 每 @agent 顺序流式分析/讨论
+                # investment agents（每 agent 流式分析/讨论）
                 for ag in agents:
                     yield f"event: agent_start\ndata: {json.dumps({'agent_id': ag.id, 'agent_name': ag.name, 'round_type': 'analysis', 'round_num': 1}, ensure_ascii=False)}\n\n"
-                    if intent == "analysis":
-                        sys_prompt = (ag.system_prompt or "") + (
-                            "\n\n（数据摘要已在下方提供，直接引用即可，无需调用外部工具）"
-                        )
-                        user_content = (
-                            f"用户问题：{req.message}\n\n数据摘要（数据 agent 整理）：\n{data_summary or '（无）'}\n\n"
-                            f"上下文（近期对话）：\n{history_text}\n\n"
-                            f"请基于你的投资理念，结合数据摘要与上下文，对该问题给出补充分析。"
-                        )
-                    else:  # discussion: 不取数，大师直接基于理念讨论
-                        sys_prompt = ag.system_prompt or ""
-                        user_content = (
-                            f"用户想和你们讨论：{req.message}\n\n"
-                            f"上下文（近期对话）：\n{history_text}\n\n"
-                            f"请基于你的投资理念，对这个话题发表你的观点。重在理念和方法论，"
-                            f"不需要引用具体股票数据。如果用户提到了某只股票，它只是话题的引子，"
-                            f"不是要你分析那只股票。"
-                        )
+                    sys_prompt, user_content = _build_agent_prompt(ag, req.message, data_summary, history_text, mode)
                     content = ""
                     reasoning = ""
                     try:
@@ -432,30 +427,10 @@ async def chat_stream(
                 yield "event: done\ndata: {}\n\n"
             else:
                 # ── 单 agent ReAct（function-calling）──
+                llm_messages = _build_react_messages(messages, req.message, data_summary, mode)
                 full_response = ""
-                llm_messages = [LLMMessage(role=m["role"], content=m["content"]) for m in messages]
                 full_reasoning = ""
-
-                # 意图分类：分析请求(需取数) vs 观点讨论(不需取数)。
-                intent = await _classify_intent(req.message, llm)
-
-                # 平台 FactBook 数据采集：仅 analysis 意图 + 检测到股票码时触发。
-                # discussion 意图不取数（避免"提到茅台举例"误触发取数）。
-                if stock_codes and intent == "analysis":
-                    async for sse in _factbook_phase(stock_codes[0]):
-                        yield sse
-                    _digest = fb_digest_holder["digest"]
-                    if _digest:
-                        for i in range(len(llm_messages) - 1, -1, -1):
-                            if llm_messages[i].role == "user":
-                                llm_messages[i].content = (
-                                    f"用户问题：{req.message}\n\n"
-                                    f"【平台 FactBook 数据】（已为你采集，优先引用；缺失项已标注；"
-                                    f"如需补充实时新闻再调 tavily_search）\n{_digest}\n\n请基于以上数据回答。"
-                                )
-                                break
-
-                for _ in range(5):  # ReAct 最多 5 轮
+                for _ in range(5):
                     tool_calls = None
                     turn_content = ""
                     async for chunk in llm.chat_stream(
@@ -471,15 +446,12 @@ async def chat_stream(
                             full_response += chunk.content
                             yield f"event: text\ndata: {json.dumps({'content': chunk.content}, ensure_ascii=False)}\n\n"
                     if not tool_calls:
-                        break  # 最终答案（已流式）
+                        break
                     llm_messages.append(LLMMessage(role="assistant", content=turn_content, tool_calls=tool_calls))
                     for tc in tool_calls:
                         fn = tc.get("function", {}) or {}
                         result = await execute_tool(fn.get("name", ""), fn.get("arguments", ""))
                         llm_messages.append(LLMMessage(role="tool", content=result, tool_call_id=tc.get("id", "")))
-                # ISSUE-030: persist the assistant message BEFORE yielding stop,
-                # so a client disconnect between stop and the finally-commit
-                # doesn't lose the message (stop would tell the UI it's done).
                 if full_response:
                     _sa_meta: dict = {}
                     if full_reasoning:
