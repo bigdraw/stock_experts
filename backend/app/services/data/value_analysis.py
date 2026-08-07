@@ -252,7 +252,7 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
 
     # 6. 分红 + 股息率（TTM 口径：近 12 个月除权分红之和 / 最新价）
     dividends = await provider.get_dividends(stock_code)
-    # 按除权日倒序（缺 ex_date 用 announce_date），保证 [:20] 保留最新、而非最旧
+    # 排序用 _div_date（ex_date 优先，缺则 announce_date 兜底），保证 [:20] 保留最新
     def _div_date(d: dict) -> str:
         for k in ("ex_date", "announce_date"):
             v = (d.get(k) or "").strip()
@@ -261,22 +261,23 @@ async def analyze(db: AsyncSession, stock_code: str, provider: AkShareProvider |
         return ""
     dividends = sorted(dividends, key=_div_date, reverse=True)
     if price and dividends:
-        # TTM 锚到最近一次除权日（非 today）：cutoff = latest_ex_date − 365。
-        # 之前锚 today 会把"刚过 12 个月"的分红排除——600690 today=2026-08-06
-        # cutoff=2025-08-06 排除了 2025-05 的分红，只算到晚 2025 一次（0.2692）→
-        # yield 1.205% 而非全年 1.2342/22.34=5.53%。锚 latest_ex_date 后两者都在窗内。
-        latest_ex = next((_div_date(d) for d in dividends if _div_date(d)), "")
-        if latest_ex:
+        # TTM 窗口**仅用 ex_date**（除权日），不用 announce_date 回退。
+        # 之前 _div_date 回退 announce_date → 公告日通常比除权日早 1-2 月 →
+        # 窗口混用除权日+公告日 → 某些分红用公告日落入窗内但实际除权日在窗外
+        # → ttm_dps 多算 → 股息率虚高（000786 实测 8.47% 而实际仅 3.7%）。
+        latest_ex_date = next((str(d.get("ex_date") or "").strip() for d in dividends if str(d.get("ex_date") or "").strip()), "")
+        if latest_ex_date:
             try:
-                latest_ex_dt = datetime.strptime(latest_ex, "%Y-%m-%d").date()
+                latest_ex_dt = datetime.strptime(latest_ex_date, "%Y-%m-%d").date()
             except ValueError:
                 latest_ex_dt = None
             if latest_ex_dt:
                 cutoff = (latest_ex_dt - timedelta(days=365)).strftime("%Y-%m-%d")
                 ttm_dps = 0.0
                 for d in dividends:
-                    dd = _div_date(d)
-                    if dd and cutoff <= dd <= latest_ex:
+                    # 仅用 ex_date 做窗口判断——无 ex_date 的记录跳过（无法确定是否在窗内）
+                    ed = str(d.get("ex_date") or "").strip()
+                    if ed and cutoff <= ed <= latest_ex_date:
                         ttm_dps += d.get("dividend_per_share") or 0
                 if ttm_dps > 0:
                     valuation["dividend_yield"] = ttm_dps / price
